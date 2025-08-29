@@ -9,14 +9,14 @@ const faqData = [
       "P2P (peer-to-peer) permite transacciones directas entre usuarios sin intermediarios tradicionales, con mayor control y mejores tarifas.",
   },
   {
-    question: "¿Cómo funciona el escrow?",
+    question: "¿Cómo funciona el depósito en garantía?",
     answer:
-      "Nuestro sistema de escrow protege tanto a compradores como vendedores manteniendo los fondos seguros hasta que ambas partes confirmen la transacción.",
+      "Nuestro sistema de depósito en garantía protege tanto a compradores como vendedores manteniendo los fondos seguros hasta que ambas partes confirmen la transacción.",
   },
   {
     question: "Métodos de pago soportados",
     answer:
-      "Soportamos múltiples métodos incluyendo transferencias bancarias, billeteras digitales y criptomonedas. La disponibilidad varía por región.",
+      "Soportamos múltiples métodos de pago adaptados para el mercado hondureño, incluyendo transferencias bancarias y billeteras digitales locales.",
   },
   {
     question: "Límites y verificación",
@@ -26,22 +26,24 @@ const faqData = [
   {
     question: "Comisiones",
     answer:
-      "Nuestras comisiones son transparentes y competitivas. Las tarifas finales dependen del método de pago y región.",
+      "Nuestras comisiones son transparentes y competitivas. Las tarifas finales dependen del método de pago y de la inmediatez del retiro solicitado.",
   },
   {
     question: "Soporte y disputas",
     answer:
-      "Ofrecemos soporte 24/7 y un sistema robusto de resolución de disputas para garantizar transacciones seguras.",
+      "Ofrecemos soporte personalizado en español y un sistema robusto de resolución de disputas para garantizar transacciones seguras.",
   },
 ]
 
 export function FAQ() {
   return (
-    <section id="faq" className="py-20 bg-gray-50 dark:bg-gray-900">
+    <section id="faq" className="py-20 bg-[#FAFAFA] dark:bg-gray-900">
       <div className="container mx-auto px-4">
         <div className="text-center mb-16">
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white mb-4">Preguntas Frecuentes</h2>
-          <p className="text-xl text-gray-600 dark:text-gray-300 max-w-2xl mx-auto">
+          <h2 className="text-3xl md:text-4xl font-bold text-[#424242]/90 dark:text-white mb-4">
+            Preguntas Frecuentes
+          </h2>
+          <p className="text-xl text-[#9E9E9E] dark:text-gray-300 max-w-2xl mx-auto">
             Todo lo que necesitas saber sobre NetmarketHN
           </p>
         </div>
@@ -54,10 +56,10 @@ export function FAQ() {
                 value={`item-${index}`}
                 className="bg-white dark:bg-gray-800 rounded-lg px-6 border-gray-200 dark:border-gray-700"
               >
-                <AccordionTrigger className="text-left font-semibold text-gray-900 dark:text-white hover:text-teal-600 dark:hover:text-teal-400">
+                <AccordionTrigger className="text-left font-semibold text-[#424242]/90 dark:text-white hover:text-[#26A69A] dark:hover:text-[#26A69A]">
                   {item.question}
                 </AccordionTrigger>
-                <AccordionContent className="text-gray-600 dark:text-gray-300">{item.answer}</AccordionContent>
+                <AccordionContent className="text-[#9E9E9E] dark:text-gray-300">{item.answer}</AccordionContent>
               </AccordionItem>
             ))}
           </Accordion>

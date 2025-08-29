@@ -53,14 +53,14 @@ export function Header() {
     <>
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 bg-teal-600 text-white px-4 py-2 rounded-md z-[60]"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 bg-[#26A69A] text-white px-4 py-2 rounded-md z-[60]"
       >
         Saltar al contenido
       </a>
 
       <div className="fixed top-0 left-0 w-full h-1 bg-gray-200/20 dark:bg-gray-700/20 z-[51]">
         <motion.div
-          className="h-full bg-gradient-to-r from-gray-600 to-teal-600"
+          className="h-full bg-gradient-to-r from-[#9E9E9E] to-[#26A69A]"
           style={{ width: `${scrollProgress}%` }}
           initial={{ width: 0 }}
           animate={{ width: `${scrollProgress}%` }}
@@ -76,8 +76,8 @@ export function Header() {
         }`}
         style={{
           background: isScrolled
-            ? "linear-gradient(135deg, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0.6) 100%)"
-            : "linear-gradient(135deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.3) 100%)",
+            ? "linear-gradient(135deg, rgba(250,250,250,0.8) 0%, rgba(250,250,250,0.6) 100%)"
+            : "linear-gradient(135deg, rgba(250,250,250,0.5) 0%, rgba(250,250,250,0.3) 100%)",
           ...(isDarkMode && {
             background: isScrolled
               ? "linear-gradient(135deg, rgba(17,24,39,0.8) 0%, rgba(17,24,39,0.6) 100%)"
@@ -88,8 +88,8 @@ export function Header() {
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="text-2xl font-bold">
-              <span className="text-teal-600 dark:text-teal-400">NM</span>
-              <span className="text-gray-800 dark:text-gray-200">HN</span>
+              <span className="text-[#26A69A] dark:text-[#26A69A]">NM</span>
+              <span className="text-[#424242]/90 dark:text-gray-200">HN</span>
             </div>
 
             <nav className="hidden md:flex items-center space-x-8">
@@ -108,10 +108,10 @@ export function Header() {
                       window.scrollTo({ top: 0, behavior: "smooth" })
                     }
                   }}
-                  className="relative text-gray-600 dark:text-gray-300 hover:text-teal-600 dark:hover:text-teal-400 transition-colors group"
+                  className="relative text-[#9E9E9E] dark:text-gray-300 hover:text-[#26A69A] dark:hover:text-[#26A69A] transition-colors group"
                 >
                   {item.label}
-                  <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-teal-600 dark:bg-teal-400 transition-all duration-300 group-hover:w-full" />
+                  <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-[#26A69A] dark:bg-[#26A69A] transition-all duration-300 group-hover:w-full" />
                 </a>
               ))}
             </nav>
@@ -121,24 +121,24 @@ export function Header() {
                 variant="ghost"
                 size="icon"
                 onClick={toggleDarkMode}
-                className="text-gray-600 dark:text-gray-300 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-gray-100/50 dark:hover:bg-gray-800/50"
+                className="text-[#9E9E9E] dark:text-gray-300 hover:text-[#26A69A] dark:hover:text-[#26A69A] hover:bg-[#FAFAFA]/50 dark:hover:bg-gray-800/50"
                 aria-label={isDarkMode ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
               >
                 {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
               </Button>
               <Button
                 variant="ghost"
-                className="text-gray-600 dark:text-gray-300 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-gray-100/50 dark:hover:bg-gray-800/50"
+                className="text-[#9E9E9E] dark:text-gray-300 hover:text-[#26A69A] dark:hover:text-[#26A69A] hover:bg-[#FAFAFA]/50 dark:hover:bg-gray-800/50"
               >
                 Ingresar
               </Button>
-              <Button className="bg-teal-600 hover:bg-teal-700 text-white shadow-lg hover:shadow-xl transition-all duration-300">
-                Comenzar
+              <Button className="bg-[#26A69A] hover:bg-[#26A69A]/90 text-white shadow-lg hover:shadow-xl transition-all duration-300">
+                Registro
               </Button>
             </div>
 
             <button
-              className="md:hidden text-gray-900 dark:text-white"
+              className="md:hidden text-[#212121] dark:text-white"
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               aria-label="Abrir menú de navegación"
             >
@@ -172,7 +172,7 @@ export function Header() {
                         }
                         setIsMobileMenuOpen(false)
                       }}
-                      className="text-gray-600 dark:text-gray-300 hover:text-teal-600 dark:hover:text-teal-400 transition-colors"
+                      className="text-[#9E9E9E] dark:text-gray-300 hover:text-[#26A69A] dark:hover:text-[#26A69A] transition-colors"
                     >
                       {item.label}
                     </a>
@@ -181,18 +181,18 @@ export function Header() {
                     <Button
                       variant="ghost"
                       onClick={toggleDarkMode}
-                      className="text-gray-600 dark:text-gray-300 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-gray-100/50 dark:hover:bg-gray-800/50 flex items-center justify-center gap-2"
+                      className="text-[#9E9E9E] dark:text-gray-300 hover:text-[#26A69A] dark:hover:text-[#26A69A] hover:bg-[#FAFAFA]/50 dark:hover:bg-gray-800/50 flex items-center justify-center gap-2"
                     >
                       {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
                       {isDarkMode ? "Modo claro" : "Modo oscuro"}
                     </Button>
                     <Button
                       variant="ghost"
-                      className="text-gray-600 dark:text-gray-300 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-gray-100/50 dark:hover:bg-gray-800/50"
+                      className="text-[#9E9E9E] dark:text-gray-300 hover:text-[#26A69A] dark:hover:text-[#26A69A] hover:bg-[#FAFAFA]/50 dark:hover:bg-gray-800/50"
                     >
                       Ingresar
                     </Button>
-                    <Button className="bg-teal-600 hover:bg-teal-700 text-white">Comenzar</Button>
+                    <Button className="bg-[#26A69A] hover:bg-[#26A69A]/90 text-white">Registro</Button>
                   </div>
                 </nav>
               </motion.div>
