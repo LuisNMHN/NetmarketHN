@@ -7,6 +7,7 @@ import { FeatureCard } from "@/components/feature-card"
 import { FAQ } from "@/components/faq"
 import { Carousel } from "@/components/carousel"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import Link from "next/link" // Importar Link
 import {
   Shield,
   CreditCard,
@@ -257,12 +258,25 @@ export default function HomePage() {
             <p className="text-xl text-[#9E9E9E] dark:text-gray-300 mb-8">
               Unite a miles de emprendedores que ya confían en NetmarketHN para hacer crecer sus negocios.
             </p>
-            <Button
-              size="lg"
-              className="bg-[#26A69A] hover:bg-[#26A69A]/90 text-white shadow-lg hover:shadow-xl transition-all duration-300"
-            >
-              Empezar ahora <ArrowRight className="ml-2 w-4 h-4" />
-            </Button>
+            <div className="flex justify-center gap-4">
+              <Link href="/login" passHref>
+                <Button
+                  size="lg"
+                  className="bg-[#26A69A] hover:bg-[#26A69A]/90 text-white shadow-lg hover:shadow-xl transition-all duration-300"
+                >
+                  Iniciar sesión
+                </Button>
+              </Link>
+              <Link href="/register" passHref>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="border-2 border-[#26A69A] text-[#26A69A] hover:bg-[#26A69A]/10 shadow-lg hover:shadow-xl transition-all duration-300 dark:text-[#26A69A] dark:hover:bg-[#26A69A]/20"
+                >
+                  Crear cuenta <ArrowRight className="ml-2 w-4 h-4" />
+                </Button>
+              </Link>
+            </div>
           </motion.div>
         </div>
       </section>

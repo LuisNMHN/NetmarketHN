@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Menu, X, Sun, Moon } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
+import Link from "next/link" // Importar Link
 
 export function Header() {
   const [isScrolled, setIsScrolled] = useState(false)
@@ -126,15 +127,19 @@ export function Header() {
               >
                 {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
               </Button>
-              <Button
-                variant="ghost"
-                className="text-[#9E9E9E] dark:text-gray-300 hover:text-[#26A69A] dark:hover:text-[#26A69A] hover:bg-[#FAFAFA]/50 dark:hover:bg-gray-800/50"
-              >
-                Ingresar
-              </Button>
-              <Button className="bg-[#26A69A] hover:bg-[#26A69A]/90 text-white shadow-lg hover:shadow-xl transition-all duration-300">
-                Registro
-              </Button>
+              <Link href="/login" passHref>
+                <Button
+                  variant="ghost"
+                  className="text-[#9E9E9E] dark:text-gray-300 hover:text-[#26A69A] dark:hover:text-[#26A69A] hover:bg-[#FAFAFA]/50 dark:hover:bg-gray-800/50"
+                >
+                  Ingresar
+                </Button>
+              </Link>
+              <Link href="/register" passHref>
+                <Button className="bg-[#26A69A] hover:bg-[#26A69A]/90 text-white shadow-lg hover:shadow-xl transition-all duration-300">
+                  Registro
+                </Button>
+              </Link>
             </div>
 
             <button
@@ -186,13 +191,17 @@ export function Header() {
                       {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
                       {isDarkMode ? "Modo claro" : "Modo oscuro"}
                     </Button>
-                    <Button
-                      variant="ghost"
-                      className="text-[#9E9E9E] dark:text-gray-300 hover:text-[#26A69A] dark:hover:text-[#26A69A] hover:bg-[#FAFAFA]/50 dark:hover:bg-gray-800/50"
-                    >
-                      Ingresar
-                    </Button>
-                    <Button className="bg-[#26A69A] hover:bg-[#26A69A]/90 text-white">Registro</Button>
+                    <Link href="/login" passHref>
+                      <Button
+                        variant="ghost"
+                        className="text-[#9E9E9E] dark:text-gray-300 hover:text-[#26A69A] dark:hover:text-[#26A69A] hover:bg-[#FAFAFA]/50 dark:hover:bg-gray-800/50"
+                      >
+                        Ingresar
+                      </Button>
+                    </Link>
+                    <Link href="/register" passHref>
+                      <Button className="bg-[#26A69A] hover:bg-[#26A69A]/90 text-white">Registro</Button>
+                    </Link>
                   </div>
                 </nav>
               </motion.div>
