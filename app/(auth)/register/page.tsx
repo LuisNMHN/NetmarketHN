@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,25 +10,36 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Eye, EyeOff, Mail, Lock, User, Sun, Moon, Check } from "lucide-react"
 import Link from "next/link"
+import { supabaseBrowser } from "@/lib/supabase/client"
 
 export default function RegisterPage() {
+  const router = useRouter()
+  const supabase = supabaseBrowser()
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     password: "",
     confirm: "",
   })
-  const [errors, setErrors] = useState({})
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [showSuccessModal, setShowSuccessModal] = useState(false)
+  const [loading, setLoading] = useState(false)
   const { theme, setTheme } = useTheme()
+
+  // Si ya hay sesión, redirigir al dashboard
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) router.replace("/dashboard")
+    })
+  }, [])
 
   const toggleTheme = () => {
     setTheme(theme === "dark" ? "light" : "dark")
   }
 
-  const validateField = (name, value) => {
+  const validateField = (name: string, value: string) => {
     const newErrors = { ...errors }
 
     switch (name) {
@@ -71,8 +83,8 @@ export default function RegisterPage() {
     setErrors(newErrors)
   }
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target as { name: keyof typeof formData; value: string }
     setFormData((prev) => ({ ...prev, [name]: value }))
     validateField(name, value)
   }
@@ -88,11 +100,23 @@ export default function RegisterPage() {
     )
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (isFormValid()) {
-      setShowSuccessModal(true)
+    if (!isFormValid()) return
+    setLoading(true)
+    const { data, error } = await supabase.auth.signUp({
+      email: formData.email,
+      password: formData.password,
+      options: { data: { full_name: formData.name } },
+    })
+    setLoading(false)
+    if (error) {
+      setErrors((prev) => ({ ...prev, submit: error.message }))
+      return
     }
+    // Supabase por defecto envía email de confirmación
+    if (!data.session) setShowSuccessModal(true)
+    else router.replace("/dashboard")
   }
 
   return (
@@ -135,10 +159,10 @@ export default function RegisterPage() {
         <Card>
           <CardHeader className="text-center">
             <div className="flex justify-center items-center mb-4">
-              <div className="flex items-center justify-center font-bold text-2xl">
+              <Link href="/" className="flex items-center justify-center font-bold text-2xl hover:opacity-80" title="Ir al inicio">
                 <span className="text-primary">NM</span>
                 <span className="text-muted-foreground">HN</span>
-              </div>
+              </Link>
             </div>
             <CardTitle className="text-2xl">Crear cuenta</CardTitle>
             <CardDescription>La primera plataforma P2P diseñada para hondureños 🇭🇳</CardDescription>
@@ -281,10 +305,11 @@ export default function RegisterPage() {
                   </Button>
                 </div>
                 {errors.confirm && <p className="text-destructive text-sm">{errors.confirm}</p>}
+                {errors.submit && <p className="text-destructive text-sm">{errors.submit}</p>}
               </div>
 
-              <Button type="submit" className="w-full" disabled={!isFormValid()}>
-                Crear cuenta
+              <Button type="submit" className="w-full" disabled={!isFormValid() || loading}>
+                {loading ? "Creando..." : "Crear cuenta"}
               </Button>
             </form>
 

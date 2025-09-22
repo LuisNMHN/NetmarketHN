@@ -73,7 +73,7 @@ export function Header() {
         className={`fixed top-1 w-full z-50 transition-all duration-300 ${
           isScrolled
             ? "bg-background/70 backdrop-blur-xl shadow-lg border border-border/30"
-            : "bg-background/50 backdrop-blur-sm"
+            : "bg-background/70 backdrop-blur-xl shadow-lg border border-border/30"
         }`}
       >
         <div className="mx-auto max-w-screen-xl px-4 sm:px-6 lg:px-8 py-4">

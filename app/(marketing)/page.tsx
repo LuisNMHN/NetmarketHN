@@ -82,7 +82,7 @@ export default function HomePage() {
       </section>
 
       {/* Features Grid */}
-      <section id="caracteristicas" className="py-20">
+      <section id="caracteristicas" className="py-20 bg-muted">
         <div className="mx-auto max-w-screen-xl px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">¿Por qué elegir NetmarketHN?</h2>
@@ -134,7 +134,7 @@ export default function HomePage() {
       </section>
 
       {/* How it Works */}
-      <section id="como-funciona" className="py-20 bg-muted">
+      <section id="como-funciona" className="py-20 bg-background">
         <div className="mx-auto max-w-screen-xl px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">¿Cómo funciona?</h2>
@@ -235,6 +235,7 @@ export default function HomePage() {
 
       <section className="py-20 bg-gradient-to-r from-muted to-muted">
         <div className="mx-auto max-w-screen-xl px-4 sm:px-6 lg:px-8 text-center">
+          <div className="w-44 h-1 bg-gradient-to-r from-primary/40 via-primary/70 to-primary/40 mx-auto -mt-20 mb-8 rounded-full" />
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}

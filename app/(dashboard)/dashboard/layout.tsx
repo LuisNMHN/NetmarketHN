@@ -5,7 +5,7 @@ import type React from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { CreditCard, Gavel, Home, LogOut, Receipt, User, Menu, MoreVertical, Link2, Shield } from "lucide-react"
+import { CreditCard, Gavel, Home, LogOut, Receipt, User, Menu, MoreVertical, Link2, Shield, Bell } from "lucide-react"
 import { useState, useEffect } from "react"
 import { useTheme } from "next-themes"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import Link from "next/link"
+import { supabaseBrowser } from "@/lib/supabase/client"
 import { usePathname } from "next/navigation"
 
 interface DashboardLayoutProps {
@@ -43,9 +44,26 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
   const { theme, setTheme, resolvedTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
   const pathname = usePathname()
+  const [displayName, setDisplayName] = useState(userName)
 
   useEffect(() => {
     setMounted(true)
+  }, [])
+
+  // Cargar nombre del usuario desde Supabase
+  useEffect(() => {
+    const supabase = supabaseBrowser()
+    supabase.auth.getSession().then(async ({ data }) => {
+      const session = data.session
+      if (!session) return
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", session.user.id)
+        .maybeSingle()
+      const name = profile?.full_name || session.user.user_metadata?.full_name || session.user.email || userName
+      setDisplayName(name)
+    })
   }, [])
 
   const getSectionTitle = (pathname: string) => {
@@ -74,12 +92,12 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
     }
   }
 
-  const handleLogout = () => {
-    // Mock: Clear local storage, session data, etc.
-    localStorage.clear()
-    sessionStorage.clear()
-
-    window.location.href = "/auth/login"
+  const handleLogout = async () => {
+    try {
+      const supabase = supabaseBrowser()
+      await supabase.auth.signOut()
+    } catch {}
+    window.location.href = "/login"
   }
 
   const handleLogoutClick = () => {
@@ -213,8 +231,36 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
                 <h1 className="text-xl md:text-2xl font-semibold text-card-foreground">{getSectionTitle(pathname)}</h1>
               </div>
 
-              <div className="flex items-center space-x-2 md:space-x-4">
+              <div className="flex items-center space-x-2 md:space-x-4 ml-auto justify-end">
                 <div className="hidden sm:flex items-center space-x-4">
+                  <span className="text-sm md:text-base font-bold text-right">Hola, {displayName}!</span>
+
+                  {/* Notificaciones */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="rounded-full h-11 w-11 bg-muted hover:bg-muted/80 transition-all duration-200 border border-border relative"
+                        title="Notificaciones"
+                      >
+                        <Bell className="h-5 w-5 text-foreground" />
+                        <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-destructive rounded-full" />
+                        <span className="sr-only">Abrir notificaciones</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-80">
+                      <div className="px-3 py-2">
+                        <p className="text-sm font-semibold">Notificaciones</p>
+                      </div>
+                      <DropdownMenuItem asChild>
+                        <Link href="/dashboard/verificacion" className="flex items-start gap-2">
+                          <Shield className="h-4 w-4 mt-0.5 text-primary" />
+                          <span className="text-sm">Completa la verificación de tu registro para habilitar todas las funciones.</span>
+                        </Link>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -266,7 +312,10 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
                         <span className="sr-only">Abrir menú</span>
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuContent align="end" className="w-56">
+                      <div className="px-3 py-2 border-b border-border/40">
+                        <p className="text-sm font-semibold truncate">Hola, {displayName}!</p>
+                      </div>
                       <DropdownMenuItem onClick={toggleTheme} className="flex items-center space-x-2">
                         {isDark ? (
                           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -288,6 +337,12 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
                           </svg>
                         )}
                         <span>{isDark ? "Modo claro" : "Modo oscuro"}</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <Link href="/dashboard/verificacion" className="flex items-center space-x-2">
+                          <Bell className="h-4 w-4" />
+                          <span>Notificaciones</span>
+                        </Link>
                       </DropdownMenuItem>
                       <DropdownMenuItem className="flex items-center space-x-2">
                         <User className="h-4 w-4" />
@@ -361,11 +416,13 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
               <LogOut className="h-5 w-5 text-destructive" />
               Confirmar Salida
             </DialogTitle>
-            <DialogDescription className="text-left space-y-2">
-              <p>¿Estás seguro que deseas cerrar sesión?</p>
-              <p className="text-sm text-muted-foreground">
-                Esta acción cerrará tu sesión actual y limpiará todos los datos locales almacenados en tu dispositivo.
-              </p>
+            <DialogDescription asChild>
+              <div className="text-left space-y-2">
+                <p>¿Estás seguro que deseas cerrar sesión?</p>
+                <p className="text-sm text-muted-foreground">
+                  Esta acción cerrará tu sesión actual y limpiará todos los datos locales almacenados en tu dispositivo.
+                </p>
+              </div>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-col sm:flex-row gap-2">

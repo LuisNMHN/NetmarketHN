@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,21 +10,34 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox"
 import { Eye, EyeOff, Mail, Lock, Sun, Moon } from "lucide-react"
 import Link from "next/link"
+import { supabaseBrowser } from "@/lib/supabase/client"
 
 export default function LoginPage() {
+  const router = useRouter()
+  const supabase = supabaseBrowser()
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   })
-  const [errors, setErrors] = useState({})
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [submitError, setSubmitError] = useState("")
   const [showPassword, setShowPassword] = useState(false)
-  const { theme, setTheme } = useTheme()
+  const [loading, setLoading] = useState(false)
+  const { theme, setTheme, resolvedTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) router.replace("/dashboard")
+    })
+  }, [])
 
   const toggleTheme = () => {
     setTheme(theme === "dark" ? "light" : "dark")
   }
 
-  const validateField = (name, value) => {
+  const validateField = (name: string, value: string) => {
     const newErrors = { ...errors }
 
     switch (name) {
@@ -46,15 +60,45 @@ export default function LoginPage() {
     setErrors(newErrors)
   }
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target as { name: keyof typeof formData; value: string }
     setFormData((prev) => ({ ...prev, [name]: value }))
     validateField(name, value)
+    if (submitError) setSubmitError("")
   }
 
   const isFormValid = () => {
     const { email, password } = formData
-    return email.trim() !== "" && password.trim() !== "" && Object.keys(errors).length === 0
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    const passwordOk = password.trim().length > 0
+    const fieldErrors = Object.keys(errors).filter((k) => k !== "submit")
+    return emailOk && passwordOk && fieldErrors.length === 0
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!isFormValid()) return
+    setLoading(true)
+    setSubmitError("")
+    const { error } = await supabase.auth.signInWithPassword({
+      email: formData.email,
+      password: formData.password,
+    })
+    setLoading(false)
+    if (error) {
+      const msg = translateAuthError(error.message)
+      setSubmitError(msg)
+      return
+    }
+    router.replace("/dashboard")
+  }
+
+  function translateAuthError(message: string) {
+    const m = message.toLowerCase()
+    if (m.includes("invalid login credentials")) return "Credenciales inválidas"
+    if (m.includes("email not confirmed")) return "Debes confirmar tu correo para iniciar sesión"
+    if (m.includes("too many requests")) return "Demasiados intentos, intenta más tarde"
+    return "Ocurrió un error al iniciar sesión"
   }
 
   return (
@@ -66,17 +110,21 @@ export default function LoginPage() {
         className="absolute top-4 right-4 bg-transparent"
         aria-label="Cambiar tema"
       >
-        {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        {mounted ? (
+          resolvedTheme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />
+        ) : (
+          <span className="h-4 w-4 inline-block" />
+        )}
       </Button>
 
       <div className="w-full max-w-md">
         <Card>
           <CardHeader className="text-center">
             <div className="flex justify-center items-center mb-4">
-              <div className="flex items-center justify-center font-bold text-2xl">
+              <Link href="/" className="flex items-center justify-center font-bold text-2xl hover:opacity-80" title="Ir al inicio">
                 <span className="text-primary">NM</span>
                 <span className="text-muted-foreground">HN</span>
-              </div>
+              </Link>
             </div>
             <CardTitle className="text-2xl">Iniciar sesión</CardTitle>
             <CardDescription>Bienvenido de vuelta a la plataforma P2P 🇭🇳</CardDescription>
@@ -128,7 +176,7 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <form className="space-y-4">
+            <form className="space-y-4" onSubmit={handleSubmit}>
               <div className="space-y-2">
                 <Label htmlFor="email">Correo electrónico</Label>
                 <div className="relative">
@@ -187,8 +235,10 @@ export default function LoginPage() {
                 </Link>
               </div>
 
-              <Button type="submit" className="w-full" disabled={!isFormValid()}>
-                Iniciar sesión
+              {submitError && <p className="text-destructive text-sm">{submitError}</p>}
+
+              <Button type="submit" className="w-full" disabled={!isFormValid() || loading}>
+                {loading ? "Ingresando..." : "Iniciar sesión"}
               </Button>
             </form>
 
