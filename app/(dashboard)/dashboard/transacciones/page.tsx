@@ -368,8 +368,9 @@ export default function TransaccionesPage() {
             </div>
           ) : (
             <>
-              <div className="border border-border rounded-lg">
-                <table className="w-full">
+              {/* En móvil habilitamos scroll horizontal para que la tabla no se rompa */}
+              <div className="border border-border rounded-lg overflow-x-auto">
+                <table className="w-full min-w-[640px]">
                   <thead>
                     <tr className="border-b border-border bg-muted/50">
                       <th className="text-left px-3 py-3 font-medium text-muted-foreground text-sm">Fecha</th>

@@ -176,7 +176,7 @@ export default function SaldoPage() {
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Balance Total</CardTitle>
+            <CardTitle className="text-base md:text-lg font-semibold">Balance Total</CardTitle>
             <Wallet className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -187,7 +187,7 @@ export default function SaldoPage() {
 
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Disponible</CardTitle>
+            <CardTitle className="text-base md:text-lg font-semibold">Disponible</CardTitle>
             <DollarSign className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
@@ -198,7 +198,7 @@ export default function SaldoPage() {
 
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Bloqueado</CardTitle>
+            <CardTitle className="text-base md:text-lg font-semibold">Bloqueado</CardTitle>
             <Banknote className="h-4 w-4 text-orange-600" />
           </CardHeader>
           <CardContent>
@@ -212,7 +212,7 @@ export default function SaldoPage() {
       <Card className="shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle>Desglose por Moneda</CardTitle>
+            <CardTitle className="text-base md:text-lg font-semibold">Desglose por Moneda</CardTitle>
             <CardDescription>Distribución de tu saldo en diferentes monedas</CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
@@ -260,7 +260,7 @@ export default function SaldoPage() {
       {/* Action Buttons */}
       <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle>Acciones Rápidas</CardTitle>
+          <CardTitle className="text-base md:text-lg font-semibold">Acciones Rápidas</CardTitle>
           <CardDescription>Gestiona tu saldo con estas opciones</CardDescription>
         </CardHeader>
         <CardContent>

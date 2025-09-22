@@ -52,7 +52,7 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Balance Total</CardTitle>
+            <CardTitle className="text-base md:text-lg font-semibold">Balance Total</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -69,7 +69,7 @@ export default function DashboardPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Subastas Activas</CardTitle>
+            <CardTitle className="text-base md:text-lg font-semibold">Subastas Activas</CardTitle>
             <ShoppingCart className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -86,7 +86,7 @@ export default function DashboardPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Transacciones</CardTitle>
+            <CardTitle className="text-base md:text-lg font-semibold">Transacciones</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -103,7 +103,7 @@ export default function DashboardPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Links Activos</CardTitle>
+            <CardTitle className="text-base md:text-lg font-semibold">Links Activos</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -124,7 +124,7 @@ export default function DashboardPage() {
         {/* Recent Activity */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-base md:text-lg font-semibold">
               <Clock className="h-5 w-5" />
               Actividad Reciente
             </CardTitle>
@@ -172,33 +172,33 @@ export default function DashboardPage() {
         {/* Quick Actions */}
         <Card>
           <CardHeader>
-            <CardTitle>Acciones Rápidas</CardTitle>
+            <CardTitle className="text-base md:text-lg font-semibold">Acciones Rápidas</CardTitle>
             <CardDescription>Accede rápidamente a las funciones principales</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <Button asChild className="h-20 flex-col space-y-2">
+              <Button asChild variant="outline" className="h-20 flex-col space-y-2 bg-transparent hover:bg-primary hover:text-primary-foreground hover:shadow-md transition">
                 <Link href="/dashboard/links">
                   <Users className="h-6 w-6" />
                   <span>Crear Link</span>
                 </Link>
               </Button>
 
-              <Button asChild variant="outline" className="h-20 flex-col space-y-2 bg-transparent">
+              <Button asChild variant="outline" className="h-20 flex-col space-y-2 bg-transparent hover:bg-primary hover:text-primary-foreground hover:shadow-md transition">
                 <Link href="/dashboard/subastas">
                   <ShoppingCart className="h-6 w-6" />
                   <span>Nueva Subasta</span>
                 </Link>
               </Button>
 
-              <Button asChild variant="outline" className="h-20 flex-col space-y-2 bg-transparent">
+              <Button asChild variant="outline" className="h-20 flex-col space-y-2 bg-transparent hover:bg-primary hover:text-primary-foreground hover:shadow-md transition">
                 <Link href="/dashboard/saldo">
                   <DollarSign className="h-6 w-6" />
                   <span>Ver Saldo</span>
                 </Link>
               </Button>
 
-              <Button asChild variant="outline" className="h-20 flex-col space-y-2 bg-transparent">
+              <Button asChild variant="outline" className="h-20 flex-col space-y-2 bg-transparent hover:bg-primary hover:text-primary-foreground hover:shadow-md transition">
                 <Link href="/dashboard/transacciones">
                   <Activity className="h-6 w-6" />
                   <span>Transacciones</span>
@@ -214,7 +214,7 @@ export default function DashboardPage() {
         {/* Account Status */}
         <Card>
           <CardHeader>
-            <CardTitle>Estado de la Cuenta</CardTitle>
+            <CardTitle className="text-base md:text-lg font-semibold">Estado de la Cuenta</CardTitle>
             <CardDescription>Progreso de verificación y configuración</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -245,7 +245,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <Button asChild variant="outline" className="w-full bg-transparent">
+            <Button asChild variant="outline" className="w-full bg-transparent hover:bg-primary hover:text-primary-foreground hover:shadow-md transition">
               <Link href="/dashboard/verificacion">Completar Verificación</Link>
             </Button>
           </CardContent>
@@ -254,7 +254,7 @@ export default function DashboardPage() {
         {/* Monthly Summary */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-base md:text-lg font-semibold">
               <Calendar className="h-5 w-5" />
               Resumen Mensual
             </CardTitle>
@@ -281,7 +281,7 @@ export default function DashboardPage() {
               <p className="text-xs text-muted-foreground">$900.30 restantes para alcanzar $2,000</p>
             </div>
 
-            <Button asChild variant="outline" className="w-full bg-transparent">
+            <Button asChild variant="outline" className="w-full bg-transparent hover:bg-primary hover:text-primary-foreground hover:shadow-md transition">
               <Link href="/dashboard/transacciones">Ver Detalles</Link>
             </Button>
           </CardContent>

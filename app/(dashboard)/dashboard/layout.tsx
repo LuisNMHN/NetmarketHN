@@ -9,6 +9,7 @@ import { CreditCard, Gavel, Home, LogOut, Receipt, User, Menu, MoreVertical, Lin
 import { useState, useEffect } from "react"
 import { useTheme } from "next-themes"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from "@/components/ui/drawer"
 import {
   Dialog,
   DialogContent,
@@ -45,6 +46,10 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
   const [mounted, setMounted] = useState(false)
   const pathname = usePathname()
   const [displayName, setDisplayName] = useState(userName)
+  const [hasNotif, setHasNotif] = useState(false)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [notifOpen, setNotifOpen] = useState(false)
+  const [showResetDemo, setShowResetDemo] = useState(false)
 
   useEffect(() => {
     setMounted(true)
@@ -56,6 +61,7 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
     supabase.auth.getSession().then(async ({ data }) => {
       const session = data.session
       if (!session) return
+      setUserId(session.user.id)
       const { data: profile } = await supabase
         .from("profiles")
         .select("full_name")
@@ -63,8 +69,33 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
         .maybeSingle()
       const name = profile?.full_name || session.user.user_metadata?.full_name || session.user.email || userName
       setDisplayName(name)
+
+      // Notificación inicial: verificación pendiente
+      const key = `nmhn:notif:verify:${session.user.id}`
+      const isRead = typeof window !== 'undefined' ? localStorage.getItem(key) === 'read' : false
+      setHasNotif(!isRead)
     })
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname
+      setShowResetDemo(host === 'localhost' || host === '127.0.0.1')
+    }
   }, [])
+
+  const markNotifRead = () => {
+    if (userId) {
+      const key = `nmhn:notif:verify:${userId}`
+      try { localStorage.setItem(key, 'read') } catch {}
+    }
+    setHasNotif(false)
+  }
+
+  const resetNotif = () => {
+    if (userId) {
+      const key = `nmhn:notif:verify:${userId}`
+      try { localStorage.removeItem(key) } catch {}
+    }
+    setHasNotif(true)
+  }
 
   const getSectionTitle = (pathname: string) => {
     if (pathname === "/dashboard") return "Resumen"
@@ -172,7 +203,11 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
                           sidebarCollapsed && "justify-center !px-0",
                         )}
                       >
-                        <Link href={item.href} title={sidebarCollapsed ? item.label : undefined}>
+                        <Link
+                          href={item.href}
+                          title={sidebarCollapsed ? item.label : undefined}
+                          onClick={() => setMobileMenuOpen(false)}
+                        >
                           <span className="w-5 h-5 shrink-0 flex items-center justify-center">
                             <Icon className="h-5 w-5" />
                           </span>
@@ -245,7 +280,7 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
                         title="Notificaciones"
                       >
                         <Bell className="h-5 w-5 text-foreground" />
-                        <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-destructive rounded-full" />
+                        {hasNotif && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-destructive rounded-full" />}
                         <span className="sr-only">Abrir notificaciones</span>
                       </Button>
                     </DropdownMenuTrigger>
@@ -253,12 +288,24 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
                       <div className="px-3 py-2">
                         <p className="text-sm font-semibold">Notificaciones</p>
                       </div>
-                      <DropdownMenuItem asChild>
-                        <Link href="/dashboard/verificacion" className="flex items-start gap-2">
+                      {hasNotif ? (
+                        <div className="px-3 py-3 text-left text-sm flex gap-2 items-start">
                           <Shield className="h-4 w-4 mt-0.5 text-primary" />
-                          <span className="text-sm">Completa la verificación de tu registro para habilitar todas las funciones.</span>
-                        </Link>
-                      </DropdownMenuItem>
+                          <div className="flex-1">
+                            <p>Completa la verificación de tu registro para habilitar todas las funciones.</p>
+                            <div className="mt-2 flex justify-end">
+                              <Button size="sm" variant="ghost" onClick={markNotifRead}>Marcar como leída</Button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="px-3 py-3 text-sm text-muted-foreground">Sin notificaciones</div>
+                      )}
+                      {showResetDemo && (
+                        <div className="px-3 pb-3">
+                          <Button size="sm" variant="outline" className="bg-transparent" onClick={resetNotif}>Restablecer demo</Button>
+                        </div>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                   <Button
@@ -312,7 +359,7 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
                         <span className="sr-only">Abrir menú</span>
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuContent align="end" className="w-64">
                       <div className="px-3 py-2 border-b border-border/40">
                         <p className="text-sm font-semibold truncate">Hola, {displayName}!</p>
                       </div>
@@ -338,30 +385,27 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
                         )}
                         <span>{isDark ? "Modo claro" : "Modo oscuro"}</span>
                       </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link href="/dashboard/verificacion" className="flex items-center space-x-2">
-                          <Bell className="h-4 w-4" />
-                          <span>Notificaciones</span>
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="flex items-center space-x-2">
-                        <User className="h-4 w-4" />
-                        <span>Perfil</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="flex items-center space-x-2">
-                        <Link2 className="h-4 w-4" />
-                        <span>Links de Pago</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="flex items-center space-x-2">
-                        <Shield className="h-4 w-4" />
-                        <span>Verificación</span>
-                      </DropdownMenuItem>
+                      
                       <DropdownMenuItem onClick={handleLogoutClick} className="flex items-center space-x-2">
                         <LogOut className="h-4 w-4" />
                         <span>Salir</span>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
+                </div>
+
+                {/* Botón de notificaciones dedicado en móvil */}
+                <div className="sm:hidden">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="rounded-full h-11 w-11 bg-muted hover:bg-muted/80 transition-all duration-200 border border-border relative"
+                    onClick={() => setNotifOpen(true)}
+                    aria-label="Abrir notificaciones"
+                  >
+                    <Bell className="h-5 w-5" />
+                    {hasNotif && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-destructive rounded-full" />}
+                  </Button>
                 </div>
               </div>
             </div>
@@ -435,6 +479,24 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Drawer de notificaciones móvil */}
+      <Drawer open={notifOpen} onOpenChange={setNotifOpen}>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>Notificaciones</DrawerTitle>
+            <DrawerDescription>
+              Completa la verificación de tu registro para habilitar todas las funciones.
+            </DrawerDescription>
+          </DrawerHeader>
+          <div className="px-4 pb-4 flex gap-2">
+            {hasNotif && (
+              <Button onClick={() => { markNotifRead(); }} className="flex-1">Marcar como leída</Button>
+            )}
+            <Button variant="outline" className="bg-transparent" onClick={() => setNotifOpen(false)}>Cerrar</Button>
+          </div>
+        </DrawerContent>
+      </Drawer>
     </>
   )
 }

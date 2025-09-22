@@ -2,7 +2,19 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn("rounded-2xl border bg-card text-card-foreground shadow-sm", className)} {...props} />
+  <div
+    ref={ref}
+    className={cn(
+      "rounded-2xl border-2 border-border/80 bg-card text-card-foreground",
+      // Sin sombra en móvil para elegancia; se activa progresivo en pantallas mayores
+      "shadow-none md:shadow-sm lg:shadow-md md:hover:shadow-md lg:hover:shadow-lg",
+      // En modo oscuro: sin sombra en móvil, sutil ring; sombras profundas solo desde md+
+      "dark:shadow-none md:dark:shadow-[0_8px_24px_rgba(0,0,0,0.45)] md:dark:hover:shadow-[0_12px_32px_rgba(0,0,0,0.5)] dark:ring-1 dark:ring-white/10",
+      "transition-shadow",
+      className,
+    )}
+    {...props}
+  />
 ))
 Card.displayName = "Card"
 
