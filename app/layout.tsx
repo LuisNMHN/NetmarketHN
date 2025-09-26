@@ -2,6 +2,7 @@ import type React from "react"
 import { Geist, Geist_Mono } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "sonner"
+import SupabaseAuthListener from "@/app/providers/SupabaseAuthListener"
 import "./globals.css"
 
 const geistSans = Geist({
@@ -25,6 +26,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           {children}
         </ThemeProvider>
+        <SupabaseAuthListener />
         <Toaster position="top-center" richColors closeButton />
       </body>
     </html>

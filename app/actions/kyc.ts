@@ -2,6 +2,7 @@
 
 import { supabaseServer } from "@/lib/supabase/server"
 import type { KycDraft } from "@/lib/contracts/types"
+import { revalidatePath } from "next/cache"
 
 type KycFileKind = "document_front" | "document_back" | "selfie" | "address_proof"
 
@@ -167,64 +168,93 @@ export async function submitKyc(): Promise<ActionResult> {
 }
 
 export async function removeKycFile(kind: KycFileKind): Promise<ActionResult> {
+  console.log("🔧 [SERVER] removeKycFile llamado con kind:", kind)
+  
   const supabase = await supabaseServer()
 
   const {
     data: { user },
+    error: authError
   } = await supabase.auth.getUser()
+  
+  console.log("🔐 [SERVER] Auth result:", { user: user?.id, authError })
+  
+  if (authError) {
+    console.error("❌ [SERVER] Error de autenticación:", authError)
+    return { ok: false, message: "Error de autenticación. Inicia sesión nuevamente." }
+  }
+  
   const userId = user?.id
+  console.log("👤 [SERVER] Usuario ID:", userId)
+  
   if (!userId) return { ok: false, message: "No hay sesión activa" }
 
   const bucket = process.env.NEXT_PUBLIC_SUPABASE_KYC_BUCKET || "kyc"
 
   const columnMap: Record<KycFileKind, string> = {
-    document_front: "document_front_url",
-    document_back: "document_back_url",
-    selfie: "selfie_url",
-    address_proof: "address_proof_url",
+    document_front: "document_front_path",
+    document_back: "document_back_path",
+    selfie: "selfie_path",
+    address_proof: "address_proof_path",
   }
   const column = columnMap[kind]
 
-  // Obtener la URL/ruta actual del archivo
+  // Obtener la URL/ruta actual del archivo y el ID del registro
+  console.log("🔍 [SERVER] Buscando registro en BD para columna:", column)
   const { data: row, error: fetchError } = await supabase
     .from("kyc_submissions")
-    .select(`${column}`)
+    .select(`id, ${column}`)
     .eq("user_id", userId)
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle()
 
-  if (fetchError) return { ok: false, message: "No se pudo acceder a tus datos de verificación." }
+  console.log("📊 [SERVER] Resultado de búsqueda:", { row, fetchError })
 
-  const currentValue = row?.[column] as string | undefined
+  if (fetchError) {
+    console.error("❌ [SERVER] Error al buscar en BD:", fetchError)
+    return { ok: false, message: "No se pudo acceder a tus datos de verificación." }
+  }
+  if (!row) {
+    console.warn("⚠️ [SERVER] No se encontró registro para el usuario")
+    return { ok: false, message: "No se encontró tu borrador para actualizar." }
+  }
 
-  // Intentar eliminar del storage si tenemos ruta inferible
-  if (currentValue) {
-    try {
-      let path = currentValue
-      if (currentValue.startsWith("http")) {
-        const marker = `/object/public/${bucket}/`
-        const idx = currentValue.indexOf(marker)
-        if (idx >= 0) {
-          path = currentValue.substring(idx + marker.length)
-        }
-      }
-      await supabase.storage.from(bucket).remove([path])
-    } catch {
-      // Silencioso: que no bloquee el borrado lógico en BD
+  const currentValue = row[column] as string | undefined
+  const recordId = row.id
+  console.log("📁 [SERVER] Archivo encontrado:", { currentValue, recordId })
+
+  // Nota: La eliminación del storage se maneja desde el cliente
+  console.log("ℹ️ [SERVER] Eliminación de storage manejada desde el cliente")
+
+  // 2) Eliminar/marcar como null en la base de datos
+  console.log("💾 [SERVER] Actualizando BD, recordId:", recordId, "columna:", column)
+  const { error: updateError } = await supabase
+    .from("kyc_submissions")
+    .update({ 
+      [column]: null, 
+      status: "draft", 
+      updated_at: new Date().toISOString() 
+    })
+    .eq("id", recordId)
+
+  console.log("📊 [SERVER] Resultado de actualización BD:", { updateError })
+
+  if (updateError) {
+    console.error("❌ [SERVER] Error al actualizar BD:", updateError)
+    return { 
+      ok: false, 
+      message: "Se eliminó del storage pero falló la actualización en base de datos. Inténtalo de nuevo." 
     }
   }
 
-  const latestId = await getLatestSubmissionId(supabase, userId)
-  if (!latestId) return { ok: false, message: "No se encontró tu borrador para actualizar." }
-  const { error: updateError } = await supabase
-    .from("kyc_submissions")
-    .update({ [column]: null, status: "draft", updated_at: new Date().toISOString() })
-    .eq("id", latestId)
+  console.log("🔄 [SERVER] Invalidando caché...")
+  // Invalidar caché para refrescar la UI
+  revalidatePath("/dashboard/verificacion")
 
-  if (updateError) return { ok: false, message: "No se pudo eliminar el archivo de tu verificación." }
-
-  return { ok: true, message: "Archivo eliminado correctamente" }
+  console.log("🎉 [SERVER] Eliminación completada exitosamente")
+  return { ok: true, message: "Archivo eliminado correctamente del storage y base de datos" }
 }
+
 
 

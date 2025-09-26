@@ -2,6 +2,7 @@
 
 import { supabaseServer } from "@/lib/supabaseServer"
 import type { KycDraft, KycStatus } from "@/lib/contracts/types"
+import { revalidatePath } from "next/cache"
 
 type KycFileKind = "document_front" | "document_back" | "selfie" | "address_proof"
 
@@ -264,6 +265,10 @@ export async function registerKycFilePath(
     )
 
   if (error) return { ok: false, message: "No se pudo registrar el archivo en tu verificación." }
+  
+  // Invalidar caché para refrescar la UI
+  revalidatePath("/dashboard/verificacion")
+  
   return { ok: true, message: "Archivo registrado" }
 }
 
