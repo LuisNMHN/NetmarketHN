@@ -189,7 +189,12 @@ function useKycWizard(): WizardApi {
   }
 }
 
-interface KycData extends KycDraft {
+interface KycData {
+  fullName: string
+  birthDate: string
+  country: string
+  docType: "ID" | "Passport"
+  docNumber: string
   documentFront: File | null
   documentBack: File | null
   selfie: File | null
@@ -250,8 +255,66 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
   })
   const [isSavingDraft, setIsSavingDraft] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isEditingPersonalData, setIsEditingPersonalData] = useState(false)
+  const [isProcessingStep1, setIsProcessingStep1] = useState(false)
+  const [hasInitialNavigation, setHasInitialNavigation] = useState(false)
   const [confirmedSteps, setConfirmedSteps] = useState<Set<number>>(new Set())
+  const [nameError, setNameError] = useState<string>("")
+  const [docNumberError, setDocNumberError] = useState<string>("")
+  const [birthDateError, setBirthDateError] = useState<string>("")
+  
+  // Función para validar nombre (no permite números)
+  const validateName = (name: string): boolean => {
+    const hasNumbers = /\d/.test(name)
+    return !hasNumbers
+  }
+  
+  // Función para formatear DNI (0000-0000-00000)
+  const formatDNI = (value: string): string => {
+    // Remover todos los caracteres no numéricos
+    const numbers = value.replace(/\D/g, '')
+    
+    // Limitar a 13 dígitos
+    const limitedNumbers = numbers.slice(0, 13)
+    
+    // Aplicar formato con guiones
+    if (limitedNumbers.length <= 4) {
+      return limitedNumbers
+    } else if (limitedNumbers.length <= 8) {
+      return `${limitedNumbers.slice(0, 4)}-${limitedNumbers.slice(4)}`
+    } else {
+      return `${limitedNumbers.slice(0, 4)}-${limitedNumbers.slice(4, 8)}-${limitedNumbers.slice(8)}`
+    }
+  }
+  
+  // Función para validar DNI
+  const validateDNI = (value: string): boolean => {
+    const numbers = value.replace(/\D/g, '')
+    return numbers.length === 13
+  }
+  
+  // Función para validar pasaporte hondureño (formato alfanumérico)
+  const validatePassport = (value: string): boolean => {
+    // Permitir letras y números, longitud entre 8-12 caracteres
+    const alphanumeric = value.replace(/[^A-Za-z0-9]/g, '')
+    return alphanumeric.length >= 8 && alphanumeric.length <= 12
+  }
+  
+  // Función para validar edad mínima (18 años)
+  const validateAge = (birthDate: string): boolean => {
+    if (!birthDate) return false
+    
+    const today = new Date()
+    const birth = new Date(birthDate)
+    const age = today.getFullYear() - birth.getFullYear()
+    const monthDiff = today.getMonth() - birth.getMonth()
+    
+    // Verificar si ya cumplió años este año
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+      return age - 1 >= 18
+    }
+    
+    return age >= 18
+  }
   
   // Función para cargar pasos confirmados desde localStorage
   const loadConfirmedSteps = () => {
@@ -275,20 +338,6 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       console.error('Error saving confirmed steps:', error)
     }
   }
-  const autosaveTimer = useRef<any>(null)
-  const [lastSavedSnapshot, setLastSavedSnapshot] = useState(
-    JSON.stringify({
-      fullName: initialDraft?.fullName ?? "",
-      birthDate: initialDraft?.birthDate ?? "",
-      country: initialDraft?.country ?? "",
-      docType: initialDraft?.docType ?? "ID",
-      docNumber: initialDraft?.docNumber ?? "",
-      department: initialDraft?.department ?? "",
-      municipality: initialDraft?.municipality ?? "",
-      neighborhood: initialDraft?.neighborhood ?? "",
-      addressDesc: initialDraft?.addressDesc ?? "",
-    }),
-  )
   const [uploading, setUploading] = useState({
     documentFront: false,
     documentBack: false,
@@ -389,8 +438,6 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
   const documentTypes = [
     { value: "ID", label: "DNI" },
     { value: "Passport", label: "Pasaporte" },
-    { value: "cedula", label: "Cédula de Identidad" },
-    { value: "license", label: "Licencia de Conducir" },
   ]
 
   const hondurasDepartments = [
@@ -415,7 +462,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
   ]
   const steps = [
     { id: 1, title: "Datos personales", description: "Nombre completo, fecha de nacimiento y país.", icon: User },
-    { id: 2, title: "Documento de identidad", description: "DNI, pasaporte o licencia vigente (frente y reverso).", icon: FileText },
+    { id: 2, title: "Documento de identidad", description: "DNI o pasaporte hondureño", icon: FileText },
     { id: 3, title: "Selfie de validación", description: "Selfie en tiempo real para confirmar titularidad.", icon: Camera },
     { id: 4, title: "Comprobante de domicilio", description: "Recibo o estado bancario con tu dirección (≤ 3 meses).", icon: Home },
     { id: 5, title: "Revisión y envío", description: "Validación automática y, si aplica, revisión manual.", icon: Shield },
@@ -525,66 +572,72 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
     }
   }, [confirmedSteps])
 
-  // Navegación al primer paso disponible al cargar la página
+  // Navegación al primer paso incompleto al cargar la página (solo una vez)
   useEffect(() => {
-    const navigateToFirstAvailableStep = () => {
-      // Encontrar el primer paso disponible (no necesariamente completo)
-      let firstAvailableStep = 1
+    const navigateToFirstIncompleteStep = () => {
+      // Encontrar el primer paso que no esté completo
+      let firstIncompleteStep = 1
       
-      if (isStepAvailable(1)) {
-        firstAvailableStep = 1
-      } else if (isStepAvailable(2)) {
-        firstAvailableStep = 2
-      } else if (isStepAvailable(3)) {
-        firstAvailableStep = 3
-      } else if (isStepAvailable(4)) {
-        firstAvailableStep = 4
-      } else if (isStepAvailable(5)) {
-        firstAvailableStep = 5
-      } else {
-        // Si ningún paso está disponible, ir al paso 1
-        firstAvailableStep = 1
+      // Verificar cada paso en orden para encontrar el primero incompleto
+      for (let step = 1; step <= 5; step++) {
+        // Verificar si el paso está disponible para navegación
+        if (isStepAvailable(step)) {
+          // Verificar si el paso está completo
+          if (!isStepComplete(step)) {
+            firstIncompleteStep = step
+            break
+          }
+        } else {
+          // Si el paso no está disponible, significa que un paso anterior no está completo
+          // En este caso, ir al paso 1
+          firstIncompleteStep = 1
+          break
+        }
       }
       
-      // Solo navegar si el paso actual no es el primer paso disponible
-      if (currentStep !== firstAvailableStep) {
-        console.log(`🎯 Navegando al primer paso disponible: ${firstAvailableStep}`)
-        setCurrentStep(firstAvailableStep)
+      // Solo navegar si el paso actual no es el primer paso incompleto
+      if (currentStep !== firstIncompleteStep) {
+        console.log(`🎯 Navegando al primer paso incompleto: ${firstIncompleteStep}`)
+        setCurrentStep(firstIncompleteStep)
       }
     }
     
-    // Ejecutar después de que se carguen los datos de la base de datos
-    if (userId && uploadedRemote) {
-      navigateToFirstAvailableStep()
+    // Ejecutar solo una vez cuando se cargan los datos iniciales
+    if (userId && uploadedRemote && !hasInitialNavigation) {
+      navigateToFirstIncompleteStep()
+      setHasInitialNavigation(true)
     }
-  }, [userId, uploadedRemote, confirmedSteps]) // Agregado confirmedSteps para reaccionar a cambios
+  }, [userId, uploadedRemote, hasInitialNavigation]) // Removido confirmedSteps y kycData para evitar re-ejecuciones
 
-  // Navegación automática: dirigir al siguiente paso disponible cuando se complete un paso
+  // Navegación automática: dirigir al siguiente paso incompleto cuando se complete un paso
+  // DESHABILITADO para permitir navegación libre entre pasos completados
+  /*
   useEffect(() => {
-    // Solo ejecutar si hay pasos confirmados
-    if (confirmedSteps.size === 0) return
+    // Solo ejecutar si hay pasos confirmados y datos cargados
+    if (confirmedSteps.size === 0 || !userId || !uploadedRemote) return
     
-    // Encontrar el primer paso disponible (no necesariamente completo)
-    let nextAvailableStep = 1
+    // Encontrar el primer paso incompleto
+    let nextIncompleteStep = 1
     
-    if (isStepAvailable(1)) {
-      nextAvailableStep = 1
-    } else if (isStepAvailable(2)) {
-      nextAvailableStep = 2
-    } else if (isStepAvailable(3)) {
-      nextAvailableStep = 3
-    } else if (isStepAvailable(4)) {
-      nextAvailableStep = 4
-    } else if (isStepAvailable(5)) {
-      nextAvailableStep = 5
+    for (let step = 1; step <= 5; step++) {
+      if (isStepAvailable(step)) {
+        if (!isStepComplete(step)) {
+          nextIncompleteStep = step
+          break
+        }
+      } else {
+        nextIncompleteStep = 1
+        break
+      }
     }
     
-    // Solo avanzar automáticamente si el paso actual no está disponible y hay un paso disponible diferente
-    if (!isStepAvailable(currentStep) && nextAvailableStep !== currentStep) {
-      console.log(`🎯 Navegando al siguiente paso disponible: ${nextAvailableStep}`)
-      setCurrentStep(nextAvailableStep)
+    // Solo navegar si el paso actual está completo y hay un siguiente paso incompleto
+    if (isStepComplete(currentStep) && nextIncompleteStep !== currentStep) {
+      console.log(`🎯 Paso ${currentStep} completado, navegando al siguiente paso incompleto: ${nextIncompleteStep}`)
+      setCurrentStep(nextIncompleteStep)
     }
-  }, [uploadedRemote, kycData, confirmedSteps]) // Removido currentStep para evitar bucles
+  }, [uploadedRemote, kycData, confirmedSteps, currentStep, userId]) // Incluido currentStep para detectar cambios
+  */
 
 
   // Función simplificada para refrescar datos desde la base de datos
@@ -653,49 +706,6 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
     }
   }
 
-  // Autosave con debounce para Paso 1
-  useEffect(() => {
-    const draftData = {
-      fullName: kycData.fullName,
-      birthDate: kycData.birthDate,
-      country: kycData.country,
-      docType: kycData.docType,
-      docNumber: kycData.docNumber,
-      department: kycData.department,
-      municipality: kycData.municipality,
-      neighborhood: kycData.neighborhood,
-      addressDesc: kycData.addressDesc,
-    }
-    const allFilled = Boolean(
-      draftData.fullName && draftData.birthDate && draftData.country && draftData.docType && draftData.docNumber,
-    )
-    const snap = JSON.stringify(draftData)
-    if (!allFilled || snap === lastSavedSnapshot) {
-      return
-    }
-    if (autosaveTimer.current) {
-      clearTimeout(autosaveTimer.current)
-    }
-    autosaveTimer.current = setTimeout(async () => {
-      const res = await saveKycDraft(draftData)
-      if (!res.ok) {
-        toast.error(res.message, {
-          action: {
-            label: "Reintentar",
-            onClick: () => saveKycDraft(draftData),
-          },
-        })
-        return
-      }
-      setLastSavedSnapshot(snap)
-      setKycStatus("draft")
-      setLastUpdate(new Date().toLocaleString())
-    }, 800)
-
-    return () => {
-      if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
-    }
-  }, [kycData.fullName, kycData.birthDate, kycData.country, kycData.docType, kycData.docNumber, kycData.department, kycData.municipality, kycData.neighborhood, kycData.addressDesc, lastSavedSnapshot])
 
   // Función para marcar paso como completo cuando se confirma y sube archivo
   const markStepAsComplete = async (step: number) => {
@@ -891,7 +901,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
 
       console.log('SUBIENDO A:', path, 'type:', file.type, 'size:', file.size, 'blob size:', blob.size)
 
-      // Intentar primero con bucket 'kyc', si falla por RLS usar 'public'
+      // Intentar primero con bucket 'public'
       let uploadResult = await supabase.storage
         .from('kyc')
         .upload(path, blob, {
@@ -904,7 +914,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       if (uploadResult.error && uploadResult.error.message?.includes('row-level security')) {
         console.log('🔄 RLS falló, usando bucket público como fallback...')
         uploadResult = await supabase.storage
-          .from('public')
+          .from('kyc')
           .upload(path, blob, {
             upsert: true,
             contentType: file.type || 'image/png',
@@ -940,6 +950,8 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
   }
 
   const handleUploadSuccess = async (docType: 'document_front' | 'document_back' | 'selfie' | 'address_proof') => {
+    console.log(`✅ Upload exitoso para ${docType}`)
+    
     // Refrescar desde la base de datos
     await refreshFromDatabase()
     
@@ -954,7 +966,21 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
     const step = stepMap[docType]
     if (step) {
       await markStepAsComplete(step)
+      console.log(`📝 Paso ${step} marcado como completo`)
     }
+
+    // Mostrar mensaje de éxito específico
+    const docTypeLabels = {
+      'document_front': 'Documento frontal',
+      'document_back': 'Documento reverso', 
+      'selfie': 'Selfie de verificación',
+      'address_proof': 'Comprobante de domicilio'
+    }
+    
+    toast.success(`${docTypeLabels[docType]} subido correctamente`, {
+      description: 'El archivo ha sido guardado y verificado',
+      duration: 3000,
+    })
 
     // Nota: No avanzar automáticamente. El usuario debe hacer clic en "Continuar".
   }
@@ -971,42 +997,6 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
     }
   }
 
-  const handleEditPersonalData = () => {
-    setIsEditingPersonalData(true)
-  }
-
-  const handleSavePersonalData = async () => {
-    try {
-      const draftData = {
-        fullName: kycData.fullName,
-        birthDate: kycData.birthDate,
-        country: kycData.country,
-        docType: kycData.docType,
-        docNumber: kycData.docNumber,
-        department: kycData.department,
-        municipality: kycData.municipality,
-        neighborhood: kycData.neighborhood,
-        addressDesc: kycData.addressDesc,
-      }
-      const res = await saveKycDraft(draftData)
-      if (res.ok) {
-        setIsEditingPersonalData(false)
-        toast.success("Datos personales actualizados correctamente")
-        // Marcar paso 1 como completo
-        await markStepAsComplete(1)
-      } else {
-        toast.error(res.message)
-      }
-    } catch (error) {
-      console.error("Error guardando datos personales:", error)
-      toast.error("Error al guardar los datos personales")
-    }
-  }
-
-  const handleCancelEditPersonalData = () => {
-    setIsEditingPersonalData(false)
-    // Opcional: recargar datos desde la base de datos para revertir cambios
-  }
 
   const handleRemoveDocument = async (field: keyof KycData) => {
     try {
@@ -1044,9 +1034,9 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
           const filePath = currentData[pathKey] as string
           console.log("📁 Ruta del archivo a eliminar:", filePath)
           
-          // Intentar eliminar del bucket 'kyc' primero
+          // Intentar eliminar del bucket 'public' primero
           let deleteResult = await supabase.storage
-            .from("kyc")
+            .from("public")
             .remove([filePath])
           
           // Si falla por RLS, intentar con bucket 'public'
@@ -1162,7 +1152,21 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
   // Función para verificar si un paso está completo (tiene la información requerida)
   const isStepComplete = (step: number) => {
     if (step === 1) {
-      return Boolean(kycData.fullName && kycData.birthDate && kycData.country && kycData.docType && kycData.docNumber)
+      return Boolean(
+        kycData.fullName && 
+        kycData.birthDate && 
+        kycData.country && 
+        kycData.docType && 
+        kycData.docNumber &&
+        kycData.department &&
+        kycData.municipality &&
+        kycData.neighborhood &&
+        kycData.addressDesc &&
+        validateAge(kycData.birthDate) &&
+        !nameError &&
+        !docNumberError &&
+        !birthDateError
+      )
     } else if (step === 2) {
       // El paso 2 está completo si tiene documentos
       return kycData.docType === 'Passport'
@@ -1193,19 +1197,29 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
     if (step === 1) {
       return true // El paso 1 siempre está disponible
     } else if (step === 2) {
-      // El paso 2 está disponible solo si el paso 1 está confirmado
+      // El paso 2 está disponible si el paso 1 está confirmado
       return confirmedSteps.has(1)
     } else if (step === 3) {
-      // El paso 3 está disponible solo si el paso 2 está confirmado
+      // El paso 3 está disponible si el paso 2 está confirmado
       return confirmedSteps.has(2)
     } else if (step === 4) {
-      // El paso 4 está disponible solo si el paso 3 está confirmado
+      // El paso 4 está disponible si el paso 3 está confirmado
       return confirmedSteps.has(3)
     } else if (step === 5) {
-      // El paso 5 está disponible solo si el paso 4 está confirmado
+      // El paso 5 está disponible si el paso 4 está confirmado
       return confirmedSteps.has(4)
     }
     return false
+  }
+
+  // Función para verificar si un paso está completado (permite navegación a pasos completados)
+  const isStepCompleted = (step: number) => {
+    return confirmedSteps.has(step) && isStepComplete(step)
+  }
+
+  // Función para verificar si se puede navegar a un paso (disponible o completado)
+  const canNavigateToStep = (step: number) => {
+    return isStepAvailable(step) || isStepCompleted(step)
   }
 
   // Limpiar pasos marcados como confirmados pero que no tienen información
@@ -1231,14 +1245,63 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
   const currentStepComplete = confirmedSteps.has(currentStep) && isStepComplete(currentStep)
   const isReadyToSubmit = [1, 2, 3, 4].every((s) => validateStep(s))
   // Progreso basado SOLO en pasos completados (no navegación)
-  const step1Done = Boolean(kycData.fullName && kycData.birthDate && kycData.country && kycData.docType && kycData.docNumber)
+  const step1Done = Boolean(
+    kycData.fullName && 
+    kycData.birthDate && 
+    kycData.country && 
+    kycData.docType && 
+    kycData.docNumber &&
+    kycData.department &&
+    kycData.municipality &&
+    kycData.neighborhood &&
+    kycData.addressDesc &&
+    validateAge(kycData.birthDate) &&
+    !nameError &&
+    !docNumberError &&
+    !birthDateError
+  )
   const personalDataComplete = step1Done
-  const personalDataInputsDisabled = personalDataComplete && !isEditingPersonalData
   
   // Sincronizar flags del wizard con el estado actual
   useEffect(() => {
     setFlag('datosOk', personalDataComplete)
   }, [personalDataComplete, setFlag])
+
+  // Debug: Monitorear cambios en isProcessingStep1
+  useEffect(() => {
+    console.log('🔒 Estado isProcessingStep1 cambió:', isProcessingStep1)
+  }, [isProcessingStep1])
+
+  // Navegación automática al cargar la página (refresh)
+  useEffect(() => {
+    // Solo ejecutar una vez cuando se cargan los datos iniciales y hay pasos confirmados
+    if (userId && uploadedRemote && confirmedSteps.size > 0 && !hasInitialNavigation) {
+      console.log('🔄 Página cargada, buscando primer paso incompleto...')
+      
+      // Encontrar el primer paso incompleto
+      let firstIncompleteStep = 1
+      
+      for (let step = 1; step <= 5; step++) {
+        if (isStepAvailable(step)) {
+          if (!isStepComplete(step)) {
+            firstIncompleteStep = step
+            break
+          }
+        } else {
+          firstIncompleteStep = 1
+          break
+        }
+      }
+      
+      // Navegar al primer paso incompleto si no estamos ya ahí
+      if (currentStep !== firstIncompleteStep) {
+        console.log(`🎯 Página actualizada, navegando al primer paso incompleto: ${firstIncompleteStep}`)
+        setCurrentStep(firstIncompleteStep)
+      }
+      
+      setHasInitialNavigation(true)
+    }
+  }, [userId, uploadedRemote, confirmedSteps, hasInitialNavigation]) // Incluido confirmedSteps para detectar cuando hay pasos completados
   
   // Sincronizar flags de documentos
   useEffect(() => {
@@ -1257,7 +1320,6 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
     docNumber: kycData.docNumber,
     step1Done,
     personalDataComplete,
-    isEditingPersonalData,
     currentStep
   })
   const step2Done = kycData.docType === 'Passport' 
@@ -1363,6 +1425,8 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
           const isDone = confirmedSteps.has(step.id) && isStepComplete(step.id)
           const isActive = currentStep === step.id
           const stepAvailable = isStepAvailable(step.id)
+          const stepCompleted = isStepCompleted(step.id)
+          const canNavigate = canNavigateToStep(step.id)
           
           // Mapear step.id numérico a StepKey
           const stepKeyMap: Record<number, StepKey> = {
@@ -1379,18 +1443,18 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
             <div
               key={step.id}
               role="button"
-              tabIndex={stepAvailable ? 0 : -1}
+              tabIndex={canNavigate ? 0 : -1}
               data-step={stepKey}
-              aria-disabled={wizardStepStatus === 'locked' ? 'true' : undefined}
+              aria-disabled={!canNavigate ? 'true' : undefined}
               onClick={() => {
-                if (stepAvailable) {
+                if (canNavigate) {
                   handleGoToStep(step.id)
                 } else if (stepKey) {
                   goTo(stepKey)
                 }
               }}
               onKeyDown={(e) => {
-                if (stepAvailable && (e.key === "Enter" || e.key === " ")) {
+                if (canNavigate && (e.key === "Enter" || e.key === " ")) {
                   handleGoToStep(step.id)
                 } else if (stepKey && (e.key === "Enter" || e.key === " ")) {
                   goTo(stepKey)
@@ -1399,7 +1463,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
               className={`flex items-start gap-3 rounded-lg border p-4 outline-none focus:ring-2 focus:ring-primary transition-all duration-200 ${
                 isActive 
                   ? "bg-muted/50 border-primary shadow-sm" 
-                  : stepAvailable
+                  : canNavigate
                   ? "bg-card border-border cursor-pointer hover:bg-muted/30 hover:border-muted-foreground/20 hover:shadow-sm"
                   : "bg-muted/20 border-muted/30 cursor-not-allowed"
               }`}
@@ -1445,39 +1509,93 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <span className="bg-primary text-primary-foreground rounded-full w-6 h-6 flex items-center justify-center text-sm">{currentStep}</span>
+            <span className={`rounded-full w-6 h-6 flex items-center justify-center text-sm ${
+              currentStep === 1 && confirmedSteps.has(1) 
+                ? "bg-green-600 text-white" 
+                : "bg-primary text-primary-foreground"
+            }`}>
+              {currentStep === 1 && confirmedSteps.has(1) ? <CheckCircle className="h-4 w-4" /> : currentStep}
+            </span>
             {currentStep === 1 && "Datos personales"}
             {currentStep === 2 && "Documento de identidad"}
             {currentStep === 3 && "Selfie de validación"}
             {currentStep === 4 && "Comprobante de domicilio"}
             {currentStep === 5 && "Revisión y envío"}
+            {currentStep === 1 && confirmedSteps.has(1) && (
+              <span className="text-green-600 text-sm font-normal">✓ Completado</span>
+            )}
           </CardTitle>
           <CardDescription>
-            {currentStep === 1 && "Ingresa tu nombre completo, fecha de nacimiento y país."}
-            {currentStep === 2 && "Sube el documento de identidad (frente y reverso)."}
+            {currentStep === 1 && confirmedSteps.has(1) && "✓ Datos personales completados y guardados correctamente."}
+            {currentStep === 1 && !confirmedSteps.has(1) && "Ingresa tu nombre completo, fecha de nacimiento y país."}
+            {currentStep === 2 && "Sube tu DNI o pasaporte hondureño (frente y reverso)."}
             {currentStep === 3 && "Tómate una selfie en tiempo real para confirmar tu identidad."}
             {currentStep === 4 && "Adjunta un comprobante de domicilio reciente (≤ 3 meses)."}
             {currentStep === 5 && "Revisa tu información y envía tu verificación para su evaluación."}
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-8">
           {currentStep === 1 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-4">
                 <Label htmlFor="fullName">Nombre legal completo *</Label>
-                <Input id="fullName" value={kycData.fullName} onChange={(e) => setKycData((prev) => ({ ...prev, fullName: e.target.value }))} placeholder="Como aparece en su documento" disabled={personalDataInputsDisabled} />
+                <Input 
+                  id="fullName" 
+                  value={kycData.fullName} 
+                  onChange={(e) => {
+                    const value = e.target.value
+                    if (validateName(value)) {
+                      setKycData((prev) => ({ ...prev, fullName: value }))
+                      setNameError("")
+                    } else {
+                      setNameError("El nombre no puede contener números")
+                    }
+                  }} 
+                  placeholder="Como aparece en su documento"
+                  className={nameError ? "border-destructive focus:border-destructive" : ""}
+                  disabled={isProcessingStep1 || confirmedSteps.has(1)}
+                />
+                {nameError && (
+                  <p className="text-sm text-destructive">{nameError}</p>
+                )}
               </div>
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <Label htmlFor="birthDate">Fecha de nacimiento *</Label>
-                <Input id="birthDate" type="date" value={kycData.birthDate} onChange={(e) => setKycData((prev) => ({ ...prev, birthDate: e.target.value }))} disabled={personalDataInputsDisabled} />
+                <Input 
+                  id="birthDate" 
+                  type="date" 
+                  value={kycData.birthDate} 
+                  onChange={(e) => {
+                    const value = e.target.value
+                    setKycData((prev) => ({ ...prev, birthDate: value }))
+                    
+                    if (value) {
+                      if (validateAge(value)) {
+                        setBirthDateError("")
+                      } else {
+                        setBirthDateError("Debes ser mayor de 18 años para abrir una cuenta")
+                      }
+                    } else {
+                      setBirthDateError("")
+                    }
+                  }}
+                  className={birthDateError ? "border-destructive focus:border-destructive" : ""}
+                  disabled={isProcessingStep1 || confirmedSteps.has(1)}
+                />
+                {birthDateError && (
+                  <p className="text-sm text-destructive">{birthDateError}</p>
+                )}
               </div>
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <Label>País</Label>
                 <Input value={kycData.country} disabled />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <Label htmlFor="docType">Tipo de documento *</Label>
-                <Select value={kycData.docType} onValueChange={(value: any) => setKycData((prev) => ({ ...prev, docType: value }))} disabled={personalDataInputsDisabled}>
+                <Select value={kycData.docType} onValueChange={(value: any) => {
+                  setKycData((prev) => ({ ...prev, docType: value, docNumber: "" }))
+                  setDocNumberError("")
+                }} disabled={isProcessingStep1 || confirmedSteps.has(1)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Seleccione el tipo" />
                   </SelectTrigger>
@@ -1488,18 +1606,70 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2 md:col-span-2">
+              <div className="space-y-4 md:col-span-2">
                 <Label htmlFor="docNumber">Número de documento *</Label>
-                <Input id="docNumber" value={kycData.docNumber} onChange={(e) => setKycData((prev) => ({ ...prev, docNumber: e.target.value }))} placeholder="Ingrese el número sin espacios ni guiones" disabled={personalDataInputsDisabled} />
+                <Input 
+                  id="docNumber" 
+                  value={kycData.docNumber} 
+                  maxLength={kycData.docType === "ID" ? 15 : 12}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    
+                    if (kycData.docType === "ID") {
+                      // Para DNI, aplicar formateo automático
+                      const formattedValue = formatDNI(value)
+                      setKycData((prev) => ({ ...prev, docNumber: formattedValue }))
+                      
+                      // Validar si tiene exactamente 13 dígitos
+                      if (validateDNI(formattedValue)) {
+                        setDocNumberError("")
+                      } else {
+                        const numbers = formattedValue.replace(/\D/g, '')
+                        if (numbers.length > 0 && numbers.length < 13) {
+                          setDocNumberError("El DNI debe tener exactamente 13 dígitos")
+                        } else {
+                          setDocNumberError("")
+                        }
+                      }
+                    } else if (kycData.docType === "Passport") {
+                      // Para pasaporte hondureño, permitir letras y números (máximo 12 caracteres)
+                      const alphanumeric = value.replace(/[^A-Za-z0-9]/g, '').slice(0, 12)
+                      setKycData((prev) => ({ ...prev, docNumber: alphanumeric }))
+                      
+                      // Validar longitud (8-12 caracteres alfanuméricos)
+                      if (validatePassport(alphanumeric)) {
+                        setDocNumberError("")
+                      } else {
+                        if (alphanumeric.length > 0 && alphanumeric.length < 8) {
+                          setDocNumberError("El pasaporte debe tener entre 8-12 caracteres alfanuméricos")
+                        } else {
+                          setDocNumberError("")
+                        }
+                      }
+                    }
+                  }} 
+                  placeholder={kycData.docType === "ID" ? "0000-0000-00000" : "HND1234567"}
+                  className={docNumberError ? "border-destructive focus:border-destructive" : ""}
+                  disabled={isProcessingStep1 || confirmedSteps.has(1)}
+                />
+                {docNumberError && (
+                  <p className="text-sm text-destructive">{docNumberError}</p>
+                )}
+                {kycData.docType === "ID" && !docNumberError && kycData.docNumber && (
+                  <p className="text-sm text-muted-foreground">Formato: 0000-0000-00000</p>
+                )}
+                {kycData.docType === "Passport" && !docNumberError && kycData.docNumber && (
+                  <p className="text-sm text-muted-foreground">Formato: 8-12 caracteres alfanuméricos</p>
+                )}
               </div>
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <Label>Departamento *</Label>
                 <Select
                   value={kycData.department}
                   onValueChange={(value) => {
                     setKycData((prev) => ({ ...prev, department: value, municipality: "" }))
                   }}
-                  disabled={personalDataInputsDisabled}
+                  disabled={isProcessingStep1 || confirmedSteps.has(1)}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Seleccione el departamento" />
@@ -1511,12 +1681,12 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <Label>Municipio *</Label>
                 <Select
                   value={kycData.municipality}
                   onValueChange={(value) => setKycData((prev) => ({ ...prev, municipality: value }))}
-                  disabled={!kycData.department || personalDataInputsDisabled}
+                  disabled={!kycData.department || isProcessingStep1 || confirmedSteps.has(1)}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder={kycData.department ? "Seleccione el municipio" : "Seleccione un departamento primero"} />
@@ -1528,23 +1698,24 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <Label>Colonia/Barrio/Aldea *</Label>
-                <Input value={kycData.neighborhood} onChange={(e) => setKycData((prev) => ({ ...prev, neighborhood: e.target.value }))} placeholder="Ej. Col. Tara / Barrio Abajo" disabled={personalDataInputsDisabled} />
+                <Input value={kycData.neighborhood} onChange={(e) => setKycData((prev) => ({ ...prev, neighborhood: e.target.value }))} placeholder="Ej. Col. Tara / Barrio Abajo" disabled={isProcessingStep1 || confirmedSteps.has(1)} />
               </div>
-              <div className="space-y-2 md:col-span-2">
+              <div className="space-y-4 md:col-span-2">
                 <Label>Descripción de calle / bloque / #casa / #apartamento *</Label>
-                <Input value={kycData.addressDesc} onChange={(e) => setKycData((prev) => ({ ...prev, addressDesc: e.target.value }))} placeholder="Ej. Calle 3, bloque B, casa #24, apto 3B" disabled={personalDataInputsDisabled} />
+                <Input value={kycData.addressDesc} onChange={(e) => setKycData((prev) => ({ ...prev, addressDesc: e.target.value }))} placeholder="Ej. Calle 3, bloque B, casa #24, apto 3B" disabled={isProcessingStep1 || confirmedSteps.has(1)} />
               </div>
             </div>
           )}
 
           {currentStep === 2 && (
-            <div className="space-y-6">
+            <div className="space-y-8">
               {userId ? (
                 <KycUploader
                   userId={userId}
                   docType="document_front"
+                  bucket="kyc"
                   maxSizeMB={5}
                   minWidth={600}
                   minHeight={400}
@@ -1566,6 +1737,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                   <KycUploader
                     userId={userId}
                     docType="document_back"
+                    bucket="kyc"
                     maxSizeMB={5}
                     minWidth={600}
                     minHeight={400}
@@ -1594,11 +1766,12 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
           )}
 
           {currentStep === 3 && (
-            <div className="space-y-6">
+            <div className="space-y-8">
               {userId ? (
                 <KycUploader
                   userId={userId}
                   docType="selfie"
+                  bucket="kyc"
                   maxSizeMB={3}
                   minWidth={400}
                   minHeight={400}
@@ -1617,11 +1790,12 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
           )}
 
           {currentStep === 4 && (
-            <div className="space-y-6">
+            <div className="space-y-8">
               {userId ? (
                 <KycUploader
                   userId={userId}
                   docType="address_proof"
+                  bucket="kyc"
                   maxSizeMB={10}
                   minWidth={300}
                   minHeight={200}
@@ -1640,7 +1814,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
           )}
 
           {currentStep === 5 && (
-            <div className="space-y-4">
+            <div className="space-y-6">
               <Alert>
                 <Shield className="h-4 w-4" />
                 <AlertDescription>
@@ -1681,82 +1855,67 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
             
             {/* Solo mostrar botones en pasos 1 y 5 */}
             {(currentStep === 1 || currentStep === 5) && (
-            <div className="flex gap-3">
-                {/* Botón de editar datos personales */}
-                {currentStep === 1 && personalDataComplete && !isEditingPersonalData && (
-                  <Button 
-                    variant="outline" 
-                    onClick={handleEditPersonalData}
-                    className="border-gray-300 text-gray-700 hover:bg-gray-100 hover:border-gray-400 hover:text-gray-900 transition-colors duration-200"
-                  >
-                    Editar datos
-                  </Button>
-                )}
-                {/* Botones de guardar/cancelar cuando está editando */}
-                {currentStep === 1 && isEditingPersonalData && (
-                  <>
-                    <Button 
-                      variant="outline" 
-                      onClick={handleSavePersonalData}
-                      className="border-emerald-500 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-600 hover:text-emerald-800 transition-colors duration-200"
-                    >
-                      Guardar cambios
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      onClick={handleCancelEditPersonalData}
-                      className="border-rose-500 text-rose-700 hover:bg-rose-50 hover:border-rose-600 hover:text-rose-800 transition-colors duration-200"
-                    >
-                      Cancelar
-                    </Button>
-                  </>
-                )}
+            <div className="flex gap-4">
                 {/* Botón Continuar para el paso 1 */}
-                {(() => {
-                  const shouldShowButton = currentStep === 1 && personalDataComplete && !isEditingPersonalData
-                  console.log('🔍 Evaluando botón Continuar:', {
-                    currentStep,
-                    personalDataComplete,
-                    isEditingPersonalData,
-                    shouldShowButton
-                  })
-
-                  return shouldShowButton && (
+                {currentStep === 1 && (
                     <Button 
                       data-action="continuar"
                       onClick={async () => {
+                        if (isProcessingStep1) return // Prevenir múltiples clics
+                        
+                        // Validación estricta antes de continuar
+                        if (!personalDataComplete) {
+                          toast.error('Por favor completa todos los campos requeridos antes de continuar.')
+                          return
+                        }
+                        
+                        setIsProcessingStep1(true)
                         console.log('🔄 Clic en botón Continuar - Paso 1')
+                        console.log('🔒 Estado isProcessingStep1:', true)
                         console.log('📊 Datos personales:', {
                           fullName: kycData.fullName,
                           birthDate: kycData.birthDate,
                           country: kycData.country,
                           docType: kycData.docType,
-                          docNumber: kycData.docNumber
+                          docNumber: kycData.docNumber,
+                          department: kycData.department,
+                          municipality: kycData.municipality,
+                          neighborhood: kycData.neighborhood,
+                          addressDesc: kycData.addressDesc
                         })
-                        await markStepAsComplete(1)
-                        goNext()
+                        
+                        try {
+                          // Guardar los datos personales en la base de datos
+                          await handleSaveDraft()
+                          
+                          // Marcar el paso como completo
+                          await markStepAsComplete(1)
+                          
+                          // Avanzar al siguiente paso
+                          goNext()
+                        } catch (error) {
+                          console.error('Error en paso 1:', error)
+                          toast.error('Error al procesar los datos. Inténtalo de nuevo.')
+                        } finally {
+                          setIsProcessingStep1(false)
+                        }
                       }}
-                      disabled={!canContinue()}
+                      disabled={!personalDataComplete || isProcessingStep1 || confirmedSteps.has(1)}
                       className="bg-primary text-primary-foreground hover:bg-primary/90 transition-colors duration-200"
                     >
-                      Continuar
+                      <span className="flex items-center gap-2">
+                        {isProcessingStep1 && <Loader2 className="h-4 w-4 animate-spin" />}
+                        {isProcessingStep1 ? "Procesando..." : "Continuar"}
+                      </span>
                     </Button>
-                  )
-                })()}
-                
-                {/* Debug: Mostrar estado del botón Continuar */}
-                {currentStep === 1 && (
-                  <div className="text-xs text-muted-foreground">
-                    Debug: personalDataComplete={personalDataComplete ? 'true' : 'false'}, 
-                    isEditingPersonalData={isEditingPersonalData ? 'true' : 'false'}
-                  </div>
                 )}
+                
             </div>
             )}
 
             {/* Solo mostrar botón de envío en el paso 5 */}
             {currentStep === 5 && (
-              <div className="flex gap-3 sm:ml-auto">
+              <div className="flex gap-4 sm:ml-auto">
                 <Button 
                   data-action="continuar"
                   onClick={async () => {

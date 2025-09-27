@@ -11,7 +11,7 @@ import { Upload, FileText, User, Home, RotateCcw, CheckCircle, AlertCircle } fro
 type Props = {
   userId: string;
   docType: 'document_front' | 'document_back' | 'selfie' | 'address_proof';
-  bucket?: string; // default 'kyc'
+  bucket?: string; // default 'public'
   // reglas front
   maxSizeMB?: number;        // tamaño máximo
   minWidth?: number;         // resolución mínima
@@ -250,26 +250,63 @@ export default function KycUploader({
 
       console.log('SUBIENDO A:', path, 'type:', tempFile.type, 'size:', tempFile.size);
 
-      // Intentar primero con bucket 'kyc', si falla por RLS usar 'public'
+      // Intentar subir directamente al bucket especificado
+      console.log(`📤 Intentando subir al bucket: ${bucket}`);
       let uploadResult = await supabase.storage
         .from(bucket)
         .upload(path, tempFile, {
-          upsert: true, // reemplaza si ya existía
+          upsert: true,
           contentType: tempFile.type || 'image/jpeg',
           cacheControl: '3600',
         });
 
-      // Si falla por RLS, usar bucket público como fallback
-      if (uploadResult.error && uploadResult.error.message?.includes('row-level security')) {
-        console.log('🔄 RLS falló, usando bucket público como fallback...');
-        uploadResult = await supabase.storage
-          .from('public')
-          .upload(path, tempFile, {
-            upsert: true,
-            contentType: tempFile.type || 'image/jpeg',
-            cacheControl: '3600',
-          });
+      // Si falla por RLS o permisos, intentar con otros buckets
+      if (uploadResult.error && (
+        uploadResult.error.message?.includes('row-level security') ||
+        uploadResult.error.message?.includes('permission denied') ||
+        uploadResult.error.message?.includes('bucket not found') ||
+        uploadResult.error.message?.includes('not found')
+      )) {
+        console.log(`🔄 Error con bucket '${bucket}':`, uploadResult.error.message);
+        
+        // Listar buckets disponibles para fallback
+        console.log('📋 Buscando buckets alternativos...');
+        const { data: buckets, error: bucketError } = await supabase.storage.listBuckets();
+        
+        if (bucketError) {
+          console.error('❌ Error al listar buckets:', bucketError);
+          throw new Error(`Error de conexión con Supabase: ${bucketError.message}`);
+        }
+
+        console.log('📋 Buckets disponibles:', buckets?.map(b => b.name) || 'Ninguno');
+
+        // Intentar con otros buckets disponibles
+        if (buckets && buckets.length > 0) {
+          for (const availableBucket of buckets) {
+            if (availableBucket.name !== bucket) {
+              console.log(`🔄 Intentando con bucket alternativo: ${availableBucket.name}`);
+              uploadResult = await supabase.storage
+                .from(availableBucket.name)
+                .upload(path, tempFile, {
+                  upsert: true,
+                  contentType: tempFile.type || 'image/jpeg',
+                  cacheControl: '3600',
+                });
+              
+              if (!uploadResult.error) {
+                console.log(`✅ Archivo subido exitosamente al bucket alternativo: ${availableBucket.name}`);
+                return uploadResult;
+              } else {
+                console.log(`❌ Error con bucket alternativo ${availableBucket.name}:`, uploadResult.error.message);
+              }
+            }
+          }
+        }
+        
+        // Si todos los buckets fallan, mostrar error específico
+        throw new Error(`No se pudo subir el archivo. Error: ${uploadResult.error.message}. Contacta al administrador para configurar las políticas RLS del bucket '${bucket}'.`);
       }
+
 
       if (uploadResult.error) {
         throw new Error(uploadResult.error.message);
@@ -283,81 +320,93 @@ export default function KycUploader({
 
       // Limpia temporal y muestra éxito
       resetTemp();
-      toast.success('Archivo subido correctamente');
+      toast.success('Archivo subido correctamente', {
+        description: 'El archivo ha sido guardado en la base de datos',
+        duration: 4000,
+      });
       
-      // Callback opcional
+      // Callback opcional (con delay para evitar navegación inmediata)
       if (onUploadSuccess) {
-        onUploadSuccess();
+        setTimeout(() => {
+          onUploadSuccess();
+        }, 1000); // Delay de 1 segundo para que el usuario vea el mensaje de éxito
       }
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'Error subiendo el archivo.');
-      toast.error(err.message || 'Error subiendo el archivo');
+      toast.error('Error al subir el archivo', {
+        description: err.message || 'No se pudo guardar el archivo en la base de datos',
+        duration: 5000,
+      });
     } finally {
       setBusy(false);
     }
   }
 
   const getDocTypeInfo = (type: string) => {
-    const info: Record<string, { label: string; icon: any; description: string; color: string }> = {
+    const info: Record<string, { label: string; icon: any; description: string; color: string; bgColor: string }> = {
       document_front: { 
         label: 'Documento Frontal', 
         icon: FileText, 
-        description: 'Frente de tu documento de identidad',
-        color: 'text-blue-600'
+        description: 'Frente de tu DNI o pasaporte hondureño',
+        color: 'text-primary',
+        bgColor: 'bg-primary/10'
       },
       document_back: { 
         label: 'Documento Reverso', 
         icon: FileText, 
-        description: 'Reverso de tu documento de identidad',
-        color: 'text-blue-600'
+        description: 'Reverso de tu DNI o pasaporte hondureño',
+        color: 'text-primary',
+        bgColor: 'bg-primary/10'
       },
       selfie: { 
         label: 'Selfie de Verificación', 
         icon: User, 
         description: 'Foto tuya sosteniendo el documento',
-        color: 'text-green-600'
+        color: 'text-emerald-600 dark:text-emerald-400',
+        bgColor: 'bg-emerald-50 dark:bg-emerald-950/30'
       },
       address_proof: { 
         label: 'Comprobante de Domicilio', 
         icon: Home, 
         description: 'Recibo de servicios o estado bancario',
-        color: 'text-purple-600'
+        color: 'text-violet-600 dark:text-violet-400',
+        bgColor: 'bg-violet-50 dark:bg-violet-950/30'
       }
     };
-    return info[type] || { label: type, icon: FileText, description: 'Archivo requerido', color: 'text-gray-600' };
+    return info[type] || { label: type, icon: FileText, description: 'Archivo requerido', color: 'text-muted-foreground', bgColor: 'bg-muted/50' };
   };
 
   const docInfo = getDocTypeInfo(docType);
   const IconComponent = docInfo.icon;
 
   return (
-    <Card className="w-full">
+    <Card className="w-full border-border/50">
       <CardContent className="p-6">
-        <div className="space-y-4">
+        <div className="space-y-6">
           {/* Header */}
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg bg-gray-50 ${docInfo.color}`}>
-              <IconComponent className="h-5 w-5" />
+          <div className="flex items-center gap-4">
+            <div className={`p-3 rounded-xl ${docInfo.bgColor} ${docInfo.color}`}>
+              <IconComponent className="h-6 w-6" />
             </div>
             <div>
-              <h3 className="font-semibold text-gray-900">{docInfo.label}</h3>
-              <p className="text-sm text-gray-500">{docInfo.description}</p>
+              <h3 className="font-semibold text-foreground">{docInfo.label}</h3>
+              <p className="text-sm text-muted-foreground">{docInfo.description}</p>
             </div>
           </div>
 
           {/* Upload Area */}
           {!previewUrl && !isAlreadyUploaded && (
             <div className="space-y-4">
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors">
-                <div className="space-y-4">
-                  <div className="mx-auto w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center">
-                    <Upload className="h-6 w-6 text-gray-400" />
+              <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/50 transition-all duration-200 bg-muted/20 hover:bg-muted/30">
+                <div className="space-y-6">
+                  <div className="mx-auto w-16 h-16 bg-muted rounded-full flex items-center justify-center">
+                    <Upload className="h-8 w-8 text-muted-foreground" />
                   </div>
                   
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Selecciona un archivo</p>
-                    <p className="text-xs text-gray-500 mt-1">
+                  <div className="space-y-2">
+                    <p className="text-base font-medium text-foreground">Selecciona un archivo</p>
+                    <p className="text-sm text-muted-foreground">
                       Formatos: JPG, PNG, WEBP, HEIC, PDF • Máx. recomendado {maxSizeMB} MB
                       {docType !== 'address_proof' && ` • Mín. recomendado ${minWidth}×${minHeight}px`}
                     </p>
@@ -376,7 +425,7 @@ export default function KycUploader({
                     <Button
                       asChild
                       variant="outline"
-                      className="flex items-center gap-2"
+                      className="flex items-center gap-2 border-border hover:border-primary/50 hover:bg-primary/5 transition-all duration-200"
                     >
                       <label htmlFor={`file-input-${docType}`} className="cursor-pointer">
                         <Upload className="h-4 w-4" />
@@ -393,15 +442,15 @@ export default function KycUploader({
           {/* Confirmation State */}
           {isAlreadyUploaded && !previewUrl && (
             <div className="space-y-4">
-              <div className="border-2 border-green-200 rounded-lg p-8 text-center bg-green-50">
+              <div className="border-2 border-emerald-200 dark:border-emerald-800 rounded-xl p-8 text-center bg-emerald-50 dark:bg-emerald-950/30">
                 <div className="space-y-4">
-                  <div className="mx-auto w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                    <CheckCircle className="h-6 w-6 text-green-600" />
+                  <div className="mx-auto w-16 h-16 bg-emerald-100 dark:bg-emerald-900/50 rounded-full flex items-center justify-center">
+                    <CheckCircle className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
                   </div>
                   
-                  <div>
-                    <p className="text-sm font-medium text-green-900">Documento cargado exitosamente</p>
-                    <p className="text-xs text-green-700 mt-1">
+                  <div className="space-y-2">
+                    <p className="text-base font-medium text-emerald-900 dark:text-emerald-100">Documento cargado exitosamente</p>
+                    <p className="text-sm text-emerald-700 dark:text-emerald-300">
                       {docInfo.label} ha sido guardado correctamente
                     </p>
                   </div>
@@ -413,12 +462,12 @@ export default function KycUploader({
 
           {/* Preview Area */}
           {previewUrl && (
-            <div className="space-y-4">
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <CheckCircle className="h-4 w-4 text-green-600" />
-                  <span className="text-sm font-medium text-gray-900">Vista previa</span>
-                  <span className="text-xs text-gray-500">(aún no se ha subido)</span>
+            <div className="space-y-6">
+              <div className="bg-muted/30 rounded-xl p-6 border border-border/50">
+                <div className="flex items-center gap-3 mb-4">
+                  <CheckCircle className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  <span className="text-sm font-medium text-foreground">Vista previa</span>
+                  <span className="text-xs text-muted-foreground">(aún no se ha subido)</span>
                 </div>
                 
                 {tempFile?.type.startsWith('image/') ? (
@@ -426,28 +475,30 @@ export default function KycUploader({
                     <img
                       src={previewUrl}
                       alt="Previsualización"
-                      className="max-h-64 w-auto rounded-lg border shadow-sm"
+                      className="max-h-80 w-auto rounded-lg border border-border/50 shadow-sm"
                     />
                   </div>
                 ) : (
-                  <div className="flex items-center justify-center p-6 bg-white rounded-lg border">
-                    <div className="text-center">
-                      <FileText className="h-12 w-12 text-gray-400 mx-auto mb-2" />
-                      <p className="text-sm font-medium text-gray-900">{tempFile?.name}</p>
-                      <p className="text-xs text-gray-500">
-                        {((tempFile?.size || 0) / (1024 * 1024)).toFixed(2)} MB
-                      </p>
+                  <div className="flex items-center justify-center p-8 bg-background rounded-lg border border-border/50">
+                    <div className="text-center space-y-3">
+                      <FileText className="h-16 w-16 text-muted-foreground mx-auto" />
+                      <div>
+                        <p className="text-base font-medium text-foreground">{tempFile?.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {((tempFile?.size || 0) / (1024 * 1024)).toFixed(2)} MB
+                        </p>
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex flex-col sm:flex-row gap-4">
                 <Button
                   variant="outline"
                   onClick={resetTemp}
                   disabled={busy}
-                  className="flex items-center gap-2 border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 hover:text-gray-900 transition-all duration-200"
+                  className="flex items-center gap-2 border-border hover:border-destructive/50 hover:bg-destructive/5 hover:text-destructive transition-all duration-200"
                 >
                   <RotateCcw className="h-4 w-4" />
                   Cambiar archivo
@@ -455,11 +506,11 @@ export default function KycUploader({
                 <Button
                   onClick={onConfirmUpload}
                   disabled={busy}
-                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
+                  className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
                 >
                   {busy ? (
                     <>
-                      <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <div className="h-4 w-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
                       Subiendo...
                     </>
                   ) : (
@@ -475,17 +526,17 @@ export default function KycUploader({
 
           {/* Warning Display */}
           {warning && (
-            <div className="flex items-start gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <AlertCircle className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-yellow-700">{warning}</p>
+            <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl">
+              <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-amber-800 dark:text-amber-200">{warning}</p>
             </div>
           )}
 
           {/* Error Display */}
           {error && (
-            <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-              <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-red-600">{error}</p>
+            <div className="flex items-start gap-3 p-4 bg-destructive/10 border border-destructive/20 rounded-xl">
+              <AlertCircle className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-destructive">{error}</p>
             </div>
           )}
         </div>
