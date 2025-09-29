@@ -21,6 +21,7 @@ import {
 import Link from "next/link"
 import { supabaseBrowser } from "@/lib/supabase/client"
 import { usePathname } from "next/navigation"
+import { getKycDraft } from "@/app/actions/kyc_data"
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -49,7 +50,8 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
   const [hasNotif, setHasNotif] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
   const [notifOpen, setNotifOpen] = useState(false)
-  const [showResetDemo, setShowResetDemo] = useState(false)
+  const [kycStatus, setKycStatus] = useState<string>("none")
+  const [kycData, setKycData] = useState<any>(null)
 
   useEffect(() => {
     setMounted(true)
@@ -70,31 +72,146 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
       const name = profile?.full_name || session.user.user_metadata?.full_name || session.user.email || userName
       setDisplayName(name)
 
-      // Notificación inicial: verificación pendiente
-      const key = `nmhn:notif:verify:${session.user.id}`
-      const isRead = typeof window !== 'undefined' ? localStorage.getItem(key) === 'read' : false
-      setHasNotif(!isRead)
+      // Cargar datos de KYC para notificaciones inteligentes
+      try {
+        const kycResult = await getKycDraft()
+        if (kycResult.ok && kycResult.data) {
+          setKycData(kycResult.data)
+          setKycStatus(kycResult.data.status)
+        }
+      } catch (error) {
+        console.error('Error loading KYC data:', error)
+      }
+
+      // Determinar si mostrar notificación basado en estado KYC real
+      const kycNotification = getKycNotification()
+      setHasNotif(kycNotification.show)
     })
-    if (typeof window !== 'undefined') {
-      const host = window.location.hostname
-      setShowResetDemo(host === 'localhost' || host === '127.0.0.1')
-    }
   }, [])
 
-  const markNotifRead = () => {
-    if (userId) {
-      const key = `nmhn:notif:verify:${userId}`
-      try { localStorage.setItem(key, 'read') } catch {}
+  // Suscripción en tiempo real a cambios en kyc_submissions
+  useEffect(() => {
+    if (!userId) return
+
+    const supabase = supabaseBrowser()
+    
+    // Suscribirse a cambios en la tabla kyc_submissions para el usuario actual
+    const channel = supabase
+      .channel('kyc-status-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'kyc_submissions',
+          filter: `user_id=eq.${userId}`
+        },
+        async (payload) => {
+          console.log('🔄 Cambio detectado en KYC:', payload)
+          
+          // Actualizar el estado local con los nuevos datos
+          try {
+            const kycResult = await getKycDraft()
+            if (kycResult.ok && kycResult.data) {
+              setKycData(kycResult.data)
+              setKycStatus(kycResult.data.status)
+              
+              // Recalcular notificaciones
+              const kycNotification = getKycNotification()
+              setHasNotif(kycNotification.show)
+              
+              console.log('✅ Estado KYC actualizado en tiempo real:', kycResult.data.status)
+            }
+          } catch (error) {
+            console.error('Error actualizando KYC en tiempo real:', error)
+          }
+        }
+      )
+      .subscribe()
+
+    // Limpiar suscripción al desmontar
+    return () => {
+      supabase.removeChannel(channel)
     }
+  }, [userId])
+
+  const markNotifRead = () => {
+    // En producción, las notificaciones se ocultan automáticamente
+    // cuando el usuario interactúa con ellas o cuando el estado cambia
     setHasNotif(false)
   }
 
-  const resetNotif = () => {
-    if (userId) {
-      const key = `nmhn:notif:verify:${userId}`
-      try { localStorage.removeItem(key) } catch {}
+  // Función para obtener el mensaje de notificación según el estado KYC real
+  const getKycNotification = () => {
+    // Si no hay datos en la base de datos
+    if (!kycData) {
+      return {
+        type: "warning" as const,
+        icon: Shield,
+        title: "Verificación de cuenta requerida",
+        message: "Es necesario completar la verificación de tu cuenta para acceder a todos los servicios de la plataforma.",
+        action: "Iniciar verificación",
+        show: true
+      }
     }
-    setHasNotif(true)
+    
+    // Si hay datos pero el estado es "draft"
+    if (kycStatus === "draft") {
+      return {
+        type: "info" as const,
+        icon: Shield,
+        title: "Verificación en progreso",
+        message: "Has iniciado el proceso de verificación. Completa todos los pasos para enviar tu solicitud.",
+        action: "Continuar verificación",
+        show: true
+      }
+    }
+    
+    // Si está en revisión
+    if (kycStatus === "review") {
+      return {
+        type: "info" as const,
+        icon: Shield,
+        title: "Verificación en revisión",
+        message: "Tu verificación ha sido enviada y está siendo revisada por nuestro equipo. Los documentos se encuentran en revisión.",
+        action: null,
+        show: true
+      }
+    }
+    
+    // Si está aprobada
+    if (kycStatus === "approved") {
+      return {
+        type: "success" as const,
+        icon: Shield,
+        title: "Verificación completada",
+        message: "¡Felicidades! Tu cuenta ha sido verificada exitosamente. Ahora puedes utilizar todos los servicios de NMHN.",
+        action: null,
+        show: true
+      }
+    }
+    
+    // Si está rechazada
+    if (kycStatus === "rejected") {
+      return {
+        type: "error" as const,
+        icon: Shield,
+        title: "Verificación rechazada",
+        message: "Tu verificación fue rechazada. Revisa los comentarios y vuelve a enviar tu solicitud.",
+        action: "Reintentar verificación",
+        show: true
+      }
+    }
+    
+    // Estado por defecto
+    return {
+      type: "info" as const,
+      icon: Shield,
+      title: "Estado de verificación",
+      message: "Verifica el estado actual de tu cuenta.",
+      action: null,
+      show: false
+    }
   }
 
   const getSectionTitle = (pathname: string) => {
@@ -288,24 +405,42 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
                       <div className="px-3 py-2">
                         <p className="text-sm font-semibold">Notificaciones</p>
                       </div>
-                      {hasNotif ? (
-                        <div className="px-3 py-3 text-left text-sm flex gap-2 items-start">
-                          <Shield className="h-4 w-4 mt-0.5 text-primary" />
-                          <div className="flex-1">
-                            <p>Completa la verificación de tu registro para habilitar todas las funciones.</p>
-                            <div className="mt-2 flex justify-end">
-                              <Button size="sm" variant="ghost" onClick={markNotifRead}>Marcar como leída</Button>
+                      {(() => {
+                        const kycNotification = getKycNotification()
+                        if (kycNotification.show && hasNotif) {
+                          return (
+                            <div className="px-3 py-3 text-left text-sm flex gap-2 items-start">
+                              <kycNotification.icon className={`h-4 w-4 mt-0.5 ${
+                                kycNotification.type === "success" ? "text-green-600" :
+                                kycNotification.type === "warning" ? "text-amber-600" :
+                                kycNotification.type === "error" ? "text-red-600" :
+                                "text-blue-600"
+                              }`} />
+                              <div className="flex-1">
+                                <p className="font-medium">{kycNotification.title}</p>
+                                <p className="text-muted-foreground mt-1">{kycNotification.message}</p>
+                                <div className="mt-2 flex justify-between items-center">
+                                  {kycNotification.action && (
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline" 
+                                      asChild
+                                      className="text-xs"
+                                    >
+                                      <Link href="/dashboard/verificacion">{kycNotification.action}</Link>
+                                    </Button>
+                                  )}
+                                  <Button size="sm" variant="ghost" onClick={markNotifRead}>Marcar como leída</Button>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="px-3 py-3 text-sm text-muted-foreground">Sin notificaciones</div>
-                      )}
-                      {showResetDemo && (
-                        <div className="px-3 pb-3">
-                          <Button size="sm" variant="outline" className="bg-transparent" onClick={resetNotif}>Restablecer demo</Button>
-                        </div>
-                      )}
+                          )
+                        } else {
+                          return (
+                            <div className="px-3 py-3 text-sm text-muted-foreground">Sin notificaciones</div>
+                          )
+                        }
+                      })()}
                     </DropdownMenuContent>
                   </DropdownMenu>
                   <Button
@@ -486,14 +621,36 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
           <DrawerHeader>
             <DrawerTitle>Notificaciones</DrawerTitle>
             <DrawerDescription>
-              Completa la verificación de tu registro para habilitar todas las funciones.
+              {(() => {
+                const kycNotification = getKycNotification()
+                return kycNotification.show ? kycNotification.message : "Sin notificaciones"
+              })()}
             </DrawerDescription>
           </DrawerHeader>
           <div className="px-4 pb-4 flex gap-2">
-            {hasNotif && (
-              <Button onClick={() => { markNotifRead(); }} className="flex-1">Marcar como leída</Button>
-            )}
-            <Button variant="outline" className="bg-transparent" onClick={() => setNotifOpen(false)}>Cerrar</Button>
+            {(() => {
+              const kycNotification = getKycNotification()
+              if (kycNotification.show && hasNotif) {
+                return (
+                  <>
+                    {kycNotification.action && (
+                      <Button 
+                        asChild
+                        className="flex-1"
+                        onClick={() => setNotifOpen(false)}
+                      >
+                        <Link href="/dashboard/verificacion">{kycNotification.action}</Link>
+                      </Button>
+                    )}
+                    <Button onClick={() => { markNotifRead(); setNotifOpen(false); }} className="flex-1">Marcar como leída</Button>
+                  </>
+                )
+              } else {
+                return (
+                  <Button variant="outline" className="bg-transparent" onClick={() => setNotifOpen(false)}>Cerrar</Button>
+                )
+              }
+            })()}
           </div>
         </DrawerContent>
       </Drawer>

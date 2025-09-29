@@ -69,11 +69,32 @@ export default function VerificacionClientNew() {
     const Icon = stepConfig?.icon || User
 
     if (status === 'done') {
-      return <CheckCircle className="h-5 w-5 text-green-600" />
+      // Pasos 2 y 4 usan h-8 w-8, paso 3 usa h-6 w-6, los demás h-5 w-5
+      let sizeClass = 'h-5 w-5'
+      if (step === 'doc' || step === 'domicilio') {
+        sizeClass = 'h-8 w-8'
+      } else if (step === 'selfie') {
+        sizeClass = 'h-6 w-6'
+      }
+      return <CheckCircle className={`${sizeClass} text-green-600`} />
     } else if (status === 'active') {
-      return <Icon className="h-5 w-5 text-blue-600" />
+      // Pasos 2 y 4 usan h-8 w-8, paso 3 usa h-6 w-6, los demás h-5 w-5
+      let sizeClass = 'h-5 w-5'
+      if (step === 'doc' || step === 'domicilio') {
+        sizeClass = 'h-8 w-8'
+      } else if (step === 'selfie') {
+        sizeClass = 'h-6 w-6'
+      }
+      return <Icon className={`${sizeClass} text-blue-600`} />
     } else {
-      return <Lock className="h-5 w-5 text-gray-400" />
+      // Pasos 2 y 4 usan h-8 w-8, paso 3 usa h-6 w-6, los demás h-5 w-5
+      let sizeClass = 'h-5 w-5'
+      if (step === 'doc' || step === 'domicilio') {
+        sizeClass = 'h-8 w-8'
+      } else if (step === 'selfie') {
+        sizeClass = 'h-6 w-6'
+      }
+      return <Lock className={`${sizeClass} text-gray-400`} />
     }
   }
 

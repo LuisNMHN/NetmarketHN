@@ -227,7 +227,7 @@ export async function submitKyc(): Promise<ActionResult> {
     .eq("user_id", userId)
 
   if (updateError) return { ok: false, message: "No se pudo enviar la verificación." }
-  return { ok: true, message: "Verificación enviada. Recibirás una respuesta en 24-48 h hábiles." }
+  return { ok: true, message: "Verificación enviada. Recibirás una respuesta en 24-72 horas hábiles." }
 }
 
 export async function registerKycFilePath(

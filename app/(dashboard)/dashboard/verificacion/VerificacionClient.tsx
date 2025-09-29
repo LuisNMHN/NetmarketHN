@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { toast } from "sonner"
-import { CheckCircle, Clock, XCircle, Upload, Camera, FileText, Shield, AlertCircle, Trash2, Eye, User, Home, Loader2 } from "lucide-react"
+import { CheckCircle, Clock, XCircle, Upload, Camera, FileText, Shield, AlertCircle, Trash2, Eye, User, Home, Loader2, ArrowRight } from "lucide-react"
 import { departmentsToMunicipalities } from "@/lib/data/honduras"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -44,6 +44,7 @@ type WizardApi = {
   goNext: () => void
   goPrev: () => void
   goTo: (step: StepKey) => void
+  goToNextIncomplete: () => void
   reset: () => void
 }
 
@@ -158,16 +159,65 @@ function useKycWizard(): WizardApi {
   const goTo = useCallback((step: StepKey) => {
     const stepStatus = state.status[step]
     
+    console.log(`🔍 goTo(${step}):`, {
+      stepStatus,
+      currentStep: state.current,
+      step
+    })
+    
     // Solo permitir navegación a pasos 'done' o 'active'
     if (stepStatus === 'locked' || (stepStatus === 'active' && step !== state.current)) {
+      console.log(`❌ Navegación bloqueada a ${step}: stepStatus=${stepStatus}`)
       return
     }
 
+    console.log(`✅ Navegando a ${step}`)
     setState(prev => ({
       ...prev,
       current: step
     }))
   }, [state.status, state.current])
+
+  const goToNextIncomplete = useCallback(() => {
+    // Encontrar el siguiente paso incompleto
+    const stepMap: Record<StepKey, number> = {
+      datos: 1,
+      doc: 2,
+      selfie: 3,
+      domicilio: 4,
+      revision: 5
+    }
+    
+    const currentStepNumber = stepMap[state.current]
+    let nextIncompleteStep: StepKey | null = null
+    
+    // Buscar el siguiente paso incompleto (empezar desde el paso 3 por defecto)
+    for (let step = 3; step <= 5; step++) {
+      const stepKey = STEP_ORDER[step - 1] as StepKey
+      const stepStatus = state.status[stepKey]
+      
+      // Si el paso está disponible (no está 'done'), ir ahí
+      if (stepStatus !== 'done') {
+        nextIncompleteStep = stepKey
+        break
+      }
+    }
+    
+    // Si no hay siguiente paso incompleto, ir al paso 3 por defecto
+    if (!nextIncompleteStep) {
+      nextIncompleteStep = 'selfie' // Paso 3
+    }
+    
+    setState(prev => ({
+      ...prev,
+      current: nextIncompleteStep,
+      status: {
+        ...prev.status,
+        [prev.current]: 'done',
+        [nextIncompleteStep]: 'active'
+      }
+    }))
+  }, [state.current, state.status])
 
   const reset = useCallback(() => {
     setState(INITIAL_STATE)
@@ -185,6 +235,7 @@ function useKycWizard(): WizardApi {
     goNext,
     goPrev,
     goTo,
+    goToNextIncomplete,
     reset
   }
 }
@@ -220,7 +271,7 @@ interface InitialDraft extends KycDraft {
 export default function VerificacionClient({ initialDraft }: { initialDraft: InitialDraft | null }) {
   // Hook del wizard KYC
   const wizard = useKycWizard()
-  const { state: wizardState, setFlag, canContinue, goNext, goPrev, goTo } = wizard
+  const { state: wizardState, setFlag, canContinue, goNext, goPrev, goTo, goToNextIncomplete } = wizard
 
   const [userId, setUserId] = useState<string | null>(null)
   const [currentStep, setCurrentStep] = useState(1)
@@ -256,6 +307,20 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
   const [isSavingDraft, setIsSavingDraft] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isProcessingStep1, setIsProcessingStep1] = useState(false)
+  const [hasDataInDatabase, setHasDataInDatabase] = useState(!!initialDraft)
+  
+  const [isProcessingStep2, setIsProcessingStep2] = useState(false)
+  const [isProcessingStep3, setIsProcessingStep3] = useState(false)
+  const [isProcessingStep4, setIsProcessingStep4] = useState(false)
+  const [step1ContinueClicked, setStep1ContinueClicked] = useState(false)
+  const [step2ContinueClicked, setStep2ContinueClicked] = useState(false)
+  const [step3Enabled, setStep3Enabled] = useState(false)
+  const [step3ContinueClicked, setStep3ContinueClicked] = useState(false)
+  const [step4Enabled, setStep4Enabled] = useState(false)
+  const [step4ContinueClicked, setStep4ContinueClicked] = useState(false)
+  const [step5Enabled, setStep5Enabled] = useState(false)
+  const [showSubmissionModal, setShowSubmissionModal] = useState(false)
+  const [showPassportModal, setShowPassportModal] = useState(false)
   const [hasInitialNavigation, setHasInitialNavigation] = useState(false)
   const [confirmedSteps, setConfirmedSteps] = useState<Set<number>>(new Set())
   const [nameError, setNameError] = useState<string>("")
@@ -320,8 +385,10 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
   const loadConfirmedSteps = () => {
     try {
       const saved = localStorage.getItem('kyc-confirmed-steps')
+      console.log('🔄 Leyendo desde localStorage:', saved)
       if (saved) {
         const stepsArray = JSON.parse(saved) as number[]
+        console.log('🔄 Pasos parseados:', stepsArray)
         return new Set(stepsArray)
       }
     } catch (error) {
@@ -329,13 +396,83 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
     }
     return new Set<number>()
   }
+
+  // Función para cargar estados del paso 2, 3, 4 y 5 desde localStorage
+  const loadStepStates = () => {
+    try {
+      const step1Clicked = localStorage.getItem('kyc-step1-continue-clicked')
+      const step2Clicked = localStorage.getItem('kyc-step2-continue-clicked')
+      const step3Enabled = localStorage.getItem('kyc-step3-enabled')
+      const step3Clicked = localStorage.getItem('kyc-step3-continue-clicked')
+      const step4Enabled = localStorage.getItem('kyc-step4-enabled')
+      const step4Clicked = localStorage.getItem('kyc-step4-continue-clicked')
+      const step5Enabled = localStorage.getItem('kyc-step5-enabled')
+      
+      console.log('🔄 Cargando estados del paso 1, 2, 3, 4 y 5:', {
+        step1Clicked,
+        step2Clicked,
+        step3Enabled,
+        step3Clicked,
+        step4Enabled,
+        step4Clicked,
+        step5Enabled
+      })
+      
+      return {
+        step1ContinueClicked: step1Clicked === 'true',
+        step2ContinueClicked: step2Clicked === 'true',
+        step3Enabled: step3Enabled === 'true',
+        step3ContinueClicked: step3Clicked === 'true',
+        step4Enabled: step4Enabled === 'true',
+        step4ContinueClicked: step4Clicked === 'true',
+        step5Enabled: step5Enabled === 'true'
+      }
+    } catch (error) {
+      console.error('Error cargando estados del paso 1, 2, 3, 4 y 5:', error)
+      return {
+        step1ContinueClicked: false,
+        step2ContinueClicked: false,
+        step3Enabled: false,
+        step3ContinueClicked: false,
+        step4Enabled: false,
+        step4ContinueClicked: false,
+        step5Enabled: false
+      }
+    }
+  }
   
   // Función para guardar pasos confirmados en localStorage
   const saveConfirmedSteps = (steps: Set<number>) => {
     try {
-      localStorage.setItem('kyc-confirmed-steps', JSON.stringify(Array.from(steps)))
+      const stepsArray = Array.from(steps)
+      console.log('🔄 Guardando confirmedSteps en localStorage:', stepsArray)
+      localStorage.setItem('kyc-confirmed-steps', JSON.stringify(stepsArray))
     } catch (error) {
       console.error('Error saving confirmed steps:', error)
+    }
+  }
+
+  // Función para guardar estados del paso 1, 2, 3, 4 y 5 en localStorage
+  const saveStepStates = (step1Clicked: boolean = false, step2Clicked: boolean, step3Enabled: boolean, step3Clicked: boolean = false, step4Enabled: boolean = false, step4Clicked: boolean = false, step5Enabled: boolean = false) => {
+    try {
+      console.log('🔄 Guardando estados del paso 1, 2, 3, 4 y 5:', {
+        step1Clicked,
+        step2Clicked,
+        step3Enabled,
+        step3Clicked,
+        step4Enabled,
+        step4Clicked,
+        step5Enabled
+      })
+      localStorage.setItem('kyc-step1-continue-clicked', step1Clicked.toString())
+      localStorage.setItem('kyc-step2-continue-clicked', step2Clicked.toString())
+      localStorage.setItem('kyc-step3-enabled', step3Enabled.toString())
+      localStorage.setItem('kyc-step3-continue-clicked', step3Clicked.toString())
+      localStorage.setItem('kyc-step4-enabled', step4Enabled.toString())
+      localStorage.setItem('kyc-step4-continue-clicked', step4Clicked.toString())
+      localStorage.setItem('kyc-step5-enabled', step5Enabled.toString())
+    } catch (error) {
+      console.error('Error saving step states:', error)
     }
   }
   const [uploading, setUploading] = useState({
@@ -480,7 +617,20 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
           
           // Cargar pasos confirmados desde localStorage
           const savedConfirmedSteps = loadConfirmedSteps()
+          console.log('🔄 Cargando confirmedSteps desde localStorage:', Array.from(savedConfirmedSteps))
+          console.log('🔄 Paso 2 cargado:', savedConfirmedSteps.has(2))
           setConfirmedSteps(savedConfirmedSteps)
+          
+          // Cargar estados del paso 1, 2, 3, 4 y 5 desde localStorage
+          const stepStates = loadStepStates()
+          console.log('🔄 Cargando estados del paso 1, 2, 3, 4 y 5:', stepStates)
+          setStep1ContinueClicked(stepStates.step1ContinueClicked)
+          setStep2ContinueClicked(stepStates.step2ContinueClicked)
+          setStep3Enabled(stepStates.step3Enabled)
+          setStep3ContinueClicked(stepStates.step3ContinueClicked)
+          setStep4Enabled(stepStates.step4Enabled)
+          setStep4ContinueClicked(stepStates.step4ContinueClicked)
+          setStep5Enabled(stepStates.step5Enabled)
           
           // Consultar base de datos directamente
           const { data: row } = await supabase
@@ -570,44 +720,64 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
     if (confirmedSteps.size > 0) {
       saveConfirmedSteps(confirmedSteps)
     }
-  }, [confirmedSteps])
+  }, [confirmedSteps.size])
+
+  // Sincronizar flags del wizard con confirmedSteps
+  useEffect(() => {
+    console.log('🔄 Sincronizando flags del wizard con confirmedSteps:', Array.from(confirmedSteps))
+    console.log('🔄 Paso 2 en confirmedSteps:', confirmedSteps.has(2))
+    
+    // Actualizar flags del wizard basado en confirmedSteps
+    setFlag('datosOk', confirmedSteps.has(1))
+    setFlag('docFrontalOk', confirmedSteps.has(2))
+    setFlag('docReversoOk', confirmedSteps.has(2))
+    setFlag('selfieOk', confirmedSteps.has(3))
+    setFlag('domicilioOk', confirmedSteps.has(4))
+    // Para el paso 5, marcar como completo si está en confirmedSteps O si el estado es review/approved
+    setFlag('aceptoDeclaracion', confirmedSteps.has(5) || kycStatus === "review" || kycStatus === "approved")
+    
+    console.log('✅ Flags del wizard actualizados')
+    console.log('✅ docFrontalOk:', confirmedSteps.has(2))
+    console.log('✅ docReversoOk:', confirmedSteps.has(2))
+  }, [confirmedSteps.size, setFlag, kycStatus])
 
   // Navegación al primer paso incompleto al cargar la página (solo una vez)
   useEffect(() => {
     const navigateToFirstIncompleteStep = () => {
+      console.log('🔄 Navegación inteligente - buscando primer paso incompleto')
+      
       // Encontrar el primer paso que no esté completo
       let firstIncompleteStep = 1
       
       // Verificar cada paso en orden para encontrar el primero incompleto
       for (let step = 1; step <= 5; step++) {
-        // Verificar si el paso está disponible para navegación
-        if (isStepAvailable(step)) {
-          // Verificar si el paso está completo
-          if (!isStepComplete(step)) {
-            firstIncompleteStep = step
-            break
-          }
-        } else {
-          // Si el paso no está disponible, significa que un paso anterior no está completo
-          // En este caso, ir al paso 1
-          firstIncompleteStep = 1
+        const isCompleted = isStepCompleted(step)
+        console.log(`🔍 Verificando paso ${step}: isStepCompleted(${step}) = ${isCompleted}`)
+        
+        if (step === 3) {
+          console.log(`🔍 Detalles paso 3: hasDataInDatabase=${hasDataInDatabase}, uploadedRemote.selfie=${uploadedRemote.selfie}`)
+        }
+        
+        if (!isCompleted) {
+          firstIncompleteStep = step
+          console.log(`✅ Paso ${step} es el primer incompleto`)
           break
         }
       }
       
-      // Solo navegar si el paso actual no es el primer paso incompleto
-      if (currentStep !== firstIncompleteStep) {
-        console.log(`🎯 Navegando al primer paso incompleto: ${firstIncompleteStep}`)
-        setCurrentStep(firstIncompleteStep)
-      }
+      console.log(`🎯 Navegando al primer paso incompleto: ${firstIncompleteStep}`)
+      setCurrentStep(firstIncompleteStep)
     }
     
-    // Ejecutar solo una vez cuando se cargan los datos iniciales
-    if (userId && uploadedRemote && !hasInitialNavigation) {
+    // Ejecutar solo una vez cuando se cargan los datos iniciales y uploadedRemote está sincronizado
+    if (userId && uploadedRemote && !hasInitialNavigation && 
+        (uploadedRemote.documentFront || uploadedRemote.documentBack || uploadedRemote.selfie || uploadedRemote.addressProof)) {
+      console.log('🔄 Iniciando navegación inteligente...')
+      console.log('🔍 Estado uploadedRemote:', uploadedRemote)
       navigateToFirstIncompleteStep()
       setHasInitialNavigation(true)
     }
-  }, [userId, uploadedRemote, hasInitialNavigation]) // Removido confirmedSteps y kycData para evitar re-ejecuciones
+  }, [userId, uploadedRemote, hasInitialNavigation])
 
   // Navegación automática: dirigir al siguiente paso incompleto cuando se complete un paso
   // DESHABILITADO para permitir navegación libre entre pasos completados
@@ -711,10 +881,28 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
   const markStepAsComplete = async (step: number) => {
     console.log(`🔄 Marcando paso ${step} como completo`)
     
+    // Para el paso 5, no verificar isStepComplete ya que se marca como completo al enviar
+    if (step === 5) {
+      console.log(`✅ Marcando paso 5 como completo (enviado)`)
+      
+      // Marcar el paso como confirmado por el usuario
+      setConfirmedSteps(prev => {
+        const newSet = new Set([...prev, step])
+        console.log(`📝 confirmedSteps actualizado:`, Array.from(newSet))
+        console.log(`📝 Paso ${step} agregado a confirmedSteps`)
+        return newSet
+      })
+      
+      return true
+    }
+    
     // Verificar si el paso tiene la información requerida
-    if (!isStepComplete(step)) {
+    const stepComplete = isStepComplete(step)
+    console.log(`🔍 Paso ${step} está completo:`, stepComplete)
+    
+    if (!stepComplete) {
       console.log(`❌ No se puede marcar paso ${step} como completo - falta información`)
-      return
+      return false
     }
     
     console.log(`✅ Marcando paso ${step} como completo`)
@@ -723,10 +911,14 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
     setConfirmedSteps(prev => {
       const newSet = new Set([...prev, step])
       console.log(`📝 confirmedSteps actualizado:`, Array.from(newSet))
+      console.log(`📝 Paso ${step} agregado a confirmedSteps`)
+      console.log(`📝 Paso 2 en el nuevo set:`, newSet.has(2))
       return newSet
     })
 
-    // Nota: No navegar automáticamente. El avance ocurrirá solo cuando el usuario haga clic en "Continuar".
+    // Nota: Los flags del wizard se actualizarán automáticamente a través del useEffect
+    // que sincroniza confirmedSteps con los flags
+    return true
   }
 
   const handleGoToStep = (id: number) => {
@@ -1132,11 +1324,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       case 1:
         return !!(kycData.fullName && kycData.birthDate && kycData.country && kycData.docType && kycData.docNumber)
       case 2:
-        // Para pasaportes, solo se requiere el frente
-        if (kycData.docType === 'Passport') {
-          return !!(kycData.documentFront || uploadedRemote.documentFront)
-        }
-        // Para otros documentos, se requiere frente y reverso
+        // Se requiere frente y reverso para todos los documentos
         return !!((kycData.documentFront || uploadedRemote.documentFront) && (kycData.documentBack || uploadedRemote.documentBack))
       case 3:
         return !!(kycData.selfie || uploadedRemote.selfie)
@@ -1168,10 +1356,17 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
         !birthDateError
       )
     } else if (step === 2) {
-      // El paso 2 está completo si tiene documentos
-      return kycData.docType === 'Passport'
-        ? uploadedRemote.documentFront
-        : uploadedRemote.documentFront && uploadedRemote.documentBack
+      // El paso 2 está completo si tiene documentos (frente y reverso)
+      const step2Complete = uploadedRemote.documentFront && uploadedRemote.documentBack
+      
+      console.log(`🔍 isStepComplete(2):`, {
+        docType: kycData.docType,
+        documentFront: uploadedRemote.documentFront,
+        documentBack: uploadedRemote.documentBack,
+        result: step2Complete
+      })
+      
+      return step2Complete
     } else if (step === 3) {
       // El paso 3 está completo si tiene selfie
       return uploadedRemote.selfie
@@ -1179,42 +1374,51 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       // El paso 4 está completo si tiene comprobante
       return uploadedRemote.addressProof
     } else if (step === 5) {
-      // El paso 5 está completo si todos los pasos anteriores están completos
-      return Boolean(
-        kycData.fullName && kycData.birthDate && kycData.country && kycData.docType && kycData.docNumber &&
-        (kycData.docType === 'Passport'
-          ? uploadedRemote.documentFront
-          : uploadedRemote.documentFront && uploadedRemote.documentBack) &&
-        uploadedRemote.selfie &&
-        uploadedRemote.addressProof
-      )
+      // El paso 5 está completo solo si está en revisión o aprobado (no en draft)
+      return kycStatus === "review" || kycStatus === "approved"
     }
     return false
   }
 
-  // Función para verificar si un paso está disponible para navegación
+  // Función para verificar si un paso está disponible para navegación (secuencial)
   const isStepAvailable = (step: number) => {
     if (step === 1) {
       return true // El paso 1 siempre está disponible
     } else if (step === 2) {
-      // El paso 2 está disponible si el paso 1 está confirmado
-      return confirmedSteps.has(1)
+      // El paso 2 está disponible si el paso 1 está confirmado Y hay datos en BD
+      return confirmedSteps.has(1) && step1ContinueClicked && hasDataInDatabase
     } else if (step === 3) {
-      // El paso 3 está disponible si el paso 2 está confirmado
-      return confirmedSteps.has(2)
+      // El paso 3 está disponible si el paso 2 está confirmado Y se hizo clic en Continuar Y hay datos en BD
+      return confirmedSteps.has(2) && step2ContinueClicked && hasDataInDatabase
     } else if (step === 4) {
-      // El paso 4 está disponible si el paso 3 está confirmado
-      return confirmedSteps.has(3)
+      // El paso 4 está disponible si el paso 3 está confirmado Y se hizo clic en Continuar Y hay datos en BD
+      return confirmedSteps.has(3) && step3ContinueClicked && hasDataInDatabase
     } else if (step === 5) {
-      // El paso 5 está disponible si el paso 4 está confirmado
-      return confirmedSteps.has(4)
+      // El paso 5 está disponible si el paso 4 está confirmado Y se hizo clic en Continuar Y hay datos en BD
+      return confirmedSteps.has(4) && step4ContinueClicked && hasDataInDatabase
     }
     return false
   }
 
-  // Función para verificar si un paso está completado (permite navegación a pasos completados)
+  // Función para verificar si un paso está completado (verifica datos reales en BD)
   const isStepCompleted = (step: number) => {
-    return confirmedSteps.has(step) && isStepComplete(step)
+    if (step === 1) {
+      // Paso 1: verificar que hay datos personales reales en BD
+      return hasDataInDatabase && kycData.fullName && kycData.birthDate && kycData.country && kycData.docType && kycData.docNumber
+    } else if (step === 2) {
+      // Paso 2: verificar que hay documentos reales en BD (frente y reverso)
+      return hasDataInDatabase && (uploadedRemote.documentFront && uploadedRemote.documentBack)
+    } else if (step === 3) {
+      // Paso 3: verificar que hay selfie real en BD
+      return hasDataInDatabase && uploadedRemote.selfie
+    } else if (step === 4) {
+      // Paso 4: verificar que hay comprobante de domicilio real en BD
+      return hasDataInDatabase && uploadedRemote.addressProof
+    } else if (step === 5) {
+      // Paso 5: verificar estado de revisión
+      return kycStatus === "review" || kycStatus === "approved"
+    }
+    return false
   }
 
   // Función para verificar si se puede navegar a un paso (disponible o completado)
@@ -1224,9 +1428,23 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
 
   // Limpiar pasos marcados como confirmados pero que no tienen información
   useEffect(() => {
+    // Solo ejecutar la limpieza si uploadedRemote está sincronizado
+    if (!uploadedRemote.documentFront && !uploadedRemote.documentBack && !uploadedRemote.selfie && !uploadedRemote.addressProof) {
+      console.log('🔄 Saltando limpieza - uploadedRemote no está sincronizado')
+      return
+    }
+    
     const stepsToRemove: number[] = []
     for (const step of confirmedSteps) {
-      if (!isStepComplete(step)) {
+      const isComplete = isStepComplete(step)
+      console.log(`🔍 Verificando paso ${step} para limpieza:`, {
+        step,
+        isComplete,
+        confirmedSteps: Array.from(confirmedSteps),
+        uploadedRemote
+      })
+      
+      if (!isComplete) {
         stepsToRemove.push(step)
       }
     }
@@ -1236,13 +1454,19 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       setConfirmedSteps(prev => {
         const newSet = new Set(prev)
         stepsToRemove.forEach(step => newSet.delete(step))
+        console.log(`🧹 confirmedSteps después de limpieza:`, Array.from(newSet))
         return newSet
       })
     }
-  }, [confirmedSteps, uploadedRemote, kycData])
+  }, [confirmedSteps.size, uploadedRemote, kycData])
 
   // Verificar si el paso actual está completo
-  const currentStepComplete = confirmedSteps.has(currentStep) && isStepComplete(currentStep)
+  const currentStepComplete = confirmedSteps.has(currentStep) && isStepComplete(currentStep) && 
+    (currentStep === 1 ? (step1ContinueClicked && hasDataInDatabase) : 
+     currentStep === 2 ? (step2ContinueClicked && hasDataInDatabase) :
+     currentStep === 3 ? (step3ContinueClicked && hasDataInDatabase) :
+     currentStep === 4 ? (step4ContinueClicked && hasDataInDatabase) :
+     true) // Para el paso 5, no necesita verificación adicional
   const isReadyToSubmit = [1, 2, 3, 4].every((s) => validateStep(s))
   // Progreso basado SOLO en pasos completados (no navegación)
   const step1Done = Boolean(
@@ -1255,17 +1479,46 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
     kycData.municipality &&
     kycData.neighborhood &&
     kycData.addressDesc &&
-    validateAge(kycData.birthDate) &&
-    !nameError &&
-    !docNumberError &&
-    !birthDateError
+    validateAge(kycData.birthDate)
   )
+  
+  console.log('🔍 step1Done calculado:', {
+    fullName: kycData.fullName,
+    birthDate: kycData.birthDate,
+    country: kycData.country,
+    docType: kycData.docType,
+    docNumber: kycData.docNumber,
+    department: kycData.department,
+    municipality: kycData.municipality,
+    neighborhood: kycData.neighborhood,
+    addressDesc: kycData.addressDesc,
+    step1Done: step1Done
+  })
+  
+  // Debug adicional para el botón Continuar del paso 1
+  if (currentStep === 1) {
+    console.log('🔘 Botón Continuar paso 1:', {
+      step1Done: step1Done,
+      isProcessingStep1: isProcessingStep1,
+      step1ContinueClicked: step1ContinueClicked,
+      hasDataInDatabase: hasDataInDatabase,
+      disabled: !step1Done || isProcessingStep1 || (step1ContinueClicked && hasDataInDatabase),
+      uploadedRemote: uploadedRemote
+    })
+    
+    // Resetear step1ContinueClicked si los datos están completos pero no está en confirmedSteps
+    if (step1Done && !confirmedSteps.has(1) && step1ContinueClicked) {
+      console.log('🔄 Reseteando step1ContinueClicked - datos completos pero paso no confirmado')
+      setStep1ContinueClicked(false)
+    }
+    
+  }
   const personalDataComplete = step1Done
   
   // Sincronizar flags del wizard con el estado actual
   useEffect(() => {
-    setFlag('datosOk', personalDataComplete)
-  }, [personalDataComplete, setFlag])
+    setFlag('datosOk', confirmedSteps.has(1))
+  }, [confirmedSteps.size, setFlag])
 
   // Debug: Monitorear cambios en isProcessingStep1
   useEffect(() => {
@@ -1274,21 +1527,50 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
 
   // Navegación automática al cargar la página (refresh)
   useEffect(() => {
-    // Solo ejecutar una vez cuando se cargan los datos iniciales y hay pasos confirmados
-    if (userId && uploadedRemote && confirmedSteps.size > 0 && !hasInitialNavigation) {
+    // Solo ejecutar una vez cuando se cargan los datos iniciales, hay pasos confirmados y uploadedRemote está sincronizado
+    if (userId && uploadedRemote && confirmedSteps.size > 0 && !hasInitialNavigation &&
+        (uploadedRemote.documentFront || uploadedRemote.documentBack || uploadedRemote.selfie || uploadedRemote.addressProof)) {
       console.log('🔄 Página cargada, buscando primer paso incompleto...')
+      console.log('🔄 confirmedSteps en refresh:', Array.from(confirmedSteps))
+      console.log('🔄 step1ContinueClicked en refresh:', step1ContinueClicked)
+      console.log('🔄 step2ContinueClicked en refresh:', step2ContinueClicked)
+      console.log('🔄 step3Enabled en refresh:', step3Enabled)
+      console.log('🔄 step3ContinueClicked en refresh:', step3ContinueClicked)
+      console.log('🔄 step4Enabled en refresh:', step4Enabled)
+      console.log('🔄 step4ContinueClicked en refresh:', step4ContinueClicked)
+      console.log('🔄 step5Enabled en refresh:', step5Enabled)
+      
+      // Si el paso 2 está completo pero no se hizo clic en Continuar, quedarse en el paso 2
+      if (confirmedSteps.has(2) && !step2ContinueClicked) {
+        console.log('🔄 Refresh - Paso 2 completo pero no se hizo clic en Continuar - quedándose en paso 2')
+        setCurrentStep(2)
+        setHasInitialNavigation(true)
+        return
+      } else if (confirmedSteps.has(3) && !step3ContinueClicked) {
+        console.log('🔄 Refresh - Paso 3 completo pero no se hizo clic en Continuar - quedándose en paso 3')
+        setCurrentStep(3)
+        setHasInitialNavigation(true)
+        return
+      } else if (confirmedSteps.has(4) && !step4ContinueClicked) {
+        console.log('🔄 Refresh - Paso 4 completo pero no se hizo clic en Continuar - quedándose en paso 4')
+        setCurrentStep(4)
+        setHasInitialNavigation(true)
+        return
+      }
       
       // Encontrar el primer paso incompleto
       let firstIncompleteStep = 1
       
       for (let step = 1; step <= 5; step++) {
-        if (isStepAvailable(step)) {
+        console.log(`🔍 Refresh - Verificando paso ${step}:`)
+        console.log(`  - isStepComplete(${step}):`, isStepComplete(step))
+        console.log(`  - confirmedSteps.has(${step}):`, confirmedSteps.has(step))
+        console.log(`  - kycStatus:`, kycStatus)
+        
+        // Verificar si el paso está completo usando isStepComplete
           if (!isStepComplete(step)) {
             firstIncompleteStep = step
-            break
-          }
-        } else {
-          firstIncompleteStep = 1
+          console.log(`✅ Refresh - Paso ${step} es el primer incompleto`)
           break
         }
       }
@@ -1297,11 +1579,13 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       if (currentStep !== firstIncompleteStep) {
         console.log(`🎯 Página actualizada, navegando al primer paso incompleto: ${firstIncompleteStep}`)
         setCurrentStep(firstIncompleteStep)
+      } else {
+        console.log(`✅ Refresh - Ya estamos en el paso correcto: ${currentStep}`)
       }
       
       setHasInitialNavigation(true)
     }
-  }, [userId, uploadedRemote, confirmedSteps, hasInitialNavigation]) // Incluido confirmedSteps para detectar cuando hay pasos completados
+  }, [userId, uploadedRemote, confirmedSteps.size, hasInitialNavigation, step1ContinueClicked, step2ContinueClicked, step3Enabled, step3ContinueClicked, step4Enabled, step4ContinueClicked, step5Enabled])
   
   // Sincronizar flags de documentos
   useEffect(() => {
@@ -1310,8 +1594,102 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
     setFlag('selfieOk', uploadedRemote.selfie)
     setFlag('domicilioOk', uploadedRemote.addressProof)
   }, [uploadedRemote, setFlag])
+
   
-  // Logs de depuración para el paso 1
+  // Auto-guardar paso 2 cuando los documentos estén cargados
+  useEffect(() => {
+    console.log('🔍 Verificando auto-guardado paso 2:', {
+      documentFront: uploadedRemote.documentFront,
+      documentBack: uploadedRemote.documentBack,
+      docType: kycData.docType,
+      hasStep2: confirmedSteps.has(2),
+      hasDataInDatabase
+    })
+    
+    // Solo auto-guardar si hay datos reales en la base de datos
+    if (kycData.docType && hasDataInDatabase) {
+      const step2Complete = uploadedRemote.documentFront && uploadedRemote.documentBack
+      
+      console.log('🔍 step2Complete calculado:', step2Complete)
+      
+      // NO auto-guardar - solo marcar como completo cuando el usuario haga clic en Continuar
+      // if (step2Complete && !confirmedSteps.has(2)) {
+      //   console.log('🔄 Auto-guardando paso 2 - documentos detectados en BD')
+      //   setConfirmedSteps(prev => {
+      //     const newSet = new Set([...prev, 2])
+      //     console.log('🔄 Paso 2 agregado automáticamente:', Array.from(newSet))
+      //     return newSet
+      //   })
+      //   
+      //   // Asegurar que se quede en el paso 2 para que el usuario haga clic en Continuar
+      //   if (currentStep !== 2) {
+      //     console.log('🔄 Forzando navegación al paso 2 para mostrar botón Continuar')
+      //     setCurrentStep(2)
+      //   }
+      // }
+    }
+  }, [uploadedRemote, kycData.docType, confirmedSteps.size, currentStep, hasDataInDatabase])
+
+  // Auto-guardar paso 3 cuando la selfie esté cargada
+  useEffect(() => {
+    console.log('🔍 Verificando auto-guardado paso 3:', {
+      selfie: uploadedRemote.selfie,
+      hasStep3: confirmedSteps.has(3),
+      hasDataInDatabase
+    })
+    
+    // NO auto-guardar - solo marcar como completo cuando el usuario haga clic en Continuar
+    // if (uploadedRemote.selfie && !confirmedSteps.has(3) && hasDataInDatabase) {
+    //   console.log('🔄 Auto-guardando paso 3 - selfie detectada en BD')
+    //   setConfirmedSteps(prev => {
+    //     const newSet = new Set([...prev, 3])
+    //     console.log('🔄 Paso 3 agregado automáticamente:', Array.from(newSet))
+    //     return newSet
+    //   })
+    //   
+    //   // Asegurar que se quede en el paso 3 para que el usuario haga clic en Continuar
+    //   if (currentStep !== 3) {
+    //     console.log('🔄 Forzando navegación al paso 3 para mostrar botón Continuar')
+    //     setCurrentStep(3)
+    //   }
+    // }
+  }, [uploadedRemote, confirmedSteps.size, currentStep, hasDataInDatabase])
+
+  // Auto-guardar paso 4 cuando el comprobante de domicilio esté cargado
+  useEffect(() => {
+    console.log('🔍 Verificando auto-guardado paso 4:', {
+      addressProof: uploadedRemote.addressProof,
+      hasStep4: confirmedSteps.has(4),
+      hasDataInDatabase
+    })
+    
+    // NO auto-guardar - solo marcar como completo cuando el usuario haga clic en Continuar
+    // if (uploadedRemote.addressProof && !confirmedSteps.has(4) && hasDataInDatabase) {
+    //   console.log('🔄 Auto-guardando paso 4 - comprobante de domicilio detectado en BD')
+    //   setConfirmedSteps(prev => {
+    //     const newSet = new Set([...prev, 4])
+    //     console.log('🔄 Paso 4 agregado automáticamente:', Array.from(newSet))
+    //     return newSet
+    //   })
+    //   
+    //   // Asegurar que se quede en el paso 4 para que el usuario haga clic en Continuar
+    //   if (currentStep !== 4) {
+    //     console.log('🔄 Forzando navegación al paso 4 para mostrar botón Continuar')
+    //     setCurrentStep(4)
+    //   }
+    // }
+  }, [uploadedRemote, confirmedSteps.size, currentStep, hasDataInDatabase])
+
+  // Habilitar el paso 3 si ya se completó el paso 2 y se hizo clic en Continuar
+  useEffect(() => {
+    if (confirmedSteps.has(2) && !step3Enabled && !confirmedSteps.has(3)) {
+      console.log('🔄 Habilitando paso 3 - paso 2 completado y no se ha hecho clic en Continuar')
+      // No habilitar automáticamente, esperar clic en Continuar
+    }
+  }, [confirmedSteps.size, step3Enabled])
+  
+  // Logs de depuración para el paso 1 (solo en desarrollo)
+  if (process.env.NODE_ENV === 'development') {
   console.log('🔍 Debug paso 1:', {
     fullName: kycData.fullName,
     birthDate: kycData.birthDate,
@@ -1322,16 +1700,161 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
     personalDataComplete,
     currentStep
   })
-  const step2Done = kycData.docType === 'Passport' 
-    ? uploadedRemote.documentFront
-    : uploadedRemote.documentFront && uploadedRemote.documentBack
+  }
+  const step2Done = uploadedRemote.documentFront && uploadedRemote.documentBack
+  
+  console.log('🔍 step2Done calculado:', {
+    docType: kycData.docType,
+    documentFront: uploadedRemote.documentFront,
+    documentBack: uploadedRemote.documentBack,
+    step2Done: step2Done
+  })
+  
+  // Debug adicional para el botón Continuar del paso 2
+  if (currentStep === 2) {
+    console.log('🔘 Botón Continuar paso 2:', {
+      step2Done: step2Done,
+      isProcessingStep2: isProcessingStep2,
+      step2ContinueClicked: step2ContinueClicked,
+      disabled: !step2Done || isProcessingStep2 || step2ContinueClicked,
+      uploadedRemote: uploadedRemote
+    })
+    
+    // Resetear step2ContinueClicked si los documentos están completos pero no está en confirmedSteps
+    if (step2Done && !confirmedSteps.has(2) && step2ContinueClicked) {
+      console.log('🔄 Reseteando step2ContinueClicked - documentos completos pero paso no confirmado')
+      setStep2ContinueClicked(false)
+    }
+    
+  }
   const step3Done = uploadedRemote.selfie
+  
+  // Debug adicional para el botón Continuar del paso 3
+  if (currentStep === 3) {
+    console.log('🔘 Botón Continuar paso 3:', {
+      step3Done: step3Done,
+      isProcessingStep3: isProcessingStep3,
+      step3ContinueClicked: step3ContinueClicked,
+      disabled: !step3Done || isProcessingStep3 || step3ContinueClicked,
+      uploadedRemote: uploadedRemote
+    })
+    
+    // Resetear step3ContinueClicked si la selfie está completa pero no está en confirmedSteps
+    if (step3Done && !confirmedSteps.has(3) && step3ContinueClicked) {
+      console.log('🔄 Reseteando step3ContinueClicked - selfie completa pero paso no confirmado')
+      setStep3ContinueClicked(false)
+    }
+    
+  }
   const step4Done = uploadedRemote.addressProof
+  
+  // Debug adicional para el botón Continuar del paso 4
+  if (currentStep === 4) {
+    console.log('🔘 Botón Continuar paso 4:', {
+      step4Done: step4Done,
+      isProcessingStep4: isProcessingStep4,
+      step4ContinueClicked: step4ContinueClicked,
+      disabled: !step4Done || isProcessingStep4 || step4ContinueClicked,
+      uploadedRemote: uploadedRemote
+    })
+    
+    // Resetear step4ContinueClicked si el comprobante está completo pero no está en confirmedSteps
+    if (step4Done && !confirmedSteps.has(4) && step4ContinueClicked) {
+      console.log('🔄 Reseteando step4ContinueClicked - comprobante completo pero paso no confirmado')
+      setStep4ContinueClicked(false)
+    }
+    
+  }
   const step5Done = kycStatus === "review" || kycStatus === "approved"
+  
+  // === VERIFICACIÓN AUTOMÁTICA DE BASE DE DATOS ===
+  // Verificar paso 1: Datos personales
+  useEffect(() => {
+    const checkAndMarkComplete = async () => {
+      if (step1Done && hasDataInDatabase && !confirmedSteps.has(1)) {
+        console.log('🔍 Verificando paso 1 en base de datos:', {
+          fullName: kycData.fullName,
+          docType: kycData.docType,
+          docNumber: kycData.docNumber
+        })
+        
+        if (kycData.fullName && kycData.docType && kycData.docNumber) {
+          console.log('✅ Datos personales encontrados en BD - marcando paso 1 como completo')
+          const success = await markStepAsComplete(1)
+          if (success) {
+            console.log('✅ Paso 1 marcado como completo y guardado en localStorage')
+          }
+        }
+      }
+    }
+    
+    checkAndMarkComplete()
+  }, [step1Done, hasDataInDatabase, confirmedSteps.size])
+  
+  // Verificar paso 2: Documentos
+  useEffect(() => {
+    const checkAndMarkComplete = async () => {
+      if (step2Done && hasDataInDatabase && !confirmedSteps.has(2)) {
+        console.log('🔍 Verificando paso 2 en base de datos:', {
+          documentFront: uploadedRemote.documentFront,
+          documentBack: uploadedRemote.documentBack
+        })
+        
+        if (uploadedRemote.documentFront && uploadedRemote.documentBack) {
+          console.log('✅ Documentos encontrados en BD - marcando paso 2 como completo')
+          const success = await markStepAsComplete(2)
+          if (success) {
+            console.log('✅ Paso 2 marcado como completo y guardado en localStorage')
+          }
+        }
+      }
+    }
+    
+    checkAndMarkComplete()
+  }, [step2Done, hasDataInDatabase, confirmedSteps.size])
+  
+  // Verificar paso 3: Selfie
+  useEffect(() => {
+    const checkAndMarkComplete = async () => {
+      if (step3Done && hasDataInDatabase && !confirmedSteps.has(3)) {
+        console.log('🔍 Verificando paso 3 en base de datos:', uploadedRemote.selfie)
+        
+        if (uploadedRemote.selfie) {
+          console.log('✅ Selfie encontrada en BD - marcando paso 3 como completo')
+          const success = await markStepAsComplete(3)
+          if (success) {
+            console.log('✅ Paso 3 marcado como completo y guardado en localStorage')
+          }
+        }
+      }
+    }
+    
+    checkAndMarkComplete()
+  }, [step3Done, hasDataInDatabase, confirmedSteps.size])
+  
+  // Verificar paso 4: Comprobante de domicilio
+  useEffect(() => {
+    const checkAndMarkComplete = async () => {
+      if (step4Done && hasDataInDatabase && !confirmedSteps.has(4)) {
+        console.log('🔍 Verificando paso 4 en base de datos:', uploadedRemote.addressProof)
+        
+        if (uploadedRemote.addressProof) {
+          console.log('✅ Comprobante encontrado en BD - marcando paso 4 como completo')
+          const success = await markStepAsComplete(4)
+          if (success) {
+            console.log('✅ Paso 4 marcado como completo y guardado en localStorage')
+          }
+        }
+      }
+    }
+    
+    checkAndMarkComplete()
+  }, [step4Done, hasDataInDatabase, confirmedSteps.size])
   
   // La barra de progreso solo avanza con pasos realmente completados
   const stepsCompletedCount = Array.from(confirmedSteps).filter(step => isStepComplete(step)).length
-  const progress = (stepsCompletedCount / 5) * 100
+  // Si el estado es review o approved, mostrar 100% de progreso
+  const progress = (kycStatus === "review" || kycStatus === "approved") ? 100 : (stepsCompletedCount / 5) * 100
   const statusInfo = getStatusInfo(kycStatus)!
 
   const handleSaveDraft = async () => {
@@ -1345,6 +1868,57 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       municipality: kycData.municipality,
       neighborhood: kycData.neighborhood,
       addressDesc: kycData.addressDesc,
+    }
+    await onSaveKycDraft(draftData)
+  }
+
+  const handleSaveStep2Draft = async () => {
+    // Guardar el estado de los documentos del paso 2
+    const draftData = {
+      fullName: kycData.fullName,
+      birthDate: kycData.birthDate,
+      country: kycData.country,
+      docType: kycData.docType,
+      docNumber: kycData.docNumber,
+      department: kycData.department,
+      municipality: kycData.municipality,
+      neighborhood: kycData.neighborhood,
+      addressDesc: kycData.addressDesc,
+      // Los documentos se guardan automáticamente cuando se suben
+    }
+    await onSaveKycDraft(draftData)
+  }
+
+  const handleSaveStep3Draft = async () => {
+    // Guardar el estado de la selfie del paso 3
+    const draftData = {
+      fullName: kycData.fullName,
+      birthDate: kycData.birthDate,
+      country: kycData.country,
+      docType: kycData.docType,
+      docNumber: kycData.docNumber,
+      department: kycData.department,
+      municipality: kycData.municipality,
+      neighborhood: kycData.neighborhood,
+      addressDesc: kycData.addressDesc,
+      // La selfie se guarda automáticamente cuando se sube
+    }
+    await onSaveKycDraft(draftData)
+  }
+
+  const handleSaveStep4Draft = async () => {
+    // Guardar el estado del comprobante de domicilio del paso 4
+    const draftData = {
+      fullName: kycData.fullName,
+      birthDate: kycData.birthDate,
+      country: kycData.country,
+      docType: kycData.docType,
+      docNumber: kycData.docNumber,
+      department: kycData.department,
+      municipality: kycData.municipality,
+      neighborhood: kycData.neighborhood,
+      addressDesc: kycData.addressDesc,
+      // El comprobante de domicilio se guarda automáticamente cuando se sube
     }
     await onSaveKycDraft(draftData)
   }
@@ -1367,6 +1941,58 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
   const checkVerificationStatus = () => {
     const label = getStatusInfo(kycStatus)?.label || "Pendiente"
     toast.info(`Estado actual de verificación: ${label}`)
+  }
+
+  // Función para continuar al paso 2 (extraída para reutilización)
+  const continueToStep2 = async () => {
+    setIsProcessingStep1(true)
+    console.log('🔄 Clic en botón Continuar - Paso 1')
+    console.log('🔒 Estado isProcessingStep1:', true)
+    console.log('📊 Datos personales:', {
+      fullName: kycData.fullName,
+      birthDate: kycData.birthDate,
+      country: kycData.country,
+      docType: kycData.docType,
+      docNumber: kycData.docNumber,
+      department: kycData.department,
+      municipality: kycData.municipality,
+      neighborhood: kycData.neighborhood,
+      addressDesc: kycData.addressDesc
+    })
+    
+    try {
+      // Guardar los datos personales en la base de datos
+      await handleSaveDraft()
+      
+      // Marcar que hay datos en la base de datos
+      setHasDataInDatabase(true)
+      
+      // Marcar que se hizo clic en Continuar
+      setStep1ContinueClicked(true)
+      
+      // Marcar el paso como completo
+      await markStepAsComplete(1)
+      
+      // Guardar estados en localStorage
+      saveStepStates(
+        true, // step1ContinueClicked
+        step2ContinueClicked,
+        step3Enabled,
+        step3ContinueClicked,
+        step4Enabled,
+        step4ContinueClicked,
+        step5Enabled
+      )
+      
+      // Navegar específicamente al paso 2
+      console.log('🎯 Navegando al paso 2 desde el botón Continuar')
+      setCurrentStep(2)
+    } catch (error) {
+      console.error('Error en paso 1:', error)
+      toast.error('Error al procesar los datos. Inténtalo de nuevo.')
+    } finally {
+      setIsProcessingStep1(false)
+    }
   }
 
   return (
@@ -1405,7 +2031,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
             <Shield className="h-4 w-4" />
             <AlertDescription>
               Tu información se mantiene segura y encriptada bajo protocolos internacionales de protección de datos. El
-              proceso de revisión puede tomar entre 24 y 48 horas hábiles.
+              proceso de revisión puede tomar entre 24 y 72 horas hábiles.
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -1422,10 +2048,12 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {steps.map((step) => {
           const Icon = step.icon as any
-          const isDone = confirmedSteps.has(step.id) && isStepComplete(step.id)
+          const isDone = (confirmedSteps.has(step.id) && isStepComplete(step.id)) || 
+                        (step.id === 5 && (kycStatus === "review" || kycStatus === "approved"))
           const isActive = currentStep === step.id
           const stepAvailable = isStepAvailable(step.id)
-          const stepCompleted = isStepCompleted(step.id)
+          const stepCompleted = isStepCompleted(step.id) || 
+                               (step.id === 5 && (kycStatus === "review" || kycStatus === "approved"))
           const canNavigate = canNavigateToStep(step.id)
           
           // Mapear step.id numérico a StepKey
@@ -1470,9 +2098,9 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
               aria-current={isActive ? "step" : undefined}
             >
               <div
-                className={`rounded-full p-2 transition-colors duration-200 ${
+                className={`rounded-full p-2 transition-colors duration-200 flex items-center justify-center ${
                   isDone
-                    ? "bg-green-100 text-green-700"
+                    ? "bg-green-100 text-green-700" 
                     : isActive
                     ? "bg-blue-100 text-blue-700"
                     : stepAvailable
@@ -1481,7 +2109,108 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                 }`}
                 title={isDone ? "Completado" : isActive ? "En progreso" : stepAvailable ? "Disponible" : "Bloqueado"}
               >
-                <Icon className="h-5 w-5" />
+                {step.id === 1 && (
+                  <User 
+                    style={{ 
+                      width: '18px', 
+                      height: '18px', 
+                      minWidth: '18px', 
+                      minHeight: '18px',
+                      maxWidth: '18px',
+                      maxHeight: '18px',
+                      fontSize: '18px',
+                      display: 'block',
+                      lineHeight: '1',
+                      flexShrink: 0
+                    }} 
+                  />
+                )}
+                {step.id === 2 && (
+                  <div 
+                    className="flex items-center justify-center"
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      minWidth: '20px',
+                      minHeight: '20px',
+                      fontSize: '18px'
+                    }}
+                  >
+                    <FileText 
+                      style={{ 
+                        width: '18px', 
+                        height: '18px',
+                        minWidth: '18px', 
+                        minHeight: '18px',
+                        maxWidth: '18px',
+                        maxHeight: '18px',
+                        fontSize: '18px',
+                        display: 'block',
+                        lineHeight: '1',
+                        flexShrink: 0
+                      }} 
+                    />
+                  </div>
+                )}
+                {step.id === 3 && (
+                  <Camera 
+                    style={{ 
+                      width: '18px', 
+                      height: '18px', 
+                      minWidth: '18px', 
+                      minHeight: '18px',
+                      maxWidth: '18px',
+                      maxHeight: '18px',
+                      fontSize: '18px',
+                      display: 'block',
+                      lineHeight: '1',
+                      flexShrink: 0
+                    }} 
+                  />
+                )}
+                {step.id === 4 && (
+                  <div 
+                    className="flex items-center justify-center"
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      minWidth: '20px',
+                      minHeight: '20px',
+                      fontSize: '18px'
+                    }}
+                  >
+                    <Home 
+                      style={{ 
+                        width: '18px', 
+                        height: '18px',
+                        minWidth: '18px', 
+                        minHeight: '18px',
+                        maxWidth: '18px',
+                        maxHeight: '18px',
+                        fontSize: '18px',
+                        display: 'block',
+                        lineHeight: '1',
+                        flexShrink: 0
+                      }} 
+                    />
+                  </div>
+                )}
+                {step.id === 5 && (
+                  <Shield 
+                    style={{ 
+                      width: '18px', 
+                      height: '18px', 
+                      minWidth: '18px', 
+                      minHeight: '18px',
+                      maxWidth: '18px',
+                      maxHeight: '18px',
+                      fontSize: '18px',
+                      display: 'block',
+                      lineHeight: '1',
+                      flexShrink: 0
+                    }} 
+                  />
+                )}
               </div>
               <div className="space-y-1">
                 <div className={`text-sm font-medium flex items-center gap-2 transition-colors duration-200 ${
@@ -1490,7 +2219,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                     : "text-muted-foreground/60"
                 }`}>
                   {step.title}
-                  {isDone && <CheckCircle className="h-4 w-4 text-green-600" />}
+                  {isDone && <CheckCircle className={`text-green-600 ${step.id === 2 || step.id === 4 ? 'h-8 w-8' : step.id === 3 ? 'h-6 w-6' : 'h-5 w-5'}`} />}
                 </div>
                 <div className={`text-xs transition-colors duration-200 ${
                   stepAvailable 
@@ -1510,28 +2239,36 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <span className={`rounded-full w-6 h-6 flex items-center justify-center text-sm ${
-              currentStep === 1 && confirmedSteps.has(1) 
+              confirmedSteps.has(currentStep)
                 ? "bg-green-600 text-white" 
                 : "bg-primary text-primary-foreground"
             }`}>
-              {currentStep === 1 && confirmedSteps.has(1) ? <CheckCircle className="h-4 w-4" /> : currentStep}
+              {confirmedSteps.has(currentStep) ? (
+                <span className="text-xs font-bold">✓</span>
+              ) : (
+                currentStep
+              )}
             </span>
             {currentStep === 1 && "Datos personales"}
             {currentStep === 2 && "Documento de identidad"}
             {currentStep === 3 && "Selfie de validación"}
             {currentStep === 4 && "Comprobante de domicilio"}
             {currentStep === 5 && "Revisión y envío"}
-            {currentStep === 1 && confirmedSteps.has(1) && (
+            {confirmedSteps.has(currentStep) && (
               <span className="text-green-600 text-sm font-normal">✓ Completado</span>
             )}
           </CardTitle>
           <CardDescription>
-            {currentStep === 1 && confirmedSteps.has(1) && "✓ Datos personales completados y guardados correctamente."}
-            {currentStep === 1 && !confirmedSteps.has(1) && "Ingresa tu nombre completo, fecha de nacimiento y país."}
-            {currentStep === 2 && "Sube tu DNI o pasaporte hondureño (frente y reverso)."}
-            {currentStep === 3 && "Tómate una selfie en tiempo real para confirmar tu identidad."}
-            {currentStep === 4 && "Adjunta un comprobante de domicilio reciente (≤ 3 meses)."}
-            {currentStep === 5 && "Revisa tu información y envía tu verificación para su evaluación."}
+            {currentStep === 1 && isStepCompleted(1) && "✓ Datos personales completados y guardados correctamente."}
+            {currentStep === 1 && !isStepCompleted(1) && "Ingresa tu nombre completo, fecha de nacimiento y país."}
+            {currentStep === 2 && isStepCompleted(2) && "✓ Documentos de identidad completados y guardados correctamente."}
+            {currentStep === 2 && !isStepCompleted(2) && "Sube tu DNI o pasaporte hondureño (frente y reverso)."}
+            {currentStep === 3 && isStepCompleted(3) && "✓ Selfie de validación completada y guardada correctamente."}
+            {currentStep === 3 && !isStepCompleted(3) && "Tómate una selfie en tiempo real para confirmar tu identidad."}
+            {currentStep === 4 && isStepCompleted(4) && "✓ Comprobante de domicilio completado y guardado correctamente."}
+            {currentStep === 4 && !isStepCompleted(4) && "Adjunta un comprobante de domicilio reciente (≤ 3 meses)."}
+      {currentStep === 5 && (confirmedSteps.has(5) || kycStatus === "review" || kycStatus === "approved") && "✓ Verificación enviada correctamente para su evaluación."}
+      {currentStep === 5 && !confirmedSteps.has(5) && kycStatus !== "review" && kycStatus !== "approved" && "Revisa tu información y envía tu verificación para su evaluación."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-8">
@@ -1553,7 +2290,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                   }} 
                   placeholder="Como aparece en su documento"
                   className={nameError ? "border-destructive focus:border-destructive" : ""}
-                  disabled={isProcessingStep1 || confirmedSteps.has(1)}
+                  disabled={isProcessingStep1 || (hasDataInDatabase && confirmedSteps.has(1) && step1ContinueClicked)}
                 />
                 {nameError && (
                   <p className="text-sm text-destructive">{nameError}</p>
@@ -1580,7 +2317,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                     }
                   }}
                   className={birthDateError ? "border-destructive focus:border-destructive" : ""}
-                  disabled={isProcessingStep1 || confirmedSteps.has(1)}
+                  disabled={isProcessingStep1 || (hasDataInDatabase && confirmedSteps.has(1) && step1ContinueClicked)}
                 />
                 {birthDateError && (
                   <p className="text-sm text-destructive">{birthDateError}</p>
@@ -1595,7 +2332,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                 <Select value={kycData.docType} onValueChange={(value: any) => {
                   setKycData((prev) => ({ ...prev, docType: value, docNumber: "" }))
                   setDocNumberError("")
-                }} disabled={isProcessingStep1 || confirmedSteps.has(1)}>
+                }} disabled={isProcessingStep1 || (hasDataInDatabase && confirmedSteps.has(1) && step1ContinueClicked)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Seleccione el tipo" />
                   </SelectTrigger>
@@ -1650,7 +2387,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                   }} 
                   placeholder={kycData.docType === "ID" ? "0000-0000-00000" : "HND1234567"}
                   className={docNumberError ? "border-destructive focus:border-destructive" : ""}
-                  disabled={isProcessingStep1 || confirmedSteps.has(1)}
+                  disabled={isProcessingStep1 || (hasDataInDatabase && confirmedSteps.has(1) && step1ContinueClicked)}
                 />
                 {docNumberError && (
                   <p className="text-sm text-destructive">{docNumberError}</p>
@@ -1669,7 +2406,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                   onValueChange={(value) => {
                     setKycData((prev) => ({ ...prev, department: value, municipality: "" }))
                   }}
-                  disabled={isProcessingStep1 || confirmedSteps.has(1)}
+                  disabled={isProcessingStep1 || (hasDataInDatabase && confirmedSteps.has(1) && step1ContinueClicked)}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Seleccione el departamento" />
@@ -1686,7 +2423,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                 <Select
                   value={kycData.municipality}
                   onValueChange={(value) => setKycData((prev) => ({ ...prev, municipality: value }))}
-                  disabled={!kycData.department || isProcessingStep1 || confirmedSteps.has(1)}
+                  disabled={!kycData.department || isProcessingStep1 || (hasDataInDatabase && confirmedSteps.has(1) && step1ContinueClicked)}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder={kycData.department ? "Seleccione el municipio" : "Seleccione un departamento primero"} />
@@ -1700,11 +2437,11 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
               </div>
               <div className="space-y-4">
                 <Label>Colonia/Barrio/Aldea *</Label>
-                <Input value={kycData.neighborhood} onChange={(e) => setKycData((prev) => ({ ...prev, neighborhood: e.target.value }))} placeholder="Ej. Col. Tara / Barrio Abajo" disabled={isProcessingStep1 || confirmedSteps.has(1)} />
+                <Input value={kycData.neighborhood} onChange={(e) => setKycData((prev) => ({ ...prev, neighborhood: e.target.value }))} placeholder="Ej. Col. Tara / Barrio Abajo" disabled={isProcessingStep1 || (hasDataInDatabase && confirmedSteps.has(1) && step1ContinueClicked)} />
               </div>
               <div className="space-y-4 md:col-span-2">
                 <Label>Descripción de calle / bloque / #casa / #apartamento *</Label>
-                <Input value={kycData.addressDesc} onChange={(e) => setKycData((prev) => ({ ...prev, addressDesc: e.target.value }))} placeholder="Ej. Calle 3, bloque B, casa #24, apto 3B" disabled={isProcessingStep1 || confirmedSteps.has(1)} />
+                <Input value={kycData.addressDesc} onChange={(e) => setKycData((prev) => ({ ...prev, addressDesc: e.target.value }))} placeholder="Ej. Calle 3, bloque B, casa #24, apto 3B" disabled={isProcessingStep1 || (hasDataInDatabase && confirmedSteps.has(1) && step1ContinueClicked)} />
               </div>
             </div>
           )}
@@ -1731,8 +2468,8 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                 </div>
               )}
 
-              {/* Solo mostrar reverso si no es pasaporte */}
-              {kycData.docType !== 'Passport' && (
+              {/* Mostrar reverso para todos los documentos */}
+              {(
                 userId ? (
                   <KycUploader
                     userId={userId}
@@ -1754,14 +2491,6 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                 )
               )}
 
-              {/* Mensaje informativo para pasaportes */}
-              {kycData.docType === 'Passport' && (
-                <div className="text-center p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-sm text-blue-700">
-                    ℹ️ Los pasaportes solo requieren una foto del documento principal
-                  </p>
-              </div>
-              )}
             </div>
           )}
 
@@ -1785,6 +2514,71 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                   <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" />
                   <p>Cargando...</p>
                 </div>
+              )}
+
+              {currentStep === 3 && (
+                <Button
+                  data-action="continuar"
+                  onClick={async () => {
+                    if (isProcessingStep3) return // Prevenir múltiples clics
+
+                    // Validación estricta antes de continuar
+                    if (!step3Done) {
+                      toast.error('Por favor sube la selfie requerida antes de continuar.')
+                      return
+                    }
+
+                    setIsProcessingStep3(true)
+                    setStep3ContinueClicked(true)
+                    saveStepStates(step1ContinueClicked, step2ContinueClicked, step3Enabled, true, false) // Guardar que se hizo clic en Continuar
+                    console.log('🔄 Clic en botón Continuar - Paso 3')
+                    console.log('🔒 Estado isProcessingStep3:', true)
+                    console.log('🔒 Estado step3ContinueClicked:', true)
+                    console.log('📊 Selfie cargada:', {
+                      selfie: uploadedRemote.selfie
+                    })
+                    
+                    try {
+                      // Guardar la selfie del paso 3 en la base de datos
+                      await handleSaveStep3Draft()
+                      
+                      // Marcar el paso como completo
+                      const success = await markStepAsComplete(3)
+                      
+                      if (success) {
+                        // Navegar específicamente al paso 4 (domicilio)
+                        console.log('🎯 Navegando al paso 4 desde el botón Continuar')
+                        console.log('🔍 Estado del wizard antes de navegar:', {
+                          current: wizardState.current,
+                          status: wizardState.status
+                        })
+                        
+                        // Habilitar el paso 4 permanentemente
+                        setStep4Enabled(true)
+                        saveStepStates(step1ContinueClicked, step2ContinueClicked, step3Enabled, true, true) // Guardar que el paso 4 está habilitado
+                        
+                        // Usar setCurrentStep directamente para asegurar la navegación
+                        setCurrentStep(4)
+                        console.log('✅ Navegación al paso 4 completada')
+                      } else {
+                        toast.error('No se pudo marcar el paso 3 como completo. Verifica que la selfie esté cargada.')
+                      }
+                    } catch (error) {
+                      console.error('Error en paso 3:', error)
+                      toast.error('Error al procesar la selfie. Inténtalo de nuevo.')
+                    } finally {
+                      setIsProcessingStep3(false)
+                    }
+                  }}
+                  disabled={!step3Done || isProcessingStep3 || step3ContinueClicked}
+                  title={`step3Done: ${step3Done}, isProcessingStep3: ${isProcessingStep3}, step3ContinueClicked: ${step3ContinueClicked}`}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90 transition-colors duration-200"
+                >
+                  <span className="flex items-center gap-2">
+                    {isProcessingStep3 && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {isProcessingStep3 ? "Procesando..." : "Continuar"}
+                  </span>
+                </Button>
               )}
             </div>
           )}
@@ -1810,6 +2604,71 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                   <p>Cargando...</p>
                 </div>
               )}
+
+              {currentStep === 4 && (
+                <Button
+                  data-action="continuar"
+                  onClick={async () => {
+                    if (isProcessingStep4) return // Prevenir múltiples clics
+
+                    // Validación estricta antes de continuar
+                    if (!step4Done) {
+                      toast.error('Por favor sube el comprobante de domicilio requerido antes de continuar.')
+                      return
+                    }
+
+                    setIsProcessingStep4(true)
+                    setStep4ContinueClicked(true)
+                    saveStepStates(step1ContinueClicked, step2ContinueClicked, step3Enabled, step3ContinueClicked, step4Enabled, true, false) // Guardar que se hizo clic en Continuar
+                    console.log('🔄 Clic en botón Continuar - Paso 4')
+                    console.log('🔒 Estado isProcessingStep4:', true)
+                    console.log('🔒 Estado step4ContinueClicked:', true)
+                    console.log('📊 Comprobante de domicilio cargado:', {
+                      addressProof: uploadedRemote.addressProof
+                    })
+                    
+                    try {
+                      // Guardar el comprobante de domicilio del paso 4 en la base de datos
+                      await handleSaveStep4Draft()
+                      
+                      // Marcar el paso como completo
+                      const success = await markStepAsComplete(4)
+                      
+                      if (success) {
+                        // Navegar específicamente al paso 5 (revisión)
+                        console.log('🎯 Navegando al paso 5 desde el botón Continuar')
+                        console.log('🔍 Estado del wizard antes de navegar:', {
+                          current: wizardState.current,
+                          status: wizardState.status
+                        })
+                        
+                        // Habilitar el paso 5 permanentemente
+                        setStep5Enabled(true)
+                        saveStepStates(step1ContinueClicked, step2ContinueClicked, step3Enabled, step3ContinueClicked, step4Enabled, true, true) // Guardar que el paso 5 está habilitado
+                        
+                        // Usar setCurrentStep directamente para asegurar la navegación
+                        setCurrentStep(5)
+                        console.log('✅ Navegación al paso 5 completada')
+                      } else {
+                        toast.error('No se pudo marcar el paso 4 como completo. Verifica que el comprobante de domicilio esté cargado.')
+                      }
+                    } catch (error) {
+                      console.error('Error en paso 4:', error)
+                      toast.error('Error al procesar el comprobante de domicilio. Inténtalo de nuevo.')
+                    } finally {
+                      setIsProcessingStep4(false)
+                    }
+                  }}
+                  disabled={!step4Done || isProcessingStep4 || step4ContinueClicked}
+                  title={`step4Done: ${step4Done}, isProcessingStep4: ${isProcessingStep4}, step4ContinueClicked: ${step4ContinueClicked}`}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90 transition-colors duration-200"
+                >
+                  <span className="flex items-center gap-2">
+                    {isProcessingStep4 && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {isProcessingStep4 ? "Procesando..." : "Continuar"}
+                  </span>
+                </Button>
+              )}
             </div>
           )}
 
@@ -1819,7 +2678,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                 <Shield className="h-4 w-4" />
                 <AlertDescription>
                   Nuestro sistema verificará automáticamente tus datos. Si es necesario, un agente realizará una revisión
-                  manual. Recibirás una notificación por correo cuando se complete el proceso.
+                  manual. Recibirás una notificación por correo cuando se complete el proceso. El tiempo estimado es de 24-72 horas hábiles.
                 </AlertDescription>
               </Alert>
               <div className="text-sm text-muted-foreground">Asegúrate de que toda la información y archivos cargados sean legibles y estén actualizados.</div>
@@ -1831,7 +2690,8 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                   id="aceptoDeclaracion"
                   checked={wizardState.flags.aceptoDeclaracion}
                   onChange={(e) => setFlag('aceptoDeclaracion', e.target.checked)}
-                  className="rounded border-gray-300"
+                  disabled={kycStatus === "review" || kycStatus === "approved"}
+                  className="rounded border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <label htmlFor="aceptoDeclaracion" className="text-sm">
                   Acepto la declaración de veracidad de la información proporcionada
@@ -1842,7 +2702,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
 
           <div className="flex flex-col sm:flex-row gap-3 pt-6 border-t border-border">
             {/* Botón Atrás */}
-            {currentStep > 1 && (
+            {currentStep > 1 && currentStep !== 2 && currentStep !== 3 && currentStep !== 4 && currentStep !== 5 && (
               <Button 
                 data-action="atras"
                 variant="outline" 
@@ -1853,8 +2713,8 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
               </Button>
             )}
             
-            {/* Solo mostrar botones en pasos 1 y 5 */}
-            {(currentStep === 1 || currentStep === 5) && (
+            {/* Mostrar botones en pasos 1, 2 y 5 */}
+            {(currentStep === 1 || currentStep === 2 || currentStep === 5) && (
             <div className="flex gap-4">
                 {/* Botón Continuar para el paso 1 */}
                 {currentStep === 1 && (
@@ -1864,48 +2724,95 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                         if (isProcessingStep1) return // Prevenir múltiples clics
                         
                         // Validación estricta antes de continuar
-                        if (!personalDataComplete) {
+                        if (!step1Done) {
                           toast.error('Por favor completa todos los campos requeridos antes de continuar.')
                           return
                         }
                         
-                        setIsProcessingStep1(true)
-                        console.log('🔄 Clic en botón Continuar - Paso 1')
-                        console.log('🔒 Estado isProcessingStep1:', true)
-                        console.log('📊 Datos personales:', {
-                          fullName: kycData.fullName,
-                          birthDate: kycData.birthDate,
-                          country: kycData.country,
-                          docType: kycData.docType,
-                          docNumber: kycData.docNumber,
-                          department: kycData.department,
-                          municipality: kycData.municipality,
-                          neighborhood: kycData.neighborhood,
-                          addressDesc: kycData.addressDesc
-                        })
-                        
-                        try {
-                          // Guardar los datos personales en la base de datos
-                          await handleSaveDraft()
-                          
-                          // Marcar el paso como completo
-                          await markStepAsComplete(1)
-                          
-                          // Avanzar al siguiente paso
-                          goNext()
-                        } catch (error) {
-                          console.error('Error en paso 1:', error)
-                          toast.error('Error al procesar los datos. Inténtalo de nuevo.')
-                        } finally {
-                          setIsProcessingStep1(false)
+                        // Si el usuario eligió Pasaporte, mostrar el modal explicativo
+                        if (kycData.docType === "Passport") {
+                          setShowPassportModal(true)
+                          return // No continuamos hasta que el usuario confirme el modal
                         }
+                        
+                        // Para otros tipos de documento, continuamos normalmente
+                        await continueToStep2()
                       }}
-                      disabled={!personalDataComplete || isProcessingStep1 || confirmedSteps.has(1)}
+                      disabled={!step1Done || isProcessingStep1 || (step1ContinueClicked && hasDataInDatabase)}
+                      title={`step1Done: ${step1Done}, isProcessingStep1: ${isProcessingStep1}, step1ContinueClicked: ${step1ContinueClicked}, hasDataInDatabase: ${hasDataInDatabase}`}
                       className="bg-primary text-primary-foreground hover:bg-primary/90 transition-colors duration-200"
                     >
                       <span className="flex items-center gap-2">
                         {isProcessingStep1 && <Loader2 className="h-4 w-4 animate-spin" />}
                         {isProcessingStep1 ? "Procesando..." : "Continuar"}
+                      </span>
+                    </Button>
+                )}
+                
+                {/* Botón Continuar para el paso 2 */}
+                {currentStep === 2 && (
+                    <Button 
+                      data-action="continuar"
+                      onClick={async () => {
+                        if (isProcessingStep2) return // Prevenir múltiples clics
+                        
+                        // Validación estricta antes de continuar
+                        if (!step2Done) {
+                          toast.error('Por favor sube todas las imágenes requeridas antes de continuar.')
+                          return
+                        }
+                        
+                        setIsProcessingStep2(true)
+                        setStep2ContinueClicked(true)
+                        saveStepStates(step1ContinueClicked, true, false) // Guardar que se hizo clic en Continuar
+                        console.log('🔄 Clic en botón Continuar - Paso 2')
+                        console.log('🔒 Estado isProcessingStep2:', true)
+                        console.log('🔒 Estado step2ContinueClicked:', true)
+                        console.log('📊 Documentos cargados:', {
+                          docType: kycData.docType,
+                          documentFront: uploadedRemote.documentFront,
+                          documentBack: uploadedRemote.documentBack
+                        })
+                        
+                        try {
+                          // Guardar los documentos del paso 2 en la base de datos
+                          await handleSaveStep2Draft()
+                          
+                          // Marcar el paso como completo
+                          const success = await markStepAsComplete(2)
+                          
+                          if (success) {
+                            // Navegar específicamente al paso 3 (selfie)
+                            console.log('🎯 Navegando al paso 3 desde el botón Continuar')
+                            console.log('🔍 Estado del wizard antes de navegar:', {
+                              current: wizardState.current,
+                              status: wizardState.status
+                            })
+                            
+                            // Habilitar el paso 3 permanentemente
+                            setStep3Enabled(true)
+                            saveStepStates(step1ContinueClicked, true, true) // Guardar que el paso 3 está habilitado
+                            
+                            // Usar setCurrentStep directamente para asegurar la navegación
+                            setCurrentStep(3)
+                            console.log('✅ Navegación al paso 3 completada')
+                          } else {
+                            toast.error('No se pudo marcar el paso 2 como completo. Verifica que las imágenes estén cargadas.')
+                          }
+                        } catch (error) {
+                          console.error('Error en paso 2:', error)
+                          toast.error('Error al procesar los documentos. Inténtalo de nuevo.')
+                        } finally {
+                          setIsProcessingStep2(false)
+                        }
+                      }}
+                      disabled={!step2Done || isProcessingStep2 || step2ContinueClicked}
+                      title={`step2Done: ${step2Done}, isProcessingStep2: ${isProcessingStep2}, step2ContinueClicked: ${step2ContinueClicked}`}
+                      className="bg-primary text-primary-foreground hover:bg-primary/90 transition-colors duration-200"
+                    >
+                      <span className="flex items-center gap-2">
+                        {isProcessingStep2 && <Loader2 className="h-4 w-4 animate-spin" />}
+                        {isProcessingStep2 ? "Procesando..." : "Continuar"}
                       </span>
                     </Button>
                 )}
@@ -1920,11 +2827,26 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                   data-action="continuar"
                   onClick={async () => {
                     if (canContinue()) {
+                      try {
+                        // Enviar la verificación
                       await handleSubmitKyc()
-                      goNext()
+                        
+                        // Marcar el paso 5 como completo
+                        const success = await markStepAsComplete(5)
+                        
+                        if (success) {
+                          console.log('✅ Paso 5 marcado como completo después del envío')
+                          // Mostrar modal de confirmación en lugar de navegar
+                          setShowSubmissionModal(true)
+                        } else {
+                          console.error('❌ No se pudo marcar el paso 5 como completo')
+                        }
+                      } catch (error) {
+                        console.error('Error al enviar verificación:', error)
+                      }
                     }
                   }} 
-                  disabled={!isReadyToSubmit || kycStatus === "review" || isSubmitting || !canContinue()} 
+                  disabled={!isReadyToSubmit || kycStatus === "review" || isSubmitting || !canContinue() || !wizardState.flags.aceptoDeclaracion} 
                   className="bg-green-600 hover:bg-green-700"
                 >
                   <span className="flex items-center gap-2">{isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}{kycStatus === "review" ? "Enviado" : isSubmitting ? "Enviando..." : "Enviar verificación"}</span>
@@ -2024,7 +2946,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
             </AccordionItem>
             <AccordionItem value="item-2">
               <AccordionTrigger>¿Cuánto tarda el proceso de verificación?</AccordionTrigger>
-              <AccordionContent> Generalmente entre 24 y 48 horas hábiles, dependiendo del volumen de solicitudes.</AccordionContent>
+              <AccordionContent> Generalmente entre 24 y 72 horas hábiles, dependiendo del volumen de solicitudes.</AccordionContent>
             </AccordionItem>
             <AccordionItem value="item-3">
               <AccordionTrigger>¿Cómo sé si mis datos están seguros?</AccordionTrigger>
@@ -2037,6 +2959,79 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
           </Accordion>
         </CardContent>
       </Card>
+
+      {/* Modal de confirmación de envío */}
+      <Dialog open={showSubmissionModal} onOpenChange={setShowSubmissionModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-green-600" />
+              Verificación Enviada
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Tu verificación ha sido enviada exitosamente. Nuestro equipo revisará tus documentos y te notificaremos por correo electrónico cuando se complete el proceso.
+            </p>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm text-blue-700">
+                <strong>Tiempo estimado:</strong> 24-72 horas hábiles
+              </p>
+            </div>
+            <div className="flex justify-end">
+              <Button 
+                onClick={() => setShowSubmissionModal(false)}
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                Entendido
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal información para pasaportes */}
+      <Dialog open={showPassportModal} onOpenChange={setShowPassportModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-blue-600" />
+              Documento de Pasaporte
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="text-sm text-foreground space-y-2">
+              <p className="font-medium">¿Sabías que para pasaportes necesitas?</p>
+              <div className="bg-blue-50 dark:bg-blue-950/30 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  <strong>Subir dos veces la misma imagen:</strong> Para validar tu documento de pasaporte, 
+                  deberás cargar la misma foto de tu pasaporte tanto en "Documento frontal" como en "Documento reverso".
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Esto es necesario porque los pasaportes tienen toda la información válida en una sola página.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button 
+                variant="outline"
+                onClick={() => setShowPassportModal(false)}
+              >
+                Cancelar
+              </Button>
+              <Button 
+                onClick={async () => {
+                  setShowPassportModal(false)
+                  await continueToStep2()
+                }}
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                Entendido, continuar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
