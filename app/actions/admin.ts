@@ -37,7 +37,7 @@ export type KycRequest = {
 
 // Dashboard Stats
 export async function getAdminStats() {
-  const supabase = supabaseServer()
+  const supabase = await supabaseServer()
   
   try {
     // Obtener estadísticas básicas
@@ -76,7 +76,7 @@ export async function getAdminStats() {
 
 // Usuarios
 export async function getAdminUsers(): Promise<AdminUser[]> {
-  const supabase = supabaseServer()
+  const supabase = await supabaseServer()
   
   try {
     const { data, error } = await supabase
@@ -122,7 +122,7 @@ export async function createAdminUser(userData: {
   roles: string[]
   status: "active" | "inactive"
 }) {
-  const supabase = supabaseServer()
+  const supabase = await supabaseServer()
   
   try {
     // Crear usuario en auth
@@ -172,7 +172,7 @@ export async function updateAdminUser(userId: string, userData: {
   roles?: string[]
   status?: "active" | "inactive"
 }) {
-  const supabase = supabaseServer()
+  const supabase = await supabaseServer()
   
   try {
     // Actualizar perfil
@@ -219,7 +219,7 @@ export async function updateAdminUser(userId: string, userData: {
 }
 
 export async function deleteAdminUser(userId: string) {
-  const supabase = supabaseServer()
+  const supabase = await supabaseServer()
   
   try {
     // Eliminar roles
@@ -241,7 +241,7 @@ export async function deleteAdminUser(userId: string) {
 
 // KYC
 export async function getKycRequests(): Promise<KycRequest[]> {
-  const supabase = supabaseServer()
+  const supabase = await supabaseServer()
   
   try {
     const { data, error } = await supabase
@@ -286,7 +286,7 @@ export async function getKycRequests(): Promise<KycRequest[]> {
 }
 
 export async function updateKycStatus(requestId: string, status: "approved" | "rejected", notes?: string) {
-  const supabase = supabaseServer()
+  const supabase = await supabaseServer()
   
   try {
     const { error } = await supabase

@@ -9,7 +9,7 @@ export default async function AdminLayout({
   children: React.ReactNode
 }) {
   // Gateo SSR: verificar autenticación y rol admin
-  const supabase = supabaseServer()
+  const supabase = await supabaseServer()
   const { data: { session } } = await supabase.auth.getSession()
   
   if (!session) {
