@@ -182,9 +182,10 @@ export default function PerfilPage() {
   // Botón flotante: mostrar al hacer scroll (copiado del home)
   useEffect(() => {
     const handleScroll = () => {
-      setShowScrollTop(window.scrollY > 200)
+      setShowScrollTop(window.scrollY > 50)
     }
     window.addEventListener("scroll", handleScroll)
+    handleScroll()
     return () => window.removeEventListener("scroll", handleScroll)
   }, [])
 
