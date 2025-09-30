@@ -1857,6 +1857,11 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
   const progress = (kycStatus === "review" || kycStatus === "approved") ? 100 : (stepsCompletedCount / 5) * 100
   const statusInfo = getStatusInfo(kycStatus)!
 
+  // Bloqueo de edición en pasos completados y persistidos
+  const isStepLocked = (step: number) => {
+    return confirmedSteps.has(step) && isStepComplete(step) && hasDataInDatabase
+  }
+
   const handleSaveDraft = async () => {
     const draftData = {
       fullName: kycData.fullName,
@@ -2094,7 +2099,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                   : canNavigate
                   ? "bg-card border-border cursor-pointer hover:bg-muted/30 hover:border-muted-foreground/20 hover:shadow-sm"
                   : "bg-muted/20 border-muted/30 cursor-not-allowed"
-              }`}
+              } ${isDone ? 'border-green-500' : ''}`}
               aria-current={isActive ? "step" : undefined}
             >
               <div
@@ -2219,7 +2224,6 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                     : "text-muted-foreground/60"
                 }`}>
                   {step.title}
-                  {isDone && <CheckCircle className={`text-green-600 ${step.id === 2 || step.id === 4 ? 'h-8 w-8' : step.id === 3 ? 'h-6 w-6' : 'h-5 w-5'}`} />}
                 </div>
                 <div className={`text-xs transition-colors duration-200 ${
                   stepAvailable 
@@ -2290,7 +2294,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                   }} 
                   placeholder="Como aparece en su documento"
                   className={nameError ? "border-destructive focus:border-destructive" : ""}
-                  disabled={isProcessingStep1 || (hasDataInDatabase && confirmedSteps.has(1) && step1ContinueClicked)}
+                  disabled={isProcessingStep1 || isStepLocked(1)}
                 />
                 {nameError && (
                   <p className="text-sm text-destructive">{nameError}</p>
@@ -2317,7 +2321,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                     }
                   }}
                   className={birthDateError ? "border-destructive focus:border-destructive" : ""}
-                  disabled={isProcessingStep1 || (hasDataInDatabase && confirmedSteps.has(1) && step1ContinueClicked)}
+                  disabled={isProcessingStep1 || isStepLocked(1)}
                 />
                 {birthDateError && (
                   <p className="text-sm text-destructive">{birthDateError}</p>
@@ -2332,7 +2336,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                 <Select value={kycData.docType} onValueChange={(value: any) => {
                   setKycData((prev) => ({ ...prev, docType: value, docNumber: "" }))
                   setDocNumberError("")
-                }} disabled={isProcessingStep1 || (hasDataInDatabase && confirmedSteps.has(1) && step1ContinueClicked)}>
+                }} disabled={isProcessingStep1 || isStepLocked(1)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Seleccione el tipo" />
                   </SelectTrigger>
@@ -2387,7 +2391,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                   }} 
                   placeholder={kycData.docType === "ID" ? "0000-0000-00000" : "HND1234567"}
                   className={docNumberError ? "border-destructive focus:border-destructive" : ""}
-                  disabled={isProcessingStep1 || (hasDataInDatabase && confirmedSteps.has(1) && step1ContinueClicked)}
+                  disabled={isProcessingStep1 || isStepLocked(1)}
                 />
                 {docNumberError && (
                   <p className="text-sm text-destructive">{docNumberError}</p>
@@ -2406,7 +2410,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                   onValueChange={(value) => {
                     setKycData((prev) => ({ ...prev, department: value, municipality: "" }))
                   }}
-                  disabled={isProcessingStep1 || (hasDataInDatabase && confirmedSteps.has(1) && step1ContinueClicked)}
+                  disabled={isProcessingStep1 || isStepLocked(1)}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Seleccione el departamento" />
@@ -2423,7 +2427,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                 <Select
                   value={kycData.municipality}
                   onValueChange={(value) => setKycData((prev) => ({ ...prev, municipality: value }))}
-                  disabled={!kycData.department || isProcessingStep1 || (hasDataInDatabase && confirmedSteps.has(1) && step1ContinueClicked)}
+                  disabled={!kycData.department || isProcessingStep1 || isStepLocked(1)}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder={kycData.department ? "Seleccione el municipio" : "Seleccione un departamento primero"} />
@@ -2437,11 +2441,11 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
               </div>
               <div className="space-y-4">
                 <Label>Colonia/Barrio/Aldea *</Label>
-                <Input value={kycData.neighborhood} onChange={(e) => setKycData((prev) => ({ ...prev, neighborhood: e.target.value }))} placeholder="Ej. Col. Tara / Barrio Abajo" disabled={isProcessingStep1 || (hasDataInDatabase && confirmedSteps.has(1) && step1ContinueClicked)} />
+                <Input value={kycData.neighborhood} onChange={(e) => setKycData((prev) => ({ ...prev, neighborhood: e.target.value }))} placeholder="Ej. Col. Tara / Barrio Abajo" disabled={isProcessingStep1 || isStepLocked(1)} />
               </div>
               <div className="space-y-4 md:col-span-2">
                 <Label>Descripción de calle / bloque / #casa / #apartamento *</Label>
-                <Input value={kycData.addressDesc} onChange={(e) => setKycData((prev) => ({ ...prev, addressDesc: e.target.value }))} placeholder="Ej. Calle 3, bloque B, casa #24, apto 3B" disabled={isProcessingStep1 || (hasDataInDatabase && confirmedSteps.has(1) && step1ContinueClicked)} />
+                <Input value={kycData.addressDesc} onChange={(e) => setKycData((prev) => ({ ...prev, addressDesc: e.target.value }))} placeholder="Ej. Calle 3, bloque B, casa #24, apto 3B" disabled={isProcessingStep1 || isStepLocked(1)} />
               </div>
             </div>
           )}
@@ -2570,7 +2574,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                       setIsProcessingStep3(false)
                     }
                   }}
-                  disabled={!step3Done || isProcessingStep3 || step3ContinueClicked}
+                  disabled={!step3Done || isProcessingStep3 || isStepLocked(3)}
                   title={`step3Done: ${step3Done}, isProcessingStep3: ${isProcessingStep3}, step3ContinueClicked: ${step3ContinueClicked}`}
                   className="bg-primary text-primary-foreground hover:bg-primary/90 transition-colors duration-200"
                 >
@@ -2659,7 +2663,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                       setIsProcessingStep4(false)
                     }
                   }}
-                  disabled={!step4Done || isProcessingStep4 || step4ContinueClicked}
+                  disabled={!step4Done || isProcessingStep4 || isStepLocked(4)}
                   title={`step4Done: ${step4Done}, isProcessingStep4: ${isProcessingStep4}, step4ContinueClicked: ${step4ContinueClicked}`}
                   className="bg-primary text-primary-foreground hover:bg-primary/90 transition-colors duration-200"
                 >
@@ -2738,7 +2742,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                         // Para otros tipos de documento, continuamos normalmente
                         await continueToStep2()
                       }}
-                      disabled={!step1Done || isProcessingStep1 || (step1ContinueClicked && hasDataInDatabase)}
+                      disabled={!step1Done || isProcessingStep1 || isStepLocked(1)}
                       title={`step1Done: ${step1Done}, isProcessingStep1: ${isProcessingStep1}, step1ContinueClicked: ${step1ContinueClicked}, hasDataInDatabase: ${hasDataInDatabase}`}
                       className="bg-primary text-primary-foreground hover:bg-primary/90 transition-colors duration-200"
                     >
@@ -2806,7 +2810,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                           setIsProcessingStep2(false)
                         }
                       }}
-                      disabled={!step2Done || isProcessingStep2 || step2ContinueClicked}
+                      disabled={!step2Done || isProcessingStep2 || isStepLocked(2)}
                       title={`step2Done: ${step2Done}, isProcessingStep2: ${isProcessingStep2}, step2ContinueClicked: ${step2ContinueClicked}`}
                       className="bg-primary text-primary-foreground hover:bg-primary/90 transition-colors duration-200"
                     >
