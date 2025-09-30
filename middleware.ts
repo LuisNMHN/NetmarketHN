@@ -61,7 +61,7 @@ export async function middleware(req: NextRequest) {
       console.error('❌ Usuario sin perfil en base de datos:', session.user.email)
       // Cerrar sesión y redirigir a página de error
       await supabase.auth.signOut()
-      const redirectUrl = new URL('/auth/account-not-found', req.url)
+      const redirectUrl = new URL('/account-not-found', req.url)
       redirectUrl.searchParams.set('email', session.user.email || '')
       return NextResponse.redirect(redirectUrl)
     }
