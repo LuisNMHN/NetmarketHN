@@ -28,8 +28,11 @@ export default function LoginPage() {
   useEffect(() => setMounted(true), [])
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) router.replace("/dashboard")
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (data.session) {
+        const { data: isAdmin } = await supabase.rpc('has_role', { role_name: 'admin' })
+        router.replace(isAdmin ? '/admin' : '/dashboard')
+      }
     })
   }, [])
 
@@ -90,7 +93,8 @@ export default function LoginPage() {
       setSubmitError(msg)
       return
     }
-    router.replace("/dashboard")
+    const { data: isAdmin } = await supabase.rpc('has_role', { role_name: 'admin' })
+    router.replace(isAdmin ? '/admin' : '/dashboard')
   }
 
   function translateAuthError(message: string) {

@@ -1,9 +1,19 @@
 import type React from "react"
-export default function AdminLayout({
+import { redirect } from "next/navigation"
+import { supabaseServer } from "@/lib/supabase/server"
+
+export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  // Gateo en servidor: si no es admin, redirigir a dashboard
+  const supabase = await supabaseServer()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect("/login")
+  const { data: isAdmin } = await supabase.rpc('has_role', { role_name: 'admin' })
+  if (!isAdmin) redirect("/dashboard")
+
   return (
     <div className="flex min-h-screen">
       {/* Admin sidebar placeholder */}

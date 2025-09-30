@@ -30,8 +30,11 @@ export default function RegisterPage() {
 
   // Si ya hay sesión, redirigir al dashboard
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) router.replace("/dashboard")
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (data.session) {
+        const { data: isAdmin } = await supabase.rpc('has_role', { role_name: 'admin' })
+        router.replace(isAdmin ? '/admin' : '/dashboard')
+      }
     })
   }, [])
 
@@ -116,7 +119,10 @@ export default function RegisterPage() {
     }
     // Supabase por defecto envía email de confirmación
     if (!data.session) setShowSuccessModal(true)
-    else router.replace("/dashboard")
+    else {
+      const { data: isAdmin } = await supabase.rpc('has_role', { role_name: 'admin' })
+      router.replace(isAdmin ? '/admin' : '/dashboard')
+    }
   }
 
   return (
