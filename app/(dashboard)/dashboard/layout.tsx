@@ -5,7 +5,7 @@ import type React from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { CreditCard, Gavel, Home, LogOut, Receipt, User, Menu, MoreVertical, Link2, Shield, Bell } from "lucide-react"
+import { CreditCard, Gavel, Home, LogOut, Receipt, User, Menu, MoreVertical, Link2, Shield, Bell, Cat, Dog, Fish, Bird, Rabbit, Turtle, Heart, Star, Zap, Circle } from "lucide-react"
 import { useState, useEffect } from "react"
 import { useTheme } from "next-themes"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -26,7 +26,6 @@ import { getKycDraft } from "@/app/actions/kyc_data"
 interface DashboardLayoutProps {
   children: React.ReactNode
   userName?: string
-  userAvatar?: string
 }
 
 const menuItems = [
@@ -39,7 +38,7 @@ const menuItems = [
   { id: "perfil", label: "Perfil", icon: User, href: "/dashboard/perfil" },
 ]
 
-export default function DashboardLayout({ children, userName = "Usuario", userAvatar }: DashboardLayoutProps) {
+export default function DashboardLayout({ children, userName = "Usuario" }: DashboardLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showLogoutModal, setShowLogoutModal] = useState(false)
@@ -47,11 +46,77 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
   const [mounted, setMounted] = useState(false)
   const pathname = usePathname()
   const [displayName, setDisplayName] = useState(userName)
+  const [userAvatar, setUserAvatar] = useState<string | null>(null)
   const [hasNotif, setHasNotif] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
   const [notifOpen, setNotifOpen] = useState(false)
   const [kycStatus, setKycStatus] = useState<string>("none")
   const [kycData, setKycData] = useState<any>(null)
+  const [selectedAnimalAvatar, setSelectedAnimalAvatar] = useState<string | null>(null)
+
+  // Avatares de animales disponibles (mismo que en perfil)
+  const animalAvatars = {
+    cat: {
+      name: 'Gato',
+      icon: Cat,
+      color: '#f59e0b',
+      description: 'Místico y elegante'
+    },
+    dog: {
+      name: 'Perro',
+      icon: Dog,
+      color: '#8b5cf6',
+      description: 'Leal y amigable'
+    },
+    fish: {
+      name: 'Pez',
+      icon: Fish,
+      color: '#06b6d4',
+      description: 'Libre y fluido'
+    },
+    bird: {
+      name: 'Pájaro',
+      icon: Bird,
+      color: '#10b981',
+      description: 'Libre y aventurero'
+    },
+    rabbit: {
+      name: 'Conejo',
+      icon: Rabbit,
+      color: '#f472b6',
+      description: 'Ágil y juguetón'
+    },
+    turtle: {
+      name: 'Tortuga',
+      icon: Turtle,
+      color: '#84cc16',
+      description: 'Sabio y paciente'
+    },
+    heart: {
+      name: 'Corazón',
+      icon: Heart,
+      color: '#ec4899',
+      description: 'Amoroso y cariñoso'
+    },
+    star: {
+      name: 'Estrella',
+      icon: Star,
+      color: '#eab308',
+      description: 'Brillante y especial'
+    },
+    zap: {
+      name: 'Rayo',
+      icon: Zap,
+      color: '#22c55e',
+      description: 'Energético y dinámico'
+    },
+    circle: {
+      name: 'Círculo',
+      icon: Circle,
+      color: '#6b7280',
+      description: 'Equilibrado y completo'
+    }
+  }
 
   useEffect(() => {
     setMounted(true)
@@ -71,6 +136,32 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
         .maybeSingle()
       const name = profile?.full_name || session.user.user_metadata?.full_name || session.user.email || userName
       setDisplayName(name)
+
+      // Cargar avatar del usuario desde user_profiles
+      try {
+        const { data: userProfile } = await supabase
+          .from("user_profiles")
+          .select("avatar_url")
+          .eq("user_id", session.user.id)
+          .maybeSingle()
+        
+        if (userProfile?.avatar_url) {
+          setUserAvatar(userProfile.avatar_url)
+          
+          // Detectar avatar de animal seleccionado
+          if (userProfile.avatar_url.startsWith('animal_')) {
+            Object.entries(animalAvatars).forEach(([key, animal]) => {
+              if (userProfile.avatar_url?.includes(`animal_${key}_`)) {
+                setSelectedAnimalAvatar(key)
+              }
+            })
+          } else {
+            setSelectedAnimalAvatar(null)
+          }
+        }
+      } catch (error) {
+        console.log('No se pudo cargar avatar del usuario:', error)
+      }
 
       // Cargar datos de KYC para notificaciones inteligentes
       try {
@@ -475,10 +566,23 @@ export default function DashboardLayout({ children, userName = "Usuario", userAv
                   </Button>
 
                   <Avatar className="h-10 w-10 border-2 border-primary/20">
-                    <AvatarImage src={userAvatar || "/placeholder.svg"} alt={userName} />
-                    <AvatarFallback className="bg-primary text-primary-foreground font-semibold">
-                      {userName.charAt(0).toUpperCase()}
-                    </AvatarFallback>
+                    {userAvatar && userAvatar.startsWith('animal_') ? (
+                      // Mostrar icono de animal
+                      <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: selectedAnimalAvatar ? animalAvatars[selectedAnimalAvatar as keyof typeof animalAvatars]?.color : '#6b7280' }}>
+                        {selectedAnimalAvatar && (() => {
+                          const IconComponent = animalAvatars[selectedAnimalAvatar as keyof typeof animalAvatars]?.icon
+                          return IconComponent ? <IconComponent className="w-5 h-5 text-white" /> : null
+                        })()}
+                      </div>
+                    ) : (
+                      // Mostrar imagen normal o fallback
+                      <>
+                        <AvatarImage src={userAvatar || "/placeholder.svg"} alt={displayName} />
+                        <AvatarFallback className="bg-primary text-primary-foreground font-semibold">
+                          {displayName.charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </>
+                    )}
                   </Avatar>
                 </div>
 

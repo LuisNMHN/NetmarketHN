@@ -148,3 +148,4 @@ Se activa cuando se cumplen las 3 condiciones:
 **Nota**: Los logs de debugging están activos y mostrarán el estado exacto de cada botón y condición en la consola del navegador.
 
 
+

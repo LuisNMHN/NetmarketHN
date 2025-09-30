@@ -11,6 +11,7 @@ import { Calendar, Download, Filter, HelpCircle, Search } from "lucide-react"
 import { onLoadTransactions } from "@/lib/contracts/events"
 import type { TransactionDTO } from "@/lib/contracts/types"
 import { toast } from "sonner"
+import LoadingSpinner from "@/components/ui/loading-spinner"
 
 const TRANSACTION_TYPES = [
   { value: "deposit", label: "Depósito", description: "Dinero ingresado a tu cuenta" },
@@ -183,15 +184,7 @@ export default function TransaccionesPage() {
   }
 
   if (loading) {
-    return (
-      <div className="space-y-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-muted rounded w-1/4"></div>
-          <div className="h-32 bg-muted rounded"></div>
-          <div className="h-64 bg-muted rounded"></div>
-        </div>
-      </div>
-    )
+    return <LoadingSpinner message="Cargando transacciones..." />
   }
 
   return (

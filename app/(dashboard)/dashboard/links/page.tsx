@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -24,6 +24,7 @@ import { es } from "date-fns/locale"
 import { toast } from "sonner"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import type { PaymentLinkDTO } from "@/lib/contracts/types"
+import LoadingSpinner from "@/components/ui/loading-spinner"
 
 const mockPaymentLinks: PaymentLinkDTO[] = [
   {
@@ -73,6 +74,7 @@ const mockPaymentLinks: PaymentLinkDTO[] = [
 ]
 
 export default function LinksPage() {
+  const [loading, setLoading] = useState(true)
   const [paymentLinks, setPaymentLinks] = useState<PaymentLinkDTO[]>(mockPaymentLinks)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
@@ -91,6 +93,14 @@ export default function LinksPage() {
   })
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+
+  // Simular carga inicial
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setLoading(false)
+    }, 1000)
+    return () => clearTimeout(timer)
+  }, [])
 
   const filteredLinks = paymentLinks
     .filter((link) => {
@@ -200,6 +210,10 @@ export default function LinksPage() {
     if (!formData.concept) return "https://pay.nmhn.com/link/PLxxx"
     const previewId = `PL${String(paymentLinks.length + 1).padStart(3, "0")}`
     return `https://pay.nmhn.com/link/${previewId}`
+  }
+
+  if (loading) {
+    return <LoadingSpinner message="Cargando links de pago..." />
   }
 
   return (

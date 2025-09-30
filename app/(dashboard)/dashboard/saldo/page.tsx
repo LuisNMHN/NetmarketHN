@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
+import LoadingSpinner from "@/components/ui/loading-spinner"
 import {
   Dialog,
   DialogContent,
@@ -143,29 +144,16 @@ export default function SaldoPage() {
 
   if (loading) {
     return (
-      <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-6">
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-        </div>
-        <Skeleton className="h-64" />
+      <div className="max-w-6xl mx-auto p-4 md:p-6">
+        <LoadingSpinner message="Cargando saldo..." />
       </div>
     )
   }
 
   if (!balance) {
     return (
-      <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-6">
-        <div className="text-center py-12">
-          <Wallet className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-          <h2 className="text-2xl font-semibold text-muted-foreground mb-2">No se pudo cargar el saldo</h2>
-          <p className="text-muted-foreground mb-4">Ocurrió un error al obtener la información de tu saldo.</p>
-          <Button onClick={handleRefresh} variant="outline">
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Reintentar
-          </Button>
-        </div>
+      <div className="max-w-6xl mx-auto p-4 md:p-6">
+        <LoadingSpinner message="No se pudo cargar el saldo" />
       </div>
     )
   }
