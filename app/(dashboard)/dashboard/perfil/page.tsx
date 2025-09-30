@@ -781,7 +781,7 @@ export default function PerfilPage() {
                             key={key}
                             onClick={() => handleAnimalAvatarSelect(key)}
                             disabled={isUploadingAvatar}
-                            className={`relative p-2 sm:p-3 rounded-lg border-2 transition-all hover:scale-105 disabled:opacity-50 ${
+                            className={`relative p-2 sm:p-3 rounded-lg border-2 transition-all hover:scale-105 disabled:opacity-50 flex flex-col items-center justify-center ${
                               selectedAnimalAvatar === key 
                                 ? 'border-primary ring-2 ring-primary/20' 
                                 : 'border-gray-200 dark:border-gray-700'
