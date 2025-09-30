@@ -76,32 +76,68 @@ export async function GET() {
     // Verificar funciones SQL
     console.log('🔧 Verificando funciones SQL...')
     
-    const functions = ['create_user_profile', 'has_role', 'user_has_profile']
     const functionStatus = {}
     
-    for (const func of functions) {
-      try {
-        // Intentar llamar la función con parámetros dummy
-        const { data, error } = await supabase.rpc(func, {
-          p_user_id: '00000000-0000-0000-0000-000000000000',
-          p_email: 'test@test.com',
-          p_full_name: 'Test User',
-          role_name: 'user'
-        })
-        
-        functionStatus[func] = {
-          exists: !error,
-          error: error?.message || null
-        }
-        
-        console.log(`- ${func}:`, error ? '❌ Error' : '✅ OK')
-      } catch (err) {
-        functionStatus[func] = {
-          exists: false,
-          error: err.message
-        }
-        console.log(`- ${func}: ❌ Error`)
+    // Verificar create_user_profile
+    try {
+      const { data, error } = await supabase.rpc('create_user_profile', {
+        p_user_id: '00000000-0000-0000-0000-000000000000',
+        p_email: 'test@test.com',
+        p_full_name: 'Test User'
+      })
+      
+      functionStatus['create_user_profile'] = {
+        exists: !error,
+        error: error?.message || null
       }
+      
+      console.log(`- create_user_profile:`, error ? '❌ Error' : '✅ OK')
+    } catch (err) {
+      functionStatus['create_user_profile'] = {
+        exists: false,
+        error: err.message
+      }
+      console.log(`- create_user_profile: ❌ Error`)
+    }
+    
+    // Verificar has_role
+    try {
+      const { data, error } = await supabase.rpc('has_role', {
+        role_name: 'user'
+      })
+      
+      functionStatus['has_role'] = {
+        exists: !error,
+        error: error?.message || null
+      }
+      
+      console.log(`- has_role:`, error ? '❌ Error' : '✅ OK')
+    } catch (err) {
+      functionStatus['has_role'] = {
+        exists: false,
+        error: err.message
+      }
+      console.log(`- has_role: ❌ Error`)
+    }
+    
+    // Verificar user_has_profile
+    try {
+      const { data, error } = await supabase.rpc('user_has_profile', {
+        p_user_id: '00000000-0000-0000-0000-000000000000'
+      })
+      
+      functionStatus['user_has_profile'] = {
+        exists: !error,
+        error: error?.message || null
+      }
+      
+      console.log(`- user_has_profile:`, error ? '❌ Error' : '✅ OK')
+    } catch (err) {
+      functionStatus['user_has_profile'] = {
+        exists: false,
+        error: err.message
+      }
+      console.log(`- user_has_profile: ❌ Error`)
     }
 
     // Verificar roles existentes
