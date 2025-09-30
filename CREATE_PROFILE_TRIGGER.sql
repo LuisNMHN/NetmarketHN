@@ -9,6 +9,8 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  v_role_id uuid;
 BEGIN
   -- Insertar en la tabla profiles
   INSERT INTO public.profiles (id, full_name, email, created_at, updated_at)
@@ -35,6 +37,14 @@ BEGIN
   ON CONFLICT (user_id) DO UPDATE SET
     display_name = COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email),
     updated_at = NEW.updated_at;
+
+  -- Asignar rol 'user' por defecto
+  SELECT id INTO v_role_id FROM public.roles WHERE name = 'user';
+  IF v_role_id IS NOT NULL THEN
+    INSERT INTO public.user_roles (user_id, role_id, created_at)
+    VALUES (NEW.id, v_role_id, NEW.created_at)
+    ON CONFLICT (user_id, role_id) DO NOTHING;
+  END IF;
 
   RETURN NEW;
 END;

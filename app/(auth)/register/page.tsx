@@ -152,6 +152,20 @@ export default function RegisterPage() {
             console.warn('Error creando perfil en user_profiles:', userProfileError)
           }
 
+          // Asignar rol 'user' por defecto
+          try {
+            const { error: roleError } = await supabase.rpc('admin_grant_role_by_email', {
+              p_email: formData.email,
+              p_role: 'user'
+            })
+            
+            if (roleError) {
+              console.warn('Error asignando rol user:', roleError)
+            }
+          } catch (roleAssignmentError) {
+            console.warn('Error en asignación de rol:', roleAssignmentError)
+          }
+
           // Verificar rol y redirigir
           const { data: isAdmin } = await supabase.rpc('has_role', { role_name: 'admin' })
           router.replace(isAdmin ? '/admin' : '/dashboard')
