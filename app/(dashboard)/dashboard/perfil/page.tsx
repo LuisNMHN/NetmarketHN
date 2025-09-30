@@ -2,7 +2,6 @@
 
 import type React from "react"
 import { useState, useRef, useEffect } from "react"
-import Link from "next/link"
 import "./profile-page.css"
 import LoadingSpinner from "@/components/ui/loading-spinner"
 import { Button } from "@/components/ui/button"
@@ -45,7 +44,6 @@ import {
   Zap,
   Circle
 } from "lucide-react"
-import { ArrowLeft } from "lucide-react"
 
 export default function PerfilPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -492,12 +490,6 @@ export default function PerfilPage() {
                 <verificationInfo.icon className="h-3 w-3 mr-1" />
                 {verificationInfo.label}
               </Badge>
-              <Button asChild variant="outline" size="sm" className="bg-white/90 backdrop-blur-sm">
-                <Link href="/" title="Ir al inicio" className="flex items-center gap-1">
-                  <ArrowLeft className="h-3 w-3" />
-                  Inicio
-                </Link>
-              </Button>
             </div>
             </div>
         </div>
@@ -970,6 +962,32 @@ export default function PerfilPage() {
                 </div>
               </div>
     </div>
+    {/* Botón flotante regresar al inicio */}
+    <ScrollTopButton />
     </section>
+  )
+}
+
+function ScrollTopButton() {
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    const onScroll = () => {
+      setVisible(window.scrollY > 300)
+    }
+    window.addEventListener('scroll', onScroll)
+    onScroll()
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+  if (!visible) return null
+  return (
+    <Button
+      onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+      className="fixed bottom-5 right-5 z-50 rounded-full shadow-lg"
+      size="icon"
+      variant="default"
+      title="Volver al inicio"
+    >
+      ↑
+    </Button>
   )
 }
