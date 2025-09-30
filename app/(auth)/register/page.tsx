@@ -120,50 +120,28 @@ export default function RegisterPage() {
         return
       }
 
-      // Si hay sesión inmediata (usuario confirmado), crear perfil manualmente
+      // Si hay sesión inmediata (usuario confirmado), crear perfil usando función SQL
       if (data.session && data.user) {
         try {
-          // Crear perfil en la tabla profiles
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .insert({
-              id: data.user.id,
-              full_name: formData.name,
-              email: formData.email,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            })
+          // Usar función SQL para crear perfil completo con rol
+          const { error: profileError } = await supabase.rpc('create_user_profile', {
+            p_user_id: data.user.id,
+            p_email: formData.email,
+            p_full_name: formData.name
+          })
 
           if (profileError) {
-            console.warn('Error creando perfil en profiles:', profileError)
-          }
-
-          // Crear perfil en la tabla user_profiles
-          const { error: userProfileError } = await supabase
-            .from('user_profiles')
-            .insert({
-              user_id: data.user.id,
-              display_name: formData.name,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            })
-
-          if (userProfileError) {
-            console.warn('Error creando perfil en user_profiles:', userProfileError)
-          }
-
-          // Asignar rol 'user' por defecto
-          try {
-            const { error: roleError } = await supabase.rpc('admin_grant_role_by_email', {
-              p_email: formData.email,
-              p_role: 'user'
-            })
-            
-            if (roleError) {
-              console.warn('Error asignando rol user:', roleError)
-            }
-          } catch (roleAssignmentError) {
-            console.warn('Error en asignación de rol:', roleAssignmentError)
+            console.warn('Error creando perfil con función SQL:', profileError)
+            // Fallback: crear perfil manualmente
+            await supabase
+              .from('profiles')
+              .insert({
+                id: data.user.id,
+                full_name: formData.name,
+                email: formData.email,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
           }
 
           // Verificar rol y redirigir
