@@ -127,13 +127,30 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
     const supabase = supabaseBrowser()
     supabase.auth.getSession().then(async ({ data }) => {
       const session = data.session
-      if (!session) return
+      if (!session) {
+        // Si no hay sesión, redirigir al login
+        window.location.href = '/login'
+        return
+      }
+      
       setUserId(session.user.id)
-      const { data: profile } = await supabase
+      
+      // VALIDACIÓN DE SEGURIDAD: Verificar que el usuario tenga un perfil en la base de datos
+      const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("full_name")
         .eq("id", session.user.id)
         .maybeSingle()
+      
+      // Si no hay perfil en la base de datos, el usuario no debería tener acceso
+      if (profileError || !profile) {
+        console.error('❌ Usuario sin perfil en base de datos:', session.user.email)
+        // Cerrar sesión y redirigir al login
+        await supabase.auth.signOut()
+        window.location.href = '/login'
+        return
+      }
+      
       const name = profile?.full_name || session.user.user_metadata?.full_name || session.user.email || userName
       setDisplayName(name)
 
