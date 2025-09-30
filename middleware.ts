@@ -31,9 +31,6 @@ export async function middleware(req: NextRequest) {
     }
   )
 
-  // Verificar sesión
-  const { data: { session } } = await supabase.auth.getSession()
-
   // Rutas que requieren autenticación
   const protectedRoutes = ['/dashboard', '/admin']
   const isProtectedRoute = protectedRoutes.some(route => req.nextUrl.pathname.startsWith(route))
@@ -42,7 +39,11 @@ export async function middleware(req: NextRequest) {
   const authRoutes = ['/login', '/register', '/forgot-password']
   const isAuthRoute = authRoutes.some(route => req.nextUrl.pathname.startsWith(route))
 
+  // Solo verificar autenticación para rutas protegidas
   if (isProtectedRoute) {
+    // Verificar sesión
+    const { data: { session } } = await supabase.auth.getSession()
+
     // Si no hay sesión, redirigir al login
     if (!session) {
       return NextResponse.redirect(new URL('/login', req.url))
@@ -55,11 +56,14 @@ export async function middleware(req: NextRequest) {
       .eq('id', session.user.id)
       .maybeSingle()
 
-    // Si no hay perfil, cerrar sesión y redirigir
+    // Si no hay perfil, redirigir a página de error con opción de registro
     if (error || !profile) {
       console.error('❌ Usuario sin perfil en base de datos:', session.user.email)
+      // Cerrar sesión y redirigir a página de error
       await supabase.auth.signOut()
-      return NextResponse.redirect(new URL('/login', req.url))
+      const redirectUrl = new URL('/auth/account-not-found', req.url)
+      redirectUrl.searchParams.set('email', session.user.email || '')
+      return NextResponse.redirect(redirectUrl)
     }
 
     // Verificación adicional para rutas de admin
@@ -75,13 +79,17 @@ export async function middleware(req: NextRequest) {
   }
 
   // Si el usuario está autenticado y trata de acceder a rutas de auth, redirigir al dashboard
-  if (isAuthRoute && session) {
-    // Verificar si es admin para redirigir al panel correcto
-    const { data: hasAdminRole } = await supabase.rpc('has_role', { 
-      role_name: 'admin' 
-    })
+  if (isAuthRoute) {
+    const { data: { session } } = await supabase.auth.getSession()
     
-    return NextResponse.redirect(new URL(hasAdminRole ? '/admin' : '/dashboard', req.url))
+    if (session) {
+      // Verificar si es admin para redirigir al panel correcto
+      const { data: hasAdminRole } = await supabase.rpc('has_role', { 
+        role_name: 'admin' 
+      })
+      
+      return NextResponse.redirect(new URL(hasAdminRole ? '/admin' : '/dashboard', req.url))
+    }
   }
 
   return res
@@ -90,13 +98,15 @@ export async function middleware(req: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for the ones starting with:
-     * - api (API routes)
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
+     * Match only the routes that need authentication:
+     * - /dashboard/* (dashboard routes)
+     * - /admin/* (admin routes)
+     * - /login, /register, /forgot-password (auth routes for redirects)
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/dashboard/:path*',
+    '/admin/:path*',
+    '/login',
+    '/register',
+    '/forgot-password',
   ],
 }
