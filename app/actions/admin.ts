@@ -40,27 +40,49 @@ export async function getAdminStats() {
   const supabase = await supabaseServer()
   
   try {
-    // Obtener estadísticas básicas
-    const [
-      { count: totalUsers },
-      { count: activeUsers },
-      { count: pendingKyc },
-      { count: approvedKyc },
-      { count: rejectedKyc }
-    ] = await Promise.all([
-      supabase.from('user_profiles').select('*', { count: 'exact', head: true }),
-      supabase.from('user_profiles').select('*', { count: 'exact', head: true }).eq('status', 'active'),
-      supabase.from('kyc_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
-      supabase.from('kyc_requests').select('*', { count: 'exact', head: true }).eq('status', 'approved'),
-      supabase.from('kyc_requests').select('*', { count: 'exact', head: true }).eq('status', 'rejected')
-    ])
+    // Obtener estadísticas básicas de usuarios
+    const { count: totalUsers } = await supabase
+      .from('user_profiles')
+      .select('*', { count: 'exact', head: true })
+
+    const { count: activeUsers } = await supabase
+      .from('user_profiles')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'active')
+
+    // Intentar obtener estadísticas de KYC (puede que la tabla no exista aún)
+    let pendingKyc = 0
+    let approvedKyc = 0
+    let rejectedKyc = 0
+
+    try {
+      const { count: pending } = await supabase
+        .from('kyc_requests')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pending')
+      pendingKyc = pending || 0
+
+      const { count: approved } = await supabase
+        .from('kyc_requests')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'approved')
+      approvedKyc = approved || 0
+
+      const { count: rejected } = await supabase
+        .from('kyc_requests')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'rejected')
+      rejectedKyc = rejected || 0
+    } catch (kycError) {
+      console.log('KYC tables not found, using default values')
+    }
 
     return {
       totalUsers: totalUsers || 0,
       activeUsers: activeUsers || 0,
-      pendingKyc: pendingKyc || 0,
-      approvedKyc: approvedKyc || 0,
-      rejectedKyc: rejectedKyc || 0,
+      pendingKyc,
+      approvedKyc,
+      rejectedKyc,
     }
   } catch (error) {
     console.error('Error getting admin stats:', error)
@@ -79,7 +101,8 @@ export async function getAdminUsers(): Promise<AdminUser[]> {
   const supabase = await supabaseServer()
   
   try {
-    const { data, error } = await supabase
+    // Primero obtener usuarios básicos
+    const { data: users, error: usersError } = await supabase
       .from('user_profiles')
       .select(`
         id,
@@ -88,27 +111,52 @@ export async function getAdminUsers(): Promise<AdminUser[]> {
         phone,
         status,
         created_at,
-        updated_at,
-        user_roles (
-          roles (
-            name
-          )
-        )
+        updated_at
       `)
       .order('created_at', { ascending: false })
 
-    if (error) throw error
+    if (usersError) throw usersError
 
-    return data?.map(user => ({
-      id: user.id,
-      email: user.email,
-      name: user.name || '',
-      phone: user.phone || '',
-      roles: user.user_roles?.map((ur: any) => ur.roles.name) || [],
-      status: user.status as "active" | "inactive",
-      created_at: user.created_at,
-      updated_at: user.updated_at
-    })) || []
+    // Luego obtener roles para cada usuario
+    const usersWithRoles = await Promise.all(
+      (users || []).map(async (user) => {
+        try {
+          const { data: userRoles } = await supabase
+            .from('user_roles')
+            .select(`
+              roles (
+                name
+              )
+            `)
+            .eq('user_id', user.id)
+
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name || '',
+            phone: user.phone || '',
+            roles: userRoles?.map((ur: any) => ur.roles?.name).filter(Boolean) || [],
+            status: user.status as "active" | "inactive",
+            created_at: user.created_at,
+            updated_at: user.updated_at
+          }
+        } catch (roleError) {
+          console.error(`Error getting roles for user ${user.id}:`, roleError)
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name || '',
+            phone: user.phone || '',
+            roles: [],
+            status: user.status as "active" | "inactive",
+            created_at: user.created_at,
+            updated_at: user.updated_at
+          }
+        }
+      })
+    )
+
+    return usersWithRoles
   } catch (error) {
     console.error('Error getting admin users:', error)
     return []
@@ -244,6 +292,7 @@ export async function getKycRequests(): Promise<KycRequest[]> {
   const supabase = await supabaseServer()
   
   try {
+    // Verificar si la tabla existe
     const { data, error } = await supabase
       .from('kyc_requests')
       .select(`
@@ -255,30 +304,84 @@ export async function getKycRequests(): Promise<KycRequest[]> {
         submitted_at,
         reviewed_at,
         reviewed_by,
-        notes,
-        user_profiles (
-          name,
-          email
-        )
+        notes
+      `)
+      .order('submitted_at', { ascending: false })
+      .limit(1)
+
+    if (error) {
+      console.log('KYC table not found or error:', error.message)
+      return []
+    }
+
+    // Si no hay datos, retornar array vacío
+    if (!data || data.length === 0) {
+      return []
+    }
+
+    // Obtener todos los datos
+    const { data: allData, error: allError } = await supabase
+      .from('kyc_requests')
+      .select(`
+        id,
+        user_id,
+        document_type,
+        document_number,
+        status,
+        submitted_at,
+        reviewed_at,
+        reviewed_by,
+        notes
       `)
       .order('submitted_at', { ascending: false })
 
-    if (error) throw error
+    if (allError) throw allError
 
-    return data?.map(request => ({
-      id: request.id,
-      user_id: request.user_id,
-      user_name: request.user_profiles?.name || '',
-      user_email: request.user_profiles?.email || '',
-      document_type: request.document_type,
-      document_number: request.document_number,
-      status: request.status as "pending" | "approved" | "rejected",
-      submitted_at: request.submitted_at,
-      reviewed_at: request.reviewed_at,
-      reviewed_by: request.reviewed_by,
-      notes: request.notes,
-      documents: [] // TODO: Implementar documentos
-    })) || []
+    // Obtener información de usuarios por separado
+    const requestsWithUsers = await Promise.all(
+      (allData || []).map(async (request) => {
+        try {
+          const { data: userData } = await supabase
+            .from('user_profiles')
+            .select('name, email')
+            .eq('id', request.user_id)
+            .single()
+
+          return {
+            id: request.id,
+            user_id: request.user_id,
+            user_name: userData?.name || '',
+            user_email: userData?.email || '',
+            document_type: request.document_type,
+            document_number: request.document_number,
+            status: request.status as "pending" | "approved" | "rejected",
+            submitted_at: request.submitted_at,
+            reviewed_at: request.reviewed_at,
+            reviewed_by: request.reviewed_by,
+            notes: request.notes,
+            documents: [] // TODO: Implementar documentos
+          }
+        } catch (userError) {
+          console.error(`Error getting user data for KYC ${request.id}:`, userError)
+          return {
+            id: request.id,
+            user_id: request.user_id,
+            user_name: '',
+            user_email: '',
+            document_type: request.document_type,
+            document_number: request.document_number,
+            status: request.status as "pending" | "approved" | "rejected",
+            submitted_at: request.submitted_at,
+            reviewed_at: request.reviewed_at,
+            reviewed_by: request.reviewed_by,
+            notes: request.notes,
+            documents: []
+          }
+        }
+      })
+    )
+
+    return requestsWithUsers
   } catch (error) {
     console.error('Error getting KYC requests:', error)
     return []
