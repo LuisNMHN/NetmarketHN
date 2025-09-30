@@ -107,21 +107,69 @@ export default function RegisterPage() {
     e.preventDefault()
     if (!isFormValid()) return
     setLoading(true)
-    const { data, error } = await supabase.auth.signUp({
-      email: formData.email,
-      password: formData.password,
-      options: { data: { full_name: formData.name } },
-    })
-    setLoading(false)
-    if (error) {
-      setErrors((prev) => ({ ...prev, submit: error.message }))
-      return
-    }
-    // Supabase por defecto envía email de confirmación
-    if (!data.session) setShowSuccessModal(true)
-    else {
-      const { data: isAdmin } = await supabase.rpc('has_role', { role_name: 'admin' })
-      router.replace(isAdmin ? '/admin' : '/dashboard')
+    
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: { data: { full_name: formData.name } },
+      })
+      
+      if (error) {
+        setErrors((prev) => ({ ...prev, submit: error.message }))
+        return
+      }
+
+      // Si hay sesión inmediata (usuario confirmado), crear perfil manualmente
+      if (data.session && data.user) {
+        try {
+          // Crear perfil en la tabla profiles
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .insert({
+              id: data.user.id,
+              full_name: formData.name,
+              email: formData.email,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+
+          if (profileError) {
+            console.warn('Error creando perfil en profiles:', profileError)
+          }
+
+          // Crear perfil en la tabla user_profiles
+          const { error: userProfileError } = await supabase
+            .from('user_profiles')
+            .insert({
+              user_id: data.user.id,
+              display_name: formData.name,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+
+          if (userProfileError) {
+            console.warn('Error creando perfil en user_profiles:', userProfileError)
+          }
+
+          // Verificar rol y redirigir
+          const { data: isAdmin } = await supabase.rpc('has_role', { role_name: 'admin' })
+          router.replace(isAdmin ? '/admin' : '/dashboard')
+        } catch (profileCreationError) {
+          console.error('Error creando perfiles:', profileCreationError)
+          // Continuar con el flujo normal aunque falle la creación de perfil
+          const { data: isAdmin } = await supabase.rpc('has_role', { role_name: 'admin' })
+          router.replace(isAdmin ? '/admin' : '/dashboard')
+        }
+      } else {
+        // Usuario necesita confirmar email
+        setShowSuccessModal(true)
+      }
+    } catch (error) {
+      console.error('Error en registro:', error)
+      setErrors((prev) => ({ ...prev, submit: 'Error inesperado. Intenta nuevamente.' }))
+    } finally {
+      setLoading(false)
     }
   }
 
