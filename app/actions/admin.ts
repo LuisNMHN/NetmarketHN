@@ -41,41 +41,27 @@ export async function getAdminStats() {
   
   try {
     // Obtener estadísticas básicas de usuarios
-    const { count: totalUsers } = await supabase
+    const { count: totalUsers, error: totalError } = await supabase
       .from('user_profiles')
       .select('*', { count: 'exact', head: true })
 
-    const { count: activeUsers } = await supabase
+    if (totalError) {
+      console.error('Error getting total users:', totalError)
+    }
+
+    const { count: activeUsers, error: activeError } = await supabase
       .from('user_profiles')
       .select('*', { count: 'exact', head: true })
       .eq('status', 'active')
 
-    // Intentar obtener estadísticas de KYC (puede que la tabla no exista aún)
-    let pendingKyc = 0
-    let approvedKyc = 0
-    let rejectedKyc = 0
-
-    try {
-      const { count: pending } = await supabase
-        .from('kyc_requests')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'pending')
-      pendingKyc = pending || 0
-
-      const { count: approved } = await supabase
-        .from('kyc_requests')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'approved')
-      approvedKyc = approved || 0
-
-      const { count: rejected } = await supabase
-        .from('kyc_requests')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'rejected')
-      rejectedKyc = rejected || 0
-    } catch (kycError) {
-      console.log('KYC tables not found, using default values')
+    if (activeError) {
+      console.error('Error getting active users:', activeError)
     }
+
+    // Por ahora usar valores por defecto para KYC
+    const pendingKyc = 0
+    const approvedKyc = 0
+    const rejectedKyc = 0
 
     return {
       totalUsers: totalUsers || 0,
@@ -101,61 +87,35 @@ export async function getAdminUsers(): Promise<AdminUser[]> {
   const supabase = await supabaseServer()
   
   try {
-    // Primero obtener usuarios básicos
+    // Consulta simple solo de user_profiles
     const { data: users, error: usersError } = await supabase
       .from('user_profiles')
-      .select(`
-        id,
-        email,
-        name,
-        phone,
-        status,
-        created_at,
-        updated_at
-      `)
+      .select('id, email, name, phone, status, created_at, updated_at')
       .order('created_at', { ascending: false })
 
-    if (usersError) throw usersError
+    if (usersError) {
+      console.error('Error querying user_profiles:', usersError)
+      throw usersError
+    }
 
-    // Luego obtener roles para cada usuario
-    const usersWithRoles = await Promise.all(
-      (users || []).map(async (user) => {
-        try {
-          const { data: userRoles } = await supabase
-            .from('user_roles')
-            .select(`
-              roles (
-                name
-              )
-            `)
-            .eq('user_id', user.id)
+    if (!users) {
+      console.log('No users found in user_profiles table')
+      return []
+    }
 
-          return {
-            id: user.id,
-            email: user.email,
-            name: user.name || '',
-            phone: user.phone || '',
-            roles: userRoles?.map((ur: any) => ur.roles?.name).filter(Boolean) || [],
-            status: user.status as "active" | "inactive",
-            created_at: user.created_at,
-            updated_at: user.updated_at
-          }
-        } catch (roleError) {
-          console.error(`Error getting roles for user ${user.id}:`, roleError)
-          return {
-            id: user.id,
-            email: user.email,
-            name: user.name || '',
-            phone: user.phone || '',
-            roles: [],
-            status: user.status as "active" | "inactive",
-            created_at: user.created_at,
-            updated_at: user.updated_at
-          }
-        }
-      })
-    )
+    // Mapear usuarios sin roles por ahora
+    const usersWithRoles = users.map((user) => ({
+      id: user.id,
+      email: user.email,
+      name: user.name || '',
+      phone: user.phone || '',
+      roles: [], // Por ahora sin roles
+      status: (user.status as "active" | "inactive") || "active",
+      created_at: user.created_at,
+      updated_at: user.updated_at
+    }))
 
+    console.log(`Successfully loaded ${usersWithRoles.length} users`)
     return usersWithRoles
   } catch (error) {
     console.error('Error getting admin users:', error)
