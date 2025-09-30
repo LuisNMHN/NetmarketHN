@@ -439,8 +439,8 @@ export default function PerfilPage() {
             style={{ background: colorSchemes[selectedColorScheme as keyof typeof colorSchemes].gradient }}
           ></div>
           
-          <div className="relative z-10 flex items-center justify-between p-6">
-            <div className="flex items-center gap-4">
+          <div className="relative z-10 flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+            <div className="flex items-center gap-3 sm:gap-4">
               <div className="relative group">
                 <Avatar className="profile-avatar h-16 w-16 border-2 shadow-lg">
                   {profileData.avatar_url && profileData.avatar_url.startsWith('animal_') ? (
@@ -484,11 +484,11 @@ export default function PerfilPage() {
             </div>
             <Badge 
               variant="outline" 
-              className={`badge-${profileData.kyc_status} px-3 py-1 text-caption shadow-sm ${verificationInfo.textColor} bg-white/90 backdrop-blur-sm`}
+              className={`self-start sm:self-auto badge-${profileData.kyc_status} px-3 py-1 text-caption shadow-sm ${verificationInfo.textColor} bg-white/90 backdrop-blur-sm`}
             >
-                <verificationInfo.icon className="h-3 w-3 mr-1" />
-                {verificationInfo.label}
-              </Badge>
+              <verificationInfo.icon className="h-3 w-3 mr-1" />
+              {verificationInfo.label}
+            </Badge>
             </div>
         </div>
 
@@ -773,7 +773,7 @@ export default function PerfilPage() {
                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-5 md:grid-cols-10 gap-3">
+                    <div className="grid grid-cols-3 xs:grid-cols-4 sm:grid-cols-5 md:grid-cols-8 lg:grid-cols-10 gap-2 sm:gap-3">
                       {Object.entries(animalAvatars).map(([key, animal]) => {
                         const IconComponent = animal.icon
                         return (
@@ -781,7 +781,7 @@ export default function PerfilPage() {
                             key={key}
                             onClick={() => handleAnimalAvatarSelect(key)}
                             disabled={isUploadingAvatar}
-                            className={`relative p-3 rounded-lg border-2 transition-all hover:scale-105 disabled:opacity-50 ${
+                            className={`relative p-2 sm:p-3 rounded-lg border-2 transition-all hover:scale-105 disabled:opacity-50 ${
                               selectedAnimalAvatar === key 
                                 ? 'border-primary ring-2 ring-primary/20' 
                                 : 'border-gray-200 dark:border-gray-700'
@@ -789,12 +789,12 @@ export default function PerfilPage() {
                             title={animal.description}
                           >
                             <div 
-                              className="w-8 h-8 rounded-full flex items-center justify-center mb-2"
+                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center mb-1 sm:mb-2"
                               style={{ backgroundColor: animal.color }}
                             >
-                              <IconComponent className="w-4 h-4 text-white" />
+                              <IconComponent className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
                             </div>
-                            <p className="text-xs font-medium text-center text-primary">{animal.name}</p>
+                            <p className="text-[10px] sm:text-xs font-medium text-center text-primary">{animal.name}</p>
                             {selectedAnimalAvatar === key && (
                               <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary rounded-full flex items-center justify-center">
                                 <CheckCircle className="w-3 h-3 text-white" />
