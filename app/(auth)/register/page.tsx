@@ -108,22 +108,54 @@ export default function RegisterPage() {
     if (!isFormValid()) return
     setLoading(true)
     
+    console.log('🚀 Iniciando registro para:', formData.email)
+    
     try {
+      // Verificar configuración de Supabase
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      
+      console.log('🔧 Configuración Supabase:')
+      console.log('- URL:', supabaseUrl ? 'Configurada' : 'FALTANTE')
+      console.log('- Key:', supabaseKey ? 'Configurada' : 'FALTANTE')
+      
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error('Configuración de Supabase incompleta')
+      }
+
       const { data, error } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
         options: { data: { full_name: formData.name } },
       })
       
+      console.log('📝 Resultado de signUp:')
+      console.log('- Data:', data)
+      console.log('- Error:', error)
+      console.log('- User:', data?.user)
+      console.log('- Session:', data?.session)
+      
       if (error) {
+        console.error('❌ Error en signUp:', error)
         setErrors((prev) => ({ ...prev, submit: error.message }))
         return
       }
 
+      if (!data.user) {
+        console.error('❌ No se creó el usuario')
+        setErrors((prev) => ({ ...prev, submit: 'No se pudo crear el usuario' }))
+        return
+      }
+
+      console.log('✅ Usuario creado:', data.user.id, data.user.email)
+
       // Si hay sesión inmediata (usuario confirmado), crear perfil usando función SQL
       if (data.session && data.user) {
+        console.log('🔄 Usuario confirmado, creando perfil...')
+        
         try {
           // Usar función SQL para crear perfil completo con rol
+          console.log('📊 Llamando a create_user_profile...')
           const { error: profileError } = await supabase.rpc('create_user_profile', {
             p_user_id: data.user.id,
             p_email: formData.email,
@@ -131,9 +163,11 @@ export default function RegisterPage() {
           })
 
           if (profileError) {
-            console.warn('Error creando perfil con función SQL:', profileError)
+            console.warn('⚠️ Error creando perfil con función SQL:', profileError)
+            console.log('🔄 Intentando fallback manual...')
+            
             // Fallback: crear perfil manualmente
-            await supabase
+            const { error: manualError } = await supabase
               .from('profiles')
               .insert({
                 id: data.user.id,
@@ -142,23 +176,35 @@ export default function RegisterPage() {
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
               })
+              
+            if (manualError) {
+              console.error('❌ Error en fallback manual:', manualError)
+            } else {
+              console.log('✅ Perfil creado manualmente')
+            }
+          } else {
+            console.log('✅ Perfil creado con función SQL')
           }
 
           // Verificar rol y redirigir
+          console.log('🔍 Verificando rol de admin...')
           const { data: isAdmin } = await supabase.rpc('has_role', { role_name: 'admin' })
+          console.log('👤 Es admin:', isAdmin)
+          
           router.replace(isAdmin ? '/admin' : '/dashboard')
         } catch (profileCreationError) {
-          console.error('Error creando perfiles:', profileCreationError)
+          console.error('❌ Error creando perfiles:', profileCreationError)
           // Continuar con el flujo normal aunque falle la creación de perfil
           const { data: isAdmin } = await supabase.rpc('has_role', { role_name: 'admin' })
           router.replace(isAdmin ? '/admin' : '/dashboard')
         }
       } else {
+        console.log('📧 Usuario necesita confirmar email')
         // Usuario necesita confirmar email
         setShowSuccessModal(true)
       }
     } catch (error) {
-      console.error('Error en registro:', error)
+      console.error('❌ Error en registro:', error)
       setErrors((prev) => ({ ...prev, submit: 'Error inesperado. Intenta nuevamente.' }))
     } finally {
       setLoading(false)
