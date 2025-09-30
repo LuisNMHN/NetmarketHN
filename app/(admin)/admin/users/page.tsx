@@ -1,12 +1,16 @@
-export default function AdminUsersPage() {
-  return (
-    <div className="mx-auto max-w-screen-xl">
-      <div className="rounded-2xl bg-card p-6 shadow-sm">
-        <h1 className="text-2xl font-bold text-foreground">
-          Pendiente: contenido de esta página (Gestión de Usuarios)
-        </h1>
-        <p className="mt-2 text-muted-foreground">Aquí irá la gestión de usuarios del sistema</p>
-      </div>
-    </div>
-  )
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Plus, Edit, Trash2, Shield, ShieldOff } from "lucide-react"
+import { DataTable, type Column } from "../_components/DataTable"
+import { StatusBadge } from "../_components/StatusBadge"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { ConfirmDialog } from "../_components/ConfirmDialog"
+import { UserForm } from "../_forms/UserForm"
+import { getAdminUsers, type AdminUser } from "@/app/actions/admin"
+import AdminUsersClient from "./AdminUsersClient"
+
+export default async function AdminUsersPage() {
+  const users = await getAdminUsers()
+  
+  return <AdminUsersClient initialUsers={users} />
 }
