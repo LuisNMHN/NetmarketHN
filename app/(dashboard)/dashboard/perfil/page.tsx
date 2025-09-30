@@ -181,16 +181,27 @@ export default function PerfilPage() {
 
   // Botón flotante: mostrar al hacer scroll (copiado del home)
   useEffect(() => {
+    const container = document.querySelector('main.flex-1.overflow-y-auto') as HTMLElement | null
     const handleScroll = () => {
-      setShowScrollTop(window.scrollY > 50)
+      const y = container ? container.scrollTop : window.scrollY
+      setShowScrollTop(y > 50)
     }
-    window.addEventListener("scroll", handleScroll)
+    container?.addEventListener('scroll', handleScroll)
+    window.addEventListener('scroll', handleScroll)
     handleScroll()
-    return () => window.removeEventListener("scroll", handleScroll)
+    return () => {
+      container?.removeEventListener('scroll', handleScroll)
+      window.removeEventListener('scroll', handleScroll)
+    }
   }, [])
 
   const scrollToTop = () => {
-    window.scrollTo({ top: 0, behavior: "smooth" })
+    const container = document.querySelector('main.flex-1.overflow-y-auto') as HTMLElement | null
+    if (container) {
+      container.scrollTo({ top: 0, behavior: "smooth" })
+    } else {
+      window.scrollTo({ top: 0, behavior: "smooth" })
+    }
   }
 
   // Cargar datos del perfil al montar el componente
