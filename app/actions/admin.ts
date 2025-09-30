@@ -59,13 +59,23 @@ export async function getAdminStats() {
       }
     }
 
-    const { count: activeUsers, error: activeError } = await supabase
-      .from('user_profiles')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'active')
+    // Intentar obtener usuarios activos, pero si falla usar el total
+    let activeUsers = totalUsers
+    try {
+      const { count: activeCount, error: activeError } = await supabase
+        .from('user_profiles')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active')
 
-    if (activeError) {
-      console.error('Error getting active users:', activeError)
+      if (activeError) {
+        console.log('Status column not found, using total users as active users')
+        activeUsers = totalUsers
+      } else {
+        activeUsers = activeCount || 0
+      }
+    } catch (statusError) {
+      console.log('Error with status query, using total users as active users')
+      activeUsers = totalUsers
     }
 
     // Por ahora usar valores por defecto para KYC
@@ -75,7 +85,7 @@ export async function getAdminStats() {
 
     const stats = {
       totalUsers: totalUsers || 0,
-      activeUsers: activeUsers || 0,
+      activeUsers: activeUsers,
       pendingKyc,
       approvedKyc,
       rejectedKyc,
