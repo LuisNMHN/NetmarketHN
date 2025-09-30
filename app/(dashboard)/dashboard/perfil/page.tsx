@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useState, useRef, useEffect } from "react"
+import Link from "next/link"
 import "./profile-page.css"
 import LoadingSpinner from "@/components/ui/loading-spinner"
 import { Button } from "@/components/ui/button"
@@ -44,6 +45,7 @@ import {
   Zap,
   Circle
 } from "lucide-react"
+import { ArrowLeft } from "lucide-react"
 
 export default function PerfilPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -482,13 +484,21 @@ export default function PerfilPage() {
                 <p className="text-body-sm text-white font-medium">{profileData.email}</p>
               </div>
             </div>
-            <Badge 
-              variant="outline" 
-              className={`self-start sm:self-auto badge-${profileData.kyc_status} px-3 py-1 text-caption shadow-sm ${verificationInfo.textColor} bg-white/90 backdrop-blur-sm`}
-            >
-              <verificationInfo.icon className="h-3 w-3 mr-1" />
-              {verificationInfo.label}
-            </Badge>
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <Badge 
+                variant="outline" 
+                className={`badge-${profileData.kyc_status} px-3 py-1 text-caption shadow-sm ${verificationInfo.textColor} bg-white/90 backdrop-blur-sm`}
+              >
+                <verificationInfo.icon className="h-3 w-3 mr-1" />
+                {verificationInfo.label}
+              </Badge>
+              <Button asChild variant="outline" size="sm" className="bg-white/90 backdrop-blur-sm">
+                <Link href="/" title="Ir al inicio" className="flex items-center gap-1">
+                  <ArrowLeft className="h-3 w-3" />
+                  Inicio
+                </Link>
+              </Button>
+            </div>
             </div>
         </div>
 
