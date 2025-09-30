@@ -182,7 +182,7 @@ export default function PerfilPage() {
   // Botón flotante: mostrar al hacer scroll (copiado del home)
   useEffect(() => {
     const handleScroll = () => {
-      setShowScrollTop(window.scrollY > 400)
+      setShowScrollTop(window.scrollY > 200)
     }
     window.addEventListener("scroll", handleScroll)
     return () => window.removeEventListener("scroll", handleScroll)
@@ -985,7 +985,7 @@ export default function PerfilPage() {
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0 }}
         onClick={scrollToTop}
-        className="fixed bottom-8 right-8 z-50 w-12 h-12 bg-primary hover:bg-primary/90 text-primary-foreground rounded-full shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center"
+        className="fixed bottom-20 sm:bottom-8 right-4 sm:right-8 z-[60] w-12 h-12 bg-primary hover:bg-primary/90 text-primary-foreground rounded-full shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center"
         aria-label="Volver arriba"
       >
         <ArrowRight className="w-5 h-5 rotate-[-90deg]" />
