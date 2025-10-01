@@ -59,8 +59,8 @@ export async function getAdminStats() {
       // Fallback: intentar con user_profiles
       console.log('Intentando con user_profiles como fallback...')
       const { count: totalUsersFallback, error: totalErrorFallback } = await supabase
-        .from('user_profiles')
-        .select('*', { count: 'exact', head: true })
+      .from('user_profiles')
+      .select('*', { count: 'exact', head: true })
 
       if (totalErrorFallback) {
         console.error('Error getting total users from user_profiles:', totalErrorFallback)
@@ -185,7 +185,7 @@ export async function getAdminUsers(): Promise<AdminUser[]> {
         name: profile.display_name || '',
         phone: profile.phone || '',
         roles: ['user'], // Rol por defecto
-        status: 'active' as const,
+          status: 'active' as const,
         created_at: profile.created_at,
         updated_at: profile.updated_at
       }))
@@ -383,9 +383,9 @@ async function getKycRequestsWithClient(supabase: any): Promise<KycRequest[]> {
       // Si la tabla no existe, retornar array vacío
       if (kycError.code === '42P01' || kycError.message.includes('does not exist')) {
         console.log('Tabla kyc_submissions no existe. Ejecuta el script CREATE_KYC_SUBMISSIONS_TABLE.sql')
-        return []
-      }
-      
+      return []
+    }
+
       return []
     }
 
@@ -586,40 +586,7 @@ export async function updateKycStatus(requestId: string, status: "approved" | "r
   }
 }
 
-export async function revertKycStep(userId: string, step: 1, reason: string) {
-  const supabase = await supabaseAdmin()
-  
-  try {
-    console.log(`🔄 Revirtiendo paso ${step} para usuario: ${userId}`)
-    console.log(`📝 Motivo: ${reason}`)
-    
-    // Actualizar admin_notes con el motivo de la reversión y marcar que el paso 1 debe revertirse
-    const { data, error } = await supabase
-      .from('kyc_submissions')
-      .update({
-        admin_notes: `Paso ${step} revertido: ${reason}`,
-        updated_at: new Date().toISOString()
-      })
-      .eq('user_id', userId)
-      .select()
-
-    if (error) {
-      console.error('❌ Error actualizando admin_notes:', error)
-      throw error
-    }
-
-    console.log(`✅ Paso ${step} revertido exitosamente para usuario: ${userId}`)
-    console.log('📊 Datos actualizados:', data)
-
-    revalidatePath('/admin/kyc')
-    return { success: true }
-  } catch (error) {
-    console.error('❌ Error reverting KYC step:', error)
-    const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
-    console.error('Error message:', errorMessage)
-    return { success: false, error: errorMessage }
-  }
-}
+// revertKycStep eliminado según requerimiento
 
 export async function deleteKycDocument(userId: string, documentType: 'document_front_path' | 'document_back_path' | 'selfie_path' | 'address_proof_path') {
   const supabase = await supabaseAdmin()
@@ -685,5 +652,40 @@ export async function deleteKycDocument(userId: string, documentType: 'document_
     const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
     console.error('Error message:', errorMessage)
     return { success: false, error: errorMessage }
+  }
+}
+
+// Eliminar campo específico de datos personales del paso 1
+// Campos permitidos: full_name, birth_date, country, doc_type, doc_number,
+// address_department, address_city, address_neighborhood, address_desc
+export async function deleteKycPersonalField(
+  userId: string,
+  field: 'full_name' | 'birth_date' | 'country' | 'doc_type' | 'doc_number' | 'address_department' | 'address_city' | 'address_neighborhood' | 'address_desc'
+) {
+  const supabase = await supabaseAdmin()
+  try {
+    console.log(`🧹 Eliminando campo personal '${field}' para usuario: ${userId}`)
+
+    // Construir payload dinámico para poner a null el campo
+    const payload: Record<string, any> = { [field]: null, updated_at: new Date().toISOString() }
+
+    const { data, error } = await supabase
+      .from('kyc_submissions')
+      .update(payload)
+      .eq('user_id', userId)
+      .select()
+
+    if (error) {
+      console.error('❌ Error eliminando campo personal:', error)
+      return { success: false, error: error.message }
+    }
+
+    console.log('✅ Campo personal eliminado. Datos:', data)
+    revalidatePath('/admin/kyc')
+    return { success: true }
+  } catch (error) {
+    console.error('❌ Error inesperado en deleteKycPersonalField:', error)
+    const message = error instanceof Error ? error.message : 'Error desconocido'
+    return { success: false, error: message }
   }
 }

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -9,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { toast } from "sonner"
+import { toast as toastLib } from "sonner"
 import { CheckCircle, Clock, XCircle, Upload, Camera, FileText, Shield, AlertCircle, Trash2, Eye, User, Home, Loader2, ArrowRight } from "lucide-react"
 import { departmentsToMunicipalities } from "@/lib/data/honduras"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
@@ -271,6 +272,10 @@ interface InitialDraft extends KycDraft {
 }
 
 export default function VerificacionClient({ initialDraft }: { initialDraft: InitialDraft | null }) {
+  const router = useRouter()
+  const shouldRefreshOnCloseRef = useRef(false)
+  // Reactivar toasts
+  const toast = toastLib
   // Debug: Log initialDraft para verificar step1Reverted
   console.log('🔍 VerificacionClient - initialDraft:', {
     step1Reverted: initialDraft?.step1Reverted,
@@ -1317,6 +1322,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
 
   const onSaveKycDraft = async (
     draft: KycDraft & { department?: string; municipality?: string; neighborhood?: string; addressDesc?: string },
+    shouldRefresh: boolean = false,
   ) => {
     try {
       setIsSavingDraft(true)
@@ -1327,6 +1333,10 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       }
       setKycStatus("draft")
       toast.success(result.message, { action: { label: "Ver estado", onClick: () => checkVerificationStatus() } })
+      // Refrescar solo cuando no sea acción de carga de archivos
+      if (shouldRefresh) {
+        try { router.refresh() } catch {}
+      }
     } catch (err: any) {
       toast.error(err?.message || "No se pudo guardar el borrador", { action: { label: "Reintentar", onClick: () => onSaveKycDraft(draft) } })
     } finally {
@@ -1567,6 +1577,22 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
   useEffect(() => {
     console.log('🔒 Estado isProcessingStep1 cambió:', isProcessingStep1)
   }, [isProcessingStep1])
+
+  // Cuando el modal de envío se cierra y marcamos que debe refrescar, ejecutar refresh
+  useEffect(() => {
+    if (!showSubmissionModal && shouldRefreshOnCloseRef.current) {
+      // Reset flag y refrescar
+      shouldRefreshOnCloseRef.current = false
+      try {
+        console.log('🔄 Refresh: cierre del modal de envío (navegación)')
+        // Fuerza navegación a la misma ruta para refresh general
+        window.location.assign(window.location.pathname + window.location.search)
+      } catch (e) {
+        console.warn('Refresh (assign) falló, fallback reload', e)
+        try { window.location.reload() } catch {}
+      }
+    }
+  }, [showSubmissionModal])
 
   // Navegación automática al cargar la página (refresh)
   useEffect(() => {
@@ -1899,6 +1925,9 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
   // Si el estado es review o approved, mostrar 100% de progreso
   const progress = (kycStatus === "review" || kycStatus === "approved") ? 100 : (stepsCompletedCount / 5) * 100
   const statusInfo = getStatusInfo(kycStatus)!
+  // Cuando todos los pasos están completos, forzamos texto en negro
+  const allStepsCompleted = [1, 2, 3, 4, 5].every(step => isStepComplete(step))
+  const mutedTextClass = allStepsCompleted ? 'text-foreground' : 'text-muted-foreground'
 
   // Bloqueo de edición en pasos completados y persistidos
   const isStepLocked = (step: number) => {
@@ -1944,7 +1973,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       neighborhood: kycData.neighborhood,
       addressDesc: kycData.addressDesc,
     }
-    await onSaveKycDraft(draftData)
+    await onSaveKycDraft(draftData, true)
   }
 
   const handleSaveStep2Draft = async () => {
@@ -1961,7 +1990,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       addressDesc: kycData.addressDesc,
       // Los documentos se guardan automáticamente cuando se suben
     }
-    await onSaveKycDraft(draftData)
+    await onSaveKycDraft(draftData, false)
   }
 
   const handleSaveStep3Draft = async () => {
@@ -1978,7 +2007,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       addressDesc: kycData.addressDesc,
       // La selfie se guarda automáticamente cuando se sube
     }
-    await onSaveKycDraft(draftData)
+    await onSaveKycDraft(draftData, false)
   }
 
   const handleSaveStep4Draft = async () => {
@@ -1995,7 +2024,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       addressDesc: kycData.addressDesc,
       // El comprobante de domicilio se guarda automáticamente cuando se sube
     }
-    await onSaveKycDraft(draftData)
+    await onSaveKycDraft(draftData, false)
   }
 
   const handleSubmitKyc = async () => {
@@ -2007,6 +2036,8 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       docNumber: kycData.docNumber,
     }
     await onSubmitKyc(submitData)
+    // Refrescar tras enviar verificación (no es carga de archivos)
+    try { router.refresh() } catch {}
   }
 
   const startVerification = () => {
@@ -2062,6 +2093,8 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       // Navegar específicamente al paso 2
       console.log('🎯 Navegando al paso 2 desde el botón Continuar')
       setCurrentStep(2)
+      // Refresh general como en el botón Entendido del paso 5
+      try { window.location.assign(window.location.pathname + window.location.search) } catch { try { window.location.reload() } catch {} }
     } catch (error) {
       console.error('Error en paso 1:', error)
       toast.error('Error al procesar los datos. Inténtalo de nuevo.')
@@ -2075,7 +2108,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold text-foreground">Verificación de Identidad</h2>
-          <p className="text-muted-foreground">
+          <p className={mutedTextClass}>
             Protege tus transacciones y accede a todas las funciones de NMHN verificando tu identidad según
             regulaciones internacionales KYC/AML.
           </p>
@@ -2085,7 +2118,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
             {statusInfo.icon}
             {statusInfo.label}
           </Badge>
-          <span className="text-sm text-muted-foreground">Actualizado: {lastUpdate}</span>
+          <span className={`text-sm ${mutedTextClass}`}>Actualizado: {lastUpdate}</span>
         </div>
       </div>
 
@@ -2113,7 +2146,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       </Card>
 
       <div className="space-y-2">
-        <div className="flex justify-between text-sm text-muted-foreground">
+        <div className={`flex justify-between text-sm ${mutedTextClass}`}>
           <span>Progreso del proceso</span>
           <span>{Math.round(progress)}%</span>
         </div>
@@ -2289,16 +2322,16 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
               </div>
               <div className="space-y-1">
                 <div className={`text-sm font-medium flex items-center gap-2 transition-colors duration-200 ${
-                  stepAvailable 
+                  allStepsCompleted ? 'text-foreground' : (stepAvailable 
                     ? "text-foreground" 
-                    : "text-muted-foreground/60"
+                    : "text-muted-foreground/60")
                 }`}>
                   {step.title}
                 </div>
                 <div className={`text-xs transition-colors duration-200 ${
-                  stepAvailable 
+                  allStepsCompleted ? 'text-foreground' : (stepAvailable 
                     ? "text-muted-foreground" 
-                    : "text-muted-foreground/50"
+                    : "text-muted-foreground/50")
                 }`}>
                   {step.description}
                 </div>
@@ -2332,7 +2365,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
               <span className="text-green-600 text-sm font-normal">✓ Completado</span>
             )}
           </CardTitle>
-          <CardDescription>
+          <CardDescription className={allStepsCompleted ? 'text-foreground' : undefined}>
             {currentStep === 1 && isStepCompleted(1) && "✓ Datos personales completados y guardados correctamente."}
             {currentStep === 1 && !isStepCompleted(1) && "Ingresa tu nombre completo, fecha de nacimiento y país."}
             {currentStep === 2 && isStepCompleted(2) && "✓ Documentos de identidad completados y guardados correctamente."}
@@ -2634,6 +2667,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                         // Usar setCurrentStep directamente para asegurar la navegación
                         setCurrentStep(4)
                         console.log('✅ Navegación al paso 4 completada')
+                        try { window.location.assign(window.location.pathname + window.location.search) } catch { try { window.location.reload() } catch {} }
                       } else {
                         toast.error('No se pudo marcar el paso 3 como completo. Verifica que la selfie esté cargada.')
                       }
@@ -2720,9 +2754,11 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                         setStep5Enabled(true)
                         saveStepStates(step1ContinueClicked, step2ContinueClicked, step3Enabled, step3ContinueClicked, step4Enabled, true, true) // Guardar que el paso 5 está habilitado
                         
-                        // Usar setCurrentStep directamente para asegurar la navegación
-                        setCurrentStep(5)
-                        console.log('✅ Navegación al paso 5 completada')
+                // Usar setCurrentStep directamente para asegurar la navegación
+                setCurrentStep(5)
+                console.log('✅ Navegación al paso 5 completada')
+                // Refresh general
+                try { window.location.assign(window.location.pathname + window.location.search) } catch { try { window.location.reload() } catch {} }
                       } else {
                         toast.error('No se pudo marcar el paso 4 como completo. Verifica que el comprobante de domicilio esté cargado.')
                       }
@@ -2755,7 +2791,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                   manual. Recibirás una notificación por correo cuando se complete el proceso. El tiempo estimado es de 24-72 horas hábiles.
                 </AlertDescription>
               </Alert>
-              <div className="text-sm text-muted-foreground">Asegúrate de que toda la información y archivos cargados sean legibles y estén actualizados.</div>
+              <div className={`text-sm ${mutedTextClass}`}>Asegúrate de que toda la información y archivos cargados sean legibles y estén actualizados.</div>
               
               {/* Checkbox de aceptación de declaración */}
               <div className="flex items-center space-x-2">
@@ -2870,6 +2906,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                             // Usar setCurrentStep directamente para asegurar la navegación
                             setCurrentStep(3)
                             console.log('✅ Navegación al paso 3 completada')
+                            try { window.location.assign(window.location.pathname + window.location.search) } catch { try { window.location.reload() } catch {} }
                           } else {
                             toast.error('No se pudo marcar el paso 2 como completo. Verifica que las imágenes estén cargadas.')
                           }
@@ -2904,13 +2941,18 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                       try {
                         // Enviar la verificación
                       await handleSubmitKyc()
+                      // Refrescar inmediatamente después de enviar
+                      try { console.log('🔄 Refresh: después de enviar verificación'); router.refresh() } catch (e) { console.warn('Refresh falló después de enviar', e) }
                         
                         // Marcar el paso 5 como completo
                         const success = await markStepAsComplete(5)
                         
                         if (success) {
                           console.log('✅ Paso 5 marcado como completo después del envío')
+                          // Refrescar de nuevo para asegurar estado "review"
+                          try { console.log('🔄 Refresh: paso 5 completo'); router.refresh() } catch (e) { console.warn('Refresh falló al marcar paso 5', e) }
                           // Mostrar modal de confirmación en lugar de navegar
+                          shouldRefreshOnCloseRef.current = true
                           setShowSubmissionModal(true)
                         } else {
                           console.error('❌ No se pudo marcar el paso 5 como completo')
@@ -3054,7 +3096,9 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
             </div>
             <div className="flex justify-end">
               <Button 
-                onClick={() => setShowSubmissionModal(false)}
+                onClick={() => {
+                  setShowSubmissionModal(false)
+                }}
                 className="bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 Entendido

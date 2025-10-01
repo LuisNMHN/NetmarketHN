@@ -240,6 +240,14 @@ export async function submitKyc(): Promise<ActionResult> {
     .eq("user_id", userId)
 
   if (updateError) return { ok: false, message: "No se pudo enviar la verificación." }
+  
+  // Invalidar caché para que el UI se actualice inmediatamente en la página de verificación
+  try {
+    const { revalidatePath } = await import("next/cache")
+    revalidatePath("/dashboard/verificacion")
+    revalidatePath("/dashboard")
+    revalidatePath("/")
+  } catch {}
   return { ok: true, message: "Verificación enviada. Recibirás una respuesta en 24-72 horas hábiles." }
 }
 

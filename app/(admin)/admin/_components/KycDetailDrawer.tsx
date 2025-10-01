@@ -46,9 +46,10 @@ interface KycDetailDrawerProps {
   onRevert?: (id: string) => void
   onRevertStep?: (id: string, step: 1) => void
   onDeleteDocument?: (userId: string, documentType: string) => void
+  onDeletePersonalField?: (userId: string, field: 'full_name' | 'birth_date' | 'country' | 'doc_type' | 'doc_number' | 'address_department' | 'address_city' | 'address_neighborhood' | 'address_desc') => void
 }
 
-export function KycDetailDrawer({ open, onOpenChange, data, onApprove, onReject, onRevert, onRevertStep, onDeleteDocument }: KycDetailDrawerProps) {
+export function KycDetailDrawer({ open, onOpenChange, data, onApprove, onReject, onRevert, onRevertStep, onDeleteDocument, onDeletePersonalField }: KycDetailDrawerProps) {
   const [documentsWithUrls, setDocumentsWithUrls] = useState<KycDocument[]>([])
   const [loadingUrls, setLoadingUrls] = useState(false)
 
@@ -219,7 +220,14 @@ export function KycDetailDrawer({ open, onOpenChange, data, onApprove, onReject,
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-1">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Nombre Completo</p>
-                <p className="text-sm font-medium">{convertedData.userName}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium">{convertedData.userName}</p>
+                  <Button variant="outline" size="sm" className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => onDeletePersonalField?.(convertedData.userId, 'full_name')}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <div className="space-y-1">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Email</p>
@@ -243,24 +251,52 @@ export function KycDetailDrawer({ open, onOpenChange, data, onApprove, onReject,
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-1">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Tipo de Documento</p>
-                <p className="text-sm font-medium">{convertedData.documentType}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium">{convertedData.documentType}</p>
+                  <Button variant="outline" size="sm" className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => onDeletePersonalField?.(convertedData.userId, 'doc_type')}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <div className="space-y-1">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Número</p>
-                <p className="text-sm font-medium font-mono">{convertedData.documentNumber}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium font-mono">{convertedData.documentNumber}</p>
+                  <Button variant="outline" size="sm" className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => onDeletePersonalField?.(convertedData.userId, 'doc_number')}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               {convertedData.birthDate && (
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Fecha de Nacimiento</p>
-                  <p className="text-sm font-medium">
-                    {new Date(convertedData.birthDate).toLocaleDateString("es-HN")}
-                  </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium">
+                      {new Date(convertedData.birthDate).toLocaleDateString("es-HN")}
+                    </p>
+                    <Button variant="outline" size="sm" className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => onDeletePersonalField?.(convertedData.userId, 'birth_date')}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               )}
               {convertedData.country && (
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">País</p>
-                  <p className="text-sm font-medium">{convertedData.country}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium">{convertedData.country}</p>
+                    <Button variant="outline" size="sm" className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => onDeletePersonalField?.(convertedData.userId, 'country')}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               )}
               <div className="space-y-1 md:col-span-2">
@@ -285,25 +321,53 @@ export function KycDetailDrawer({ open, onOpenChange, data, onApprove, onReject,
                 {convertedData.addressDepartment && (
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Departamento</p>
-                    <p className="text-sm font-medium">{convertedData.addressDepartment}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">{convertedData.addressDepartment}</p>
+                      <Button variant="outline" size="sm" className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => onDeletePersonalField?.(convertedData.userId, 'address_department')}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 )}
                 {convertedData.addressCity && (
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Ciudad</p>
-                    <p className="text-sm font-medium">{convertedData.addressCity}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">{convertedData.addressCity}</p>
+                      <Button variant="outline" size="sm" className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => onDeletePersonalField?.(convertedData.userId, 'address_city')}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 )}
                 {convertedData.addressNeighborhood && (
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Colonia</p>
-                    <p className="text-sm font-medium">{convertedData.addressNeighborhood}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">{convertedData.addressNeighborhood}</p>
+                      <Button variant="outline" size="sm" className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => onDeletePersonalField?.(convertedData.userId, 'address_neighborhood')}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 )}
                 {convertedData.addressDesc && (
                   <div className="space-y-1 md:col-span-2">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Dirección Específica</p>
-                    <p className="text-sm font-medium">{convertedData.addressDesc}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">{convertedData.addressDesc}</p>
+                      <Button variant="outline" size="sm" className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => onDeletePersonalField?.(convertedData.userId, 'address_desc')}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -458,22 +522,7 @@ export function KycDetailDrawer({ open, onOpenChange, data, onApprove, onReject,
                   Aprobar Verificación
                 </Button>
               </div>
-              <div className="flex gap-3 mt-3">
-                <Button
-                  variant="outline"
-                  className="flex-1 gap-2 h-10 text-sm border-orange-200 text-orange-700 hover:bg-orange-50"
-                  onClick={() => {
-                    onRevertStep?.(convertedData.id, 1)
-                    onOpenChange(false)
-                  }}
-                >
-                  <RotateCcw className="size-4" />
-                  Revertir Paso 1
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground text-center mt-2">
-                Revertir solo el paso 1 para que el usuario corrija sus datos personales
-              </p>
+              
             </div>
           )}
 

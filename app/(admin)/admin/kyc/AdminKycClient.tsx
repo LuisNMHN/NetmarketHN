@@ -6,7 +6,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Eye } from "lucide-react"
 import { DataTable, type Column } from "../_components/DataTable"
@@ -23,7 +22,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { type KycRequest, updateKycStatus, deleteKycDocument, revertKycStep } from "@/app/actions/admin"
+import { type KycRequest, updateKycStatus, deleteKycDocument, deleteKycPersonalField } from "@/app/actions/admin"
 import { useToast } from "@/hooks/use-toast"
 
 interface AdminKycClientProps {
@@ -37,28 +36,62 @@ export default function AdminKycClient({ initialRequests }: AdminKycClientProps)
   const [isApproveDialogOpen, setIsApproveDialogOpen] = useState(false)
   const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false)
   const [isRevertDialogOpen, setIsRevertDialogOpen] = useState(false)
-  const [isStepRevertDialogOpen, setIsStepRevertDialogOpen] = useState(false)
+  
   const [rejectionReason, setRejectionReason] = useState("")
-  const [selectedRejectionType, setSelectedRejectionType] = useState("")
+  const [selectedRejectionTypes, setSelectedRejectionTypes] = useState<string[]>([])
   const [customRejectionReason, setCustomRejectionReason] = useState("")
   const [revertStep1, setRevertStep1] = useState(false)
   const [revertReason, setRevertReason] = useState("")
-  const [stepRevertReason, setStepRevertReason] = useState("")
-  const [selectedStep, setSelectedStep] = useState<1 | null>(null)
+  
   const { toast } = useToast()
 
-  // Motivos comunes de rechazo
+  // Motivos de rechazo realistas por secciones del KYC
   const rejectionReasons = [
-    { value: "documents_blurry", label: "Documentos borrosos o ilegibles" },
-    { value: "incorrect_info", label: "Información personal incorrecta" },
-    { value: "document_mismatch", label: "Documento no coincide con la información" },
-    { value: "poor_quality_selfie", label: "Selfie de mala calidad o no corresponde" },
-    { value: "invalid_address_proof", label: "Comprobante de domicilio inválido" },
-    { value: "expired_document", label: "Documento vencido" },
-    { value: "incomplete_documents", label: "Documentos incompletos" },
-    { value: "suspicious_activity", label: "Actividad sospechosa detectada" },
+    // Datos personales (Paso 1)
+    { value: "personal_name_mismatch", label: "El nombre no coincide con el documento" },
+    { value: "personal_birthdate_invalid", label: "Fecha de nacimiento inválida o no coincide" },
+    { value: "personal_doc_number_format", label: "Número de documento con formato inválido" },
+    { value: "personal_country_mismatch", label: "País declarado no coincide con el documento" },
+    { value: "personal_incomplete", label: "Datos personales incompletos" },
+
+    // Documento de identidad (Paso 2)
+    { value: "doc_front_blurry", label: "Documento (frontal) borroso o ilegible" },
+    { value: "doc_back_blurry", label: "Documento (reverso) borroso o ilegible" },
+    { value: "doc_missing_back", label: "Falta el reverso del documento" },
+    { value: "doc_expired", label: "Documento vencido" },
+    { value: "doc_cropped", label: "Documento mal encuadrado o recortado" },
+    { value: "doc_glare", label: "Reflejos o destellos impiden la lectura" },
+    { value: "doc_mismatch_info", label: "Datos del documento no coinciden con los ingresados" },
+    { value: "doc_manipulated", label: "Documento alterado o con signos de manipulación" },
+    { value: "doc_type_wrong", label: "Tipo de documento incorrecto para el país" },
+    { value: "doc_unreadable_mrz", label: "Zona MRZ o datos clave no legibles" },
+    { value: "doc_unsupported_format", label: "Formato de archivo no soportado" },
+    { value: "doc_file_quality", label: "Calidad o resolución del archivo insuficiente" },
+
+    // Selfie (Paso 3)
+    { value: "selfie_not_match_document", label: "El rostro de la selfie no coincide con el documento" },
+    { value: "selfie_multiple_faces", label: "Se detectan múltiples rostros en la selfie" },
+    { value: "selfie_low_light", label: "Iluminación insuficiente en la selfie" },
+    { value: "selfie_occlusions", label: "Rostro cubierto (gafas oscuras, gorra, mascarilla)" },
+    { value: "selfie_poor_quality", label: "Selfie borrosa o de baja calidad" },
+    { value: "selfie_not_holding_doc_when_required", label: "No sostiene el documento cuando se requiere" },
+
+    // Comprobante de domicilio (Paso 4)
+    { value: "address_invalid_document", label: "Comprobante de domicilio inválido o no aceptado" },
+    { value: "address_not_readable", label: "Comprobante de domicilio ilegible" },
+    { value: "address_outdated", label: "Comprobante de domicilio con antigüedad mayor a 3 meses" },
+    { value: "address_name_mismatch", label: "Nombre en el comprobante no coincide con el usuario" },
+    { value: "address_address_mismatch", label: "Dirección no coincide con la proporcionada" },
+    { value: "address_cropped_or_glare", label: "Comprobante mal encuadrado o con reflejos" },
+
+    // Calidad general y fraude
+    { value: "incomplete_submission", label: "Envío incompleto (faltan pasos o archivos)" },
     { value: "duplicate_submission", label: "Solicitud duplicada" },
-    { value: "other", label: "Otro motivo" }
+    { value: "suspicious_activity", label: "Actividad sospechosa o intento de fraude" },
+    { value: "watermark_or_editing", label: "Marcas de agua, filtros o edición excesiva" },
+
+    // Otro
+    { value: "other", label: "Otro motivo" },
   ]
 
   const handleApprove = async (id: string) => {
@@ -81,18 +114,18 @@ export default function AdminKycClient({ initialRequests }: AdminKycClientProps)
   }
 
   const handleReject = async (id: string) => {
-    // Validar que se haya seleccionado un motivo
-    if (!selectedRejectionType) {
+    // Validar que se haya seleccionado al menos un motivo
+    if (!selectedRejectionTypes.length) {
       toast({
         title: "Error",
-        description: "Debes seleccionar un motivo para el rechazo",
+        description: "Debes seleccionar al menos un motivo para el rechazo",
         variant: "destructive",
       })
       return
     }
 
-    // Si es "otro motivo", validar que se haya escrito una razón personalizada
-    if (selectedRejectionType === "other" && !customRejectionReason.trim()) {
+    // Si incluye "otro motivo", validar que se haya escrito una razón personalizada
+    if (selectedRejectionTypes.includes("other") && !customRejectionReason.trim()) {
       toast({
         title: "Error",
         description: "Debes proporcionar un motivo personalizado",
@@ -101,38 +134,23 @@ export default function AdminKycClient({ initialRequests }: AdminKycClientProps)
       return
     }
 
-    // Construir el motivo final
-    const finalReason = selectedRejectionType === "other" 
-      ? customRejectionReason 
-      : rejectionReasons.find(r => r.value === selectedRejectionType)?.label || selectedRejectionType
+    // Construir el motivo final (concatena múltiples selecciones)
+    const labelsByValue = Object.fromEntries(rejectionReasons.map(r => [r.value, r.label])) as Record<string, string>
+    const normalizedReasons = selectedRejectionTypes
+      .map(v => v === "other" ? (customRejectionReason.trim() ? `Otro: ${customRejectionReason.trim()}` : "Otro") : (labelsByValue[v] || v))
+    const finalReason = normalizedReasons.join("; ")
 
-    // Si se seleccionó revertir paso 1, hacer ambas acciones
-    if (revertStep1) {
-      // Primero revertir el paso 1
-      const revertResult = await revertKycStep(id, 1, `Rechazo: ${finalReason}`)
-      if (!revertResult.success) {
-        toast({
-          title: "Error",
-          description: "No se pudo revertir el paso 1",
-          variant: "destructive",
-        })
-        return
-      }
-    }
 
     // Luego rechazar la solicitud
     const result = await updateKycStatus(id, "rejected", finalReason)
     if (result.success) {
       toast({
         title: "KYC Rechazado",
-        description: revertStep1 
-          ? "La solicitud ha sido rechazada y el paso 1 revertido" 
-          : "La solicitud ha sido rechazada",
+        description: "La solicitud ha sido rechazada",
       })
       setIsRejectDialogOpen(false)
-      setSelectedRejectionType("")
+      setSelectedRejectionTypes([])
       setCustomRejectionReason("")
-      setRevertStep1(false)
       // Recargar la página para obtener los datos actualizados
       window.location.reload()
     } else {
@@ -191,35 +209,6 @@ export default function AdminKycClient({ initialRequests }: AdminKycClientProps)
     }
   }
 
-  const handleRevertStep = async (userId: string, step: 1) => {
-    if (!stepRevertReason.trim()) {
-      toast({
-        title: "Error",
-        description: "Debes proporcionar un motivo para revertir el paso",
-        variant: "destructive",
-      })
-      return
-    }
-
-    const result = await revertKycStep(userId, step, stepRevertReason)
-    if (result.success) {
-      toast({
-        title: "Paso Revertido",
-        description: `El paso ${step} ha sido revertido exitosamente`,
-      })
-      setIsStepRevertDialogOpen(false)
-      setStepRevertReason("")
-      setSelectedStep(null)
-      // Recargar la página para obtener los datos actualizados
-      window.location.reload()
-    } else {
-      toast({
-        title: "Error",
-        description: result.error || "No se pudo revertir el paso",
-        variant: "destructive",
-      })
-    }
-  }
 
   const columns: Column<KycRequest>[] = [
     {
@@ -389,13 +378,27 @@ export default function AdminKycClient({ initialRequests }: AdminKycClientProps)
           setIsDrawerOpen(false)
           setIsRevertDialogOpen(true)
         }}
-        onRevertStep={(id, step) => {
-          setSelectedRequest(requests.find(r => r.id === id) || null)
-          setSelectedStep(step)
-          setIsStepRevertDialogOpen(true)
-        }}
-        onDeleteDocument={handleDeleteDocument}
-      />
+          
+          onDeleteDocument={handleDeleteDocument}
+          onDeletePersonalField={async (userId, field) => {
+            try {
+              const res = await fetch('/api/admin/delete-personal-field', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, field })
+              })
+              const data = await res.json()
+              if (res.ok && data.ok) {
+                toast({ title: 'Campo eliminado', description: 'El dato fue borrado correctamente.' })
+                window.location.reload()
+              } else {
+                toast({ title: 'Error', description: data.error || 'No se pudo borrar el campo', variant: 'destructive' })
+              }
+            } catch (e:any) {
+              toast({ title: 'Error de red', description: e?.message || 'No se pudo contactar al servidor', variant: 'destructive' })
+            }
+          }}
+          />
+
+      {/* Script de delegación eliminado; usamos handler React en el Drawer */}
 
       {/* Approve Confirmation */}
       <ConfirmDialog
@@ -411,13 +414,12 @@ export default function AdminKycClient({ initialRequests }: AdminKycClientProps)
 
       {/* Reject Confirmation */}
       <AlertDialog 
-        open={isRejectDialogOpen} 
+        open={isRejectDialogOpen}
         onOpenChange={(open) => {
           setIsRejectDialogOpen(open)
           if (!open) {
-            setSelectedRejectionType("")
+            setSelectedRejectionTypes([])
             setCustomRejectionReason("")
-            setRevertStep1(false)
           }
         }}
       >
@@ -430,24 +432,35 @@ export default function AdminKycClient({ initialRequests }: AdminKycClientProps)
           </AlertDialogHeader>
           <div className="space-y-4 mt-4">
             <div>
-              <Label htmlFor="rejection-type" className="text-sm font-medium">
-                Motivo del rechazo *
+              <Label className="text-sm font-medium">
+                Motivos del rechazo (puedes seleccionar varios) *
               </Label>
-              <Select value={selectedRejectionType} onValueChange={setSelectedRejectionType}>
-                <SelectTrigger className="mt-2">
-                  <SelectValue placeholder="Selecciona un motivo de rechazo" />
-                </SelectTrigger>
-                <SelectContent>
-                  {rejectionReasons.map((reason) => (
-                    <SelectItem key={reason.value} value={reason.value}>
-                      {reason.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="mt-2 grid grid-cols-1 gap-2 max-h-64 overflow-auto pr-1">
+                {rejectionReasons.map((reason) => {
+                  const checked = selectedRejectionTypes.includes(reason.value)
+                  return (
+                    <div key={reason.value} className="flex items-start space-x-2">
+                      <Checkbox
+                        id={`rej-${reason.value}`}
+                        checked={checked}
+                        onCheckedChange={(val) => {
+                          const isChecked = Boolean(val)
+                          setSelectedRejectionTypes((prev) => {
+                            if (isChecked) return Array.from(new Set([...prev, reason.value]))
+                            return prev.filter(v => v !== reason.value)
+                          })
+                        }}
+                      />
+                      <Label htmlFor={`rej-${reason.value}`} className="text-sm leading-snug cursor-pointer">
+                        {reason.label}
+                      </Label>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
 
-            {selectedRejectionType === "other" && (
+            {selectedRejectionTypes.includes("other") && (
               <div>
                 <Label htmlFor="custom-rejection-reason" className="text-sm font-medium">
                   Motivo personalizado *
@@ -463,25 +476,12 @@ export default function AdminKycClient({ initialRequests }: AdminKycClientProps)
               </div>
             )}
 
-            <div className="flex items-center space-x-2">
-              <Checkbox 
-                id="revert-step1" 
-                checked={revertStep1}
-                onCheckedChange={(checked) => setRevertStep1(checked as boolean)}
-              />
-              <Label htmlFor="revert-step1" className="text-sm font-medium">
-                Revertir Paso 1 - Datos Personales
-              </Label>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Si marcas esta opción, el usuario podrá corregir sus datos personales además del rechazo
-            </p>
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                if (selectedRequest) handleReject(selectedRequest.id)
+          if (selectedRequest) handleReject(selectedRequest.id)
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
@@ -538,57 +538,6 @@ export default function AdminKycClient({ initialRequests }: AdminKycClientProps)
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Step Revert Confirmation */}
-      <AlertDialog 
-        open={isStepRevertDialogOpen} 
-        onOpenChange={(open) => {
-          setIsStepRevertDialogOpen(open)
-          if (!open) {
-            setStepRevertReason("")
-            setSelectedStep(null)
-          }
-        }}
-      >
-        <AlertDialogContent className="sm:max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Revertir Paso {selectedStep}</AlertDialogTitle>
-            <AlertDialogDescription>
-              ¿Estás seguro de que deseas revertir el paso {selectedStep} para {selectedRequest?.user_name || selectedRequest?.user_email}?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-4 mt-4">
-            <div>
-              <Label htmlFor="step-revert-reason" className="text-sm font-medium">
-                Motivo de la reversión del paso *
-              </Label>
-              <Textarea
-                id="step-revert-reason"
-                placeholder="Describe el motivo específico de la reversión (ej: Información incorrecta, datos inconsistentes, etc.)"
-                value={stepRevertReason}
-                onChange={(e) => setStepRevertReason(e.target.value)}
-                className="mt-2 min-h-[100px]"
-                required
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Este motivo será visible para el usuario y explicará por qué debe corregir este paso específico
-              </p>
-            </div>
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (selectedRequest && selectedStep) {
-                  handleRevertStep(selectedRequest.id, selectedStep)
-                }
-              }}
-              className="bg-blue-600 text-white hover:bg-blue-700"
-            >
-              Revertir Paso
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }
