@@ -99,19 +99,24 @@ export default function AdminUsersClient({ initialUsers }: AdminUsersClientProps
       key: "name",
       label: "Usuario",
       sortable: true,
-      render: (user) => (
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-full bg-primary">
-            <span className="text-sm font-semibold text-primary-foreground">
-              {(user.name || user.email).charAt(0).toUpperCase()}
-            </span>
+      render: (user) => {
+        const displayName = user.name || user.email || "Usuario";
+        const initial = displayName.charAt(0).toUpperCase();
+        
+        return (
+          <div className="flex items-center gap-3">
+            <div className="flex size-10 items-center justify-center rounded-full bg-primary">
+              <span className="text-sm font-semibold text-primary-foreground">
+                {initial}
+              </span>
+            </div>
+            <div>
+              <p className="font-medium text-foreground">{user.name || "Sin nombre"}</p>
+              <p className="text-sm text-muted-foreground">{user.email || "Sin email"}</p>
+            </div>
           </div>
-          <div>
-            <p className="font-medium text-foreground">{user.name || "Sin nombre"}</p>
-            <p className="text-sm text-muted-foreground">{user.email}</p>
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       key: "phone",

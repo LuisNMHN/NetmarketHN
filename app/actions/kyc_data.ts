@@ -34,6 +34,8 @@ export async function getKycDraft(): Promise<
       municipality?: string | null
       neighborhood?: string | null
       addressDesc?: string | null
+      admin_notes?: string | null
+      step1Reverted?: boolean
     }) | null
   >
 > {
@@ -50,7 +52,7 @@ export async function getKycDraft(): Promise<
   const { data: row, error } = await supabase
     .from("kyc_submissions")
     .select(
-      "full_name, birth_date, country, doc_type, doc_number, status, document_front_path, document_back_path, selfie_path, address_proof_path, updated_at, address_department, address_city, address_neighborhood, address_desc",
+      "full_name, birth_date, country, doc_type, doc_number, status, document_front_path, document_back_path, selfie_path, address_proof_path, updated_at, address_department, address_city, address_neighborhood, address_desc, admin_notes",
     )
     .eq("user_id", userId)
     .order("updated_at", { ascending: false })
@@ -64,6 +66,15 @@ export async function getKycDraft(): Promise<
       message: "Sin datos de verificación",
       data: null,
     }
+
+  const step1Reverted = row.admin_notes?.includes('Paso 1 revertido') || false
+  
+  // Debug: Log para verificar detección de step1Reverted
+  console.log('🔍 getKycDraft - step1Reverted detection:', {
+    admin_notes: row.admin_notes,
+    step1Reverted,
+    includesCheck: row.admin_notes?.includes('Paso 1 revertido')
+  })
 
   return {
     ok: true,
@@ -83,6 +94,8 @@ export async function getKycDraft(): Promise<
       municipality: row.address_city || null,
       neighborhood: row.address_neighborhood || null,
       addressDesc: row.address_desc || null,
+      admin_notes: row.admin_notes || null,
+      step1Reverted,
     },
   }
 }

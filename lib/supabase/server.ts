@@ -25,6 +25,25 @@ export async function supabaseServer() {
   })
 }
 
+// Cliente de Supabase con permisos de administrador para operaciones del servidor
+export async function supabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ""
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+
+  if (!serviceRoleKey) {
+    console.warn('SUPABASE_SERVICE_ROLE_KEY no está configurada. Usando cliente normal.')
+    return supabaseServer()
+  }
+
+  return createServerClient(url, serviceRoleKey, {
+    cookies: {
+      get() { return undefined },
+      set() {},
+      remove() {},
+    },
+  })
+}
+
 export default supabaseServer
 
 

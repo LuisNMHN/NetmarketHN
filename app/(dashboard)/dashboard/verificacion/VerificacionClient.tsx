@@ -266,9 +266,19 @@ interface InitialDraft extends KycDraft {
   municipality?: string | null
   neighborhood?: string | null
   addressDesc?: string | null
+  admin_notes?: string | null
+  step1Reverted?: boolean
 }
 
 export default function VerificacionClient({ initialDraft }: { initialDraft: InitialDraft | null }) {
+  // Debug: Log initialDraft para verificar step1Reverted
+  console.log('🔍 VerificacionClient - initialDraft:', {
+    step1Reverted: initialDraft?.step1Reverted,
+    admin_notes: initialDraft?.admin_notes,
+    status: initialDraft?.status,
+    hasInitialDraft: !!initialDraft
+  })
+  
   // Hook del wizard KYC
   const wizard = useKycWizard()
   const { state: wizardState, setFlag, canContinue, goNext, goPrev, goTo, goToNextIncomplete } = wizard
@@ -727,19 +737,46 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
     console.log('🔄 Sincronizando flags del wizard con confirmedSteps:', Array.from(confirmedSteps))
     console.log('🔄 Paso 2 en confirmedSteps:', confirmedSteps.has(2))
     
+    // Verificar si el paso 1 fue revertido por el admin
+    const step1Reverted = initialDraft?.step1Reverted || false
+    console.log('🔄 Paso 1 revertido por admin:', step1Reverted)
+    
     // Actualizar flags del wizard basado en confirmedSteps
-    setFlag('datosOk', confirmedSteps.has(1))
-    setFlag('docFrontalOk', confirmedSteps.has(2))
-    setFlag('docReversoOk', confirmedSteps.has(2))
-    setFlag('selfieOk', confirmedSteps.has(3))
-    setFlag('domicilioOk', confirmedSteps.has(4))
+    // Si el paso 1 fue revertido, no considerarlo como completado
+    const finalConfirmedSteps = step1Reverted ? new Set([...confirmedSteps].filter(step => step !== 1)) : confirmedSteps
+    setFlag('datosOk', finalConfirmedSteps.has(1))
+    setFlag('docFrontalOk', finalConfirmedSteps.has(2))
+    setFlag('docReversoOk', finalConfirmedSteps.has(2))
+    setFlag('selfieOk', finalConfirmedSteps.has(3))
+    setFlag('domicilioOk', finalConfirmedSteps.has(4))
     // Para el paso 5, marcar como completo si está en confirmedSteps O si el estado es review/approved
-    setFlag('aceptoDeclaracion', confirmedSteps.has(5) || kycStatus === "review" || kycStatus === "approved")
+    setFlag('aceptoDeclaracion', finalConfirmedSteps.has(5) || kycStatus === "review" || kycStatus === "approved")
     
     console.log('✅ Flags del wizard actualizados')
-    console.log('✅ docFrontalOk:', confirmedSteps.has(2))
-    console.log('✅ docReversoOk:', confirmedSteps.has(2))
-  }, [confirmedSteps.size, setFlag, kycStatus])
+    console.log('✅ docFrontalOk:', finalConfirmedSteps.has(2))
+    console.log('✅ docReversoOk:', finalConfirmedSteps.has(2))
+  }, [confirmedSteps.size, kycStatus, initialDraft?.step1Reverted])
+
+  // Manejar reversión del paso 1 por separado para evitar bucle infinito
+  useEffect(() => {
+    const step1Reverted = initialDraft?.step1Reverted || false
+    
+    // Si el paso 1 fue revertido, removerlo de confirmedSteps y limpiar localStorage
+    if (step1Reverted && confirmedSteps.has(1)) {
+      console.log('🔄 Removiendo paso 1 de confirmedSteps debido a reversión del admin')
+      const newConfirmedSteps = new Set(confirmedSteps)
+      newConfirmedSteps.delete(1)
+      setConfirmedSteps(newConfirmedSteps)
+      
+      // Limpiar localStorage del paso 1
+      try {
+        localStorage.removeItem('kyc-step1-continue-clicked')
+        console.log('🧹 localStorage del paso 1 limpiado')
+      } catch (error) {
+        console.error('Error limpiando localStorage del paso 1:', error)
+      }
+    }
+  }, [initialDraft?.step1Reverted]) // Solo depende de step1Reverted, no de confirmedSteps
 
   // Navegación al primer paso incompleto al cargar la página (solo una vez)
   useEffect(() => {
@@ -1502,7 +1539,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       isProcessingStep1: isProcessingStep1,
       step1ContinueClicked: step1ContinueClicked,
       hasDataInDatabase: hasDataInDatabase,
-      disabled: !step1Done || isProcessingStep1 || (step1ContinueClicked && hasDataInDatabase),
+      disabled: !step1Done || isProcessingStep1 || (step1ContinueClicked && hasDataInDatabase && !initialDraft?.step1Reverted),
       uploadedRemote: uploadedRemote
     })
     
@@ -1512,13 +1549,19 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       setStep1ContinueClicked(false)
     }
     
+    // Resetear step1ContinueClicked si el paso 1 fue revertido por el admin
+    if (initialDraft?.step1Reverted && step1ContinueClicked) {
+      console.log('🔄 Reseteando step1ContinueClicked - paso 1 revertido por admin')
+      setStep1ContinueClicked(false)
+    }
+    
   }
   const personalDataComplete = step1Done
   
   // Sincronizar flags del wizard con el estado actual
   useEffect(() => {
     setFlag('datosOk', confirmedSteps.has(1))
-  }, [confirmedSteps.size, setFlag])
+  }, [confirmedSteps.size])
 
   // Debug: Monitorear cambios en isProcessingStep1
   useEffect(() => {
@@ -1593,7 +1636,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
     setFlag('docReversoOk', uploadedRemote.documentBack)
     setFlag('selfieOk', uploadedRemote.selfie)
     setFlag('domicilioOk', uploadedRemote.addressProof)
-  }, [uploadedRemote, setFlag])
+  }, [uploadedRemote])
 
   
   // Auto-guardar paso 2 cuando los documentos estén cargados
@@ -1859,6 +1902,33 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
 
   // Bloqueo de edición en pasos completados y persistidos
   const isStepLocked = (step: number) => {
+    // Debug para paso 1
+    if (step === 1) {
+      console.log('🔒 isStepLocked(1):', {
+        step1Reverted: initialDraft?.step1Reverted,
+        confirmedSteps: Array.from(confirmedSteps),
+        isStepComplete: isStepComplete(step),
+        hasDataInDatabase,
+        step1ContinueClicked,
+        result: initialDraft?.step1Reverted ? false : (confirmedSteps.has(step) && isStepComplete(step) && hasDataInDatabase && step1ContinueClicked)
+      })
+    }
+    
+    // Si el paso 1 fue revertido por el admin, nunca bloquearlo
+    if (step === 1 && initialDraft?.step1Reverted) {
+      return false
+    }
+    
+    // Solo bloquear si el paso está confirmado, completo Y ya se hizo clic en continuar
+    if (step === 1) {
+      return confirmedSteps.has(step) && isStepComplete(step) && hasDataInDatabase && step1ContinueClicked
+    } else if (step === 2) {
+      return confirmedSteps.has(step) && isStepComplete(step) && hasDataInDatabase && step2ContinueClicked
+    } else if (step === 3) {
+      return confirmedSteps.has(step) && isStepComplete(step) && hasDataInDatabase && step3ContinueClicked
+    } else if (step === 4) {
+      return confirmedSteps.has(step) && isStepComplete(step) && hasDataInDatabase && step4ContinueClicked
+    }
     return confirmedSteps.has(step) && isStepComplete(step) && hasDataInDatabase
   }
 
@@ -2742,7 +2812,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
                         // Para otros tipos de documento, continuamos normalmente
                         await continueToStep2()
                       }}
-                      disabled={!step1Done || isProcessingStep1 || isStepLocked(1)}
+                      disabled={!step1Done || isProcessingStep1 || (isStepLocked(1) && !initialDraft?.step1Reverted)}
                       title={`step1Done: ${step1Done}, isProcessingStep1: ${isProcessingStep1}, step1ContinueClicked: ${step1ContinueClicked}, hasDataInDatabase: ${hasDataInDatabase}`}
                       className="bg-primary text-primary-foreground hover:bg-primary/90 transition-colors duration-200"
                     >

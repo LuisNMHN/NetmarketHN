@@ -5,11 +5,12 @@ import type React from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { CreditCard, Gavel, Home, LogOut, Receipt, User, Menu, MoreVertical, Link2, Shield, Bell, Cat, Dog, Fish, Bird, Rabbit, Turtle, Heart, Star, Zap, Circle } from "lucide-react"
+import { CreditCard, Gavel, Home, LogOut, Receipt, User, Menu, MoreVertical, Link2, Shield, Bell, Cat, Dog, Fish, Bird, Rabbit, Turtle, Heart, Star, Zap, Circle, AlertTriangle, X } from "lucide-react"
 import { useState, useEffect } from "react"
 import { useTheme } from "next-themes"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from "@/components/ui/drawer"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   Dialog,
   DialogContent,
@@ -53,6 +54,8 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
   const [kycStatus, setKycStatus] = useState<string>("none")
   const [kycData, setKycData] = useState<any>(null)
   const [selectedAnimalAvatar, setSelectedAnimalAvatar] = useState<string | null>(null)
+  const [showRejectionBanner, setShowRejectionBanner] = useState(false)
+  const [showRejectionModal, setShowRejectionModal] = useState(false)
 
   // Avatares de animales disponibles (mismo que en perfil)
   const animalAvatars = {
@@ -186,6 +189,11 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
         if (kycResult.ok && kycResult.data) {
           setKycData(kycResult.data)
           setKycStatus(kycResult.data.status)
+          
+          // Mostrar banner de rechazo si el estado es "rejected"
+          console.log('🔍 Estado KYC cargado:', kycResult.data.status)
+          console.log('🔍 Admin notes:', kycResult.data.admin_notes)
+          setShowRejectionBanner(kycResult.data.status === "rejected")
         }
       } catch (error) {
         console.error('Error loading KYC data:', error)
@@ -227,6 +235,11 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
               // Recalcular notificaciones
               const kycNotification = getKycNotification()
               setHasNotif(kycNotification.show)
+              
+              // Actualizar banner de rechazo
+              console.log('🔄 Estado KYC actualizado en tiempo real:', kycResult.data.status)
+              console.log('🔄 Admin notes actualizadas:', kycResult.data.admin_notes)
+              setShowRejectionBanner(kycResult.data.status === "rejected")
               
               console.log('✅ Estado KYC actualizado en tiempo real:', kycResult.data.status)
             }
@@ -301,11 +314,12 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
     
     // Si está rechazada
     if (kycStatus === "rejected") {
+      const rejectionReason = kycData?.admin_notes || "No se proporcionó una razón específica"
       return {
         type: "error" as const,
         icon: Shield,
         title: "Verificación rechazada",
-        message: "Tu verificación fue rechazada. Revisa los comentarios y vuelve a enviar tu solicitud.",
+        message: `Tu verificación fue rechazada. Motivo: ${rejectionReason}. Revisa los comentarios y vuelve a enviar tu solicitud.`,
         action: "Reintentar verificación",
         show: true
       }
@@ -669,9 +683,92 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
 
           {/* Main Content */}
           <main className="flex-1 overflow-y-auto bg-background">
-            <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-6 pb-24 lg:pb-6">{children}</div>
+            <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-6 pb-24 lg:pb-6">
+              {/* Banner de rechazo KYC */}
+              {showRejectionBanner && kycData?.admin_notes && (
+                <div className="mb-6 p-4 border border-destructive/20 bg-destructive/10 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 space-y-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h3 className="font-semibold text-destructive">Verificación Rechazada</h3>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            <strong>Motivo del rechazo:</strong> {kycData.admin_notes}
+                          </p>
+                          <p className="text-sm text-muted-foreground mt-2">
+                            Por favor, revisa los comentarios y vuelve a enviar tu solicitud con las correcciones necesarias.
+                          </p>
+                        </div>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => setShowRejectionBanner(false)}
+                          className="ml-2 h-8 w-8 p-0 hover:bg-destructive/20"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button 
+                          size="sm"
+                          onClick={() => setShowRejectionModal(true)}
+                        >
+                          Ver Detalles
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {children}
+            </div>
           </main>
         </div>
+
+        {/* Modal de detalles de rechazo */}
+        <Dialog open={showRejectionModal} onOpenChange={setShowRejectionModal}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-destructive" />
+                Detalles del Rechazo
+              </DialogTitle>
+              <DialogDescription>
+                Información sobre el motivo del rechazo de tu verificación
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="p-4 border border-destructive/20 bg-destructive/10 rounded-lg">
+                <h4 className="font-semibold text-destructive mb-2">Motivo del rechazo:</h4>
+                <p className="text-sm text-foreground">{kycData?.admin_notes}</p>
+              </div>
+              <div className="p-4 border border-muted bg-muted/50 rounded-lg">
+                <h4 className="font-semibold text-foreground mb-2">¿Qué puedes hacer?</h4>
+                <ul className="text-sm text-muted-foreground space-y-1">
+                  <li>• Revisa la calidad de tus documentos</li>
+                  <li>• Asegúrate de que las fotos sean claras y legibles</li>
+                  <li>• Verifica que toda la información sea correcta</li>
+                  <li>• Volver a enviar tu solicitud</li>
+                </ul>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <Button asChild className="flex-1">
+                  <Link href="/dashboard/verificacion">
+                    Reintentar Verificación
+                  </Link>
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setShowRejectionModal(false)}
+                  className="flex-1"
+                >
+                  Cerrar
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <div
           className="lg:hidden fixed bottom-0 left-0 right-0 bg-card border-t border-border shadow-lg z-50"
