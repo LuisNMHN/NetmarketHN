@@ -24,6 +24,14 @@ export async function POST(request: Request) {
 
         if (error) {
           console.error('❌ Error setting session:', error)
+          
+          // Si el usuario no existe, es un problema de sincronización
+          if (error.message.includes('User from sub claim in JWT does not exist')) {
+            console.log('🔄 Usuario no existe en auth.users, limpiando sesión...')
+            await supabase.auth.signOut()
+            return NextResponse.json({ ok: false, message: "Usuario no encontrado" }, { status: 400 })
+          }
+          
           return NextResponse.json({ ok: false, message: error.message }, { status: 400 })
         }
 
@@ -36,7 +44,7 @@ export async function POST(request: Request) {
     }
 
     // Si no hay tokens de sesión, no es un error - puede ser un evento de confirmación
-    if (event === "USER_UPDATED" || event === "PASSWORD_RECOVERY") {
+    if (event === "USER_UPDATED" || event === "PASSWORD_RECOVERY" || event === "INITIAL_SESSION") {
       return NextResponse.json({ ok: true })
     }
 
