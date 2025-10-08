@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 export default function LegalLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border">
+      <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container-page py-6">
           <nav className="text-sm text-muted-foreground">
             <Link href="/" className="hover:text-primary">

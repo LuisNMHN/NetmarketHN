@@ -11,6 +11,7 @@ import { ConfirmDialog } from "../_components/ConfirmDialog"
 import { UserForm } from "../_forms/UserForm"
 import { type AdminUser, createAdminUser, updateAdminUser, deleteAdminUser } from "@/app/actions/admin"
 import { useToast } from "@/hooks/use-toast"
+import { AuthSpinner } from "@/components/ui/auth-spinner"
 
 interface AdminUsersClientProps {
   initialUsers: AdminUser[]
@@ -22,6 +23,7 @@ export default function AdminUsersClient({ initialUsers }: AdminUsersClientProps
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const { toast } = useToast()
 
   const handleCreate = async (userData: {
@@ -76,21 +78,37 @@ export default function AdminUsersClient({ initialUsers }: AdminUsersClientProps
   }
 
   const handleDelete = async (userId: string) => {
-    const result = await deleteAdminUser(userId)
-    if (result.success) {
-      toast({
-        title: "Usuario eliminado",
-        description: "El usuario ha sido eliminado exitosamente",
-      })
-      setIsDeleteDialogOpen(false)
-      // Recargar la página para obtener los datos actualizados
-      window.location.reload()
-    } else {
+    setIsDeleting(true)
+    console.log(`🗑️ Iniciando eliminación del usuario: ${userId}`)
+    
+    try {
+      const result = await deleteAdminUser(userId)
+      if (result.success) {
+        toast({
+          title: "Usuario eliminado",
+          description: "El usuario ha sido eliminado completamente de todas las tablas",
+        })
+        setIsDeleteDialogOpen(false)
+        // Recargar la página para obtener los datos actualizados
+        setTimeout(() => {
+          window.location.reload()
+        }, 1500)
+      } else {
+        toast({
+          title: "Error",
+          description: result.error || "No se pudo eliminar el usuario",
+          variant: "destructive",
+        })
+        setIsDeleting(false)
+      }
+    } catch (error) {
+      console.error('❌ Error eliminando usuario:', error)
       toast({
         title: "Error",
-        description: result.error || "No se pudo eliminar el usuario",
+        description: "Error inesperado al eliminar el usuario",
         variant: "destructive",
       })
+      setIsDeleting(false)
     }
   }
 
@@ -189,7 +207,9 @@ export default function AdminUsersClient({ initialUsers }: AdminUsersClientProps
   ]
 
   return (
-    <div className="space-y-6">
+    <>
+      {isDeleting && <AuthSpinner message="Eliminando usuario completamente..." />}
+      <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -291,5 +311,6 @@ export default function AdminUsersClient({ initialUsers }: AdminUsersClientProps
         variant="destructive"
       />
     </div>
+    </>
   )
 }

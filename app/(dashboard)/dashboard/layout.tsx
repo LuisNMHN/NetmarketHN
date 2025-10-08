@@ -23,6 +23,7 @@ import Link from "next/link"
 import { supabaseBrowser } from "@/lib/supabase/client"
 import { usePathname } from "next/navigation"
 import { getKycDraft } from "@/app/actions/kyc_data"
+import { AuthSpinner } from "@/components/ui/auth-spinner"
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -56,6 +57,7 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
   const [selectedAnimalAvatar, setSelectedAnimalAvatar] = useState<string | null>(null)
   const [showRejectionBanner, setShowRejectionBanner] = useState(false)
   const [showRejectionModal, setShowRejectionModal] = useState(false)
+  const [logoutLoading, setLogoutLoading] = useState(false)
 
   // Avatares de animales disponibles (mismo que en perfil)
   const animalAvatars = {
@@ -363,15 +365,32 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
   }
 
   const handleLogout = async () => {
+    setLogoutLoading(true)
     try {
       const supabase = supabaseBrowser()
       await supabase.auth.signOut()
     } catch {}
-    window.location.href = "/login"
+    // Pequeño delay para mostrar el spinner
+    setTimeout(() => {
+      window.location.href = "/login"
+    }, 1000)
   }
 
   const handleLogoutClick = () => {
     setShowLogoutModal(true)
+  }
+
+  const handleConfirmLogout = async () => {
+    setLogoutLoading(true)
+    setShowLogoutModal(false)
+    try {
+      const supabase = supabaseBrowser()
+      await supabase.auth.signOut()
+    } catch {}
+    // Pequeño delay para mostrar el spinner
+    setTimeout(() => {
+      window.location.href = "/login"
+    }, 1000)
   }
 
   if (!mounted) {
@@ -387,6 +406,7 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
 
   return (
     <>
+      {logoutLoading && <AuthSpinner message="Cerrando sesión..." />}
       <div
         className="flex h-screen bg-background"
         style={{
@@ -479,9 +499,9 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
           </div>
         </aside>
 
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col min-w-0">
-          <header className="bg-card border-b border-border shadow px-4 md:px-6 py-4">
+		{/* Main Content Area */}
+		<div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+			<header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 md:px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 <Button
@@ -681,8 +701,8 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
             </div>
           </header>
 
-          {/* Main Content */}
-          <main className="flex-1 overflow-y-auto bg-background">
+			{/* Main Content */}
+			<main className="flex-1 bg-background">
             <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-6 pb-24 lg:pb-6">
               {/* Banner de rechazo KYC */}
               {showRejectionBanner && kycData?.admin_notes && (
@@ -826,8 +846,13 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
             <Button variant="outline" onClick={() => setShowLogoutModal(false)} className="w-full sm:w-auto">
               Cancelar
             </Button>
-            <Button variant="destructive" onClick={handleLogout} className="w-full sm:w-auto">
-              Sí, Cerrar Sesión
+            <Button 
+              variant="destructive" 
+              onClick={handleConfirmLogout} 
+              className="w-full sm:w-auto"
+              disabled={logoutLoading}
+            >
+              {logoutLoading ? "Cerrando..." : "Sí, Cerrar Sesión"}
             </Button>
           </DialogFooter>
         </DialogContent>

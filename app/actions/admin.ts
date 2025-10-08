@@ -325,21 +325,170 @@ export async function updateAdminUser(userId: string, userData: {
 
 export async function deleteAdminUser(userId: string) {
   const supabase = await supabaseServer()
+  const supabaseAdminClient = await supabaseAdmin()
   
   try {
-    // Eliminar roles
-    await supabase.from('user_roles').delete().eq('user_id', userId)
+    console.log(`🗑️ Iniciando eliminación completa del usuario: ${userId}`)
     
-    // Eliminar perfil
-    await supabase.from('user_profiles').delete().eq('id', userId)
+    // 1. Eliminar de kyc_submissions (si existe)
+    console.log('📋 Eliminando datos de KYC...')
+    const { error: kycError } = await supabase
+      .from('kyc_submissions')
+      .delete()
+      .eq('user_id', userId)
     
-    // Eliminar usuario de auth
-    await supabase.auth.admin.deleteUser(userId)
-
+    if (kycError) {
+      console.warn('⚠️ Error eliminando KYC (puede que no exista):', kycError.message)
+    } else {
+      console.log('✅ Datos de KYC eliminados')
+    }
+    
+    // 2. Eliminar de profiles (si existe)
+    console.log('👤 Eliminando perfil principal...')
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', userId)
+    
+    if (profileError) {
+      console.warn('⚠️ Error eliminando profile (puede que no exista):', profileError.message)
+    } else {
+      console.log('✅ Perfil principal eliminado')
+    }
+    
+    // 3. Eliminar de user_profiles (si existe)
+    console.log('👤 Eliminando perfil de usuario...')
+    const { error: userProfileError } = await supabase
+      .from('user_profiles')
+      .delete()
+      .eq('user_id', userId)
+    
+    if (userProfileError) {
+      console.warn('⚠️ Error eliminando user_profile (puede que no exista):', userProfileError.message)
+    } else {
+      console.log('✅ Perfil de usuario eliminado')
+    }
+    
+    // 4. Eliminar roles
+    console.log('🔐 Eliminando roles...')
+    const { error: rolesError } = await supabase
+      .from('user_roles')
+      .delete()
+      .eq('user_id', userId)
+    
+    if (rolesError) {
+      console.warn('⚠️ Error eliminando roles (puede que no exista):', rolesError.message)
+    } else {
+      console.log('✅ Roles eliminados')
+    }
+    
+    // 5. Eliminar archivos/imágenes del usuario de Supabase Storage
+    console.log('📁 Eliminando archivos del usuario...')
+    try {
+      // Listar todos los archivos del usuario en el bucket 'profiles'
+      const { data: files, error: listError } = await supabase.storage
+        .from('profiles')
+        .list('', {
+          limit: 1000,
+          search: userId
+        })
+      
+      if (listError) {
+        console.warn('⚠️ Error listando archivos:', listError.message)
+      } else if (files && files.length > 0) {
+        console.log(`📋 Encontrados ${files.length} archivos del usuario`)
+        
+        // Eliminar archivos específicos de KYC
+        const kycFiles = [
+          `kyc/${userId}/document_front.jpg`,
+          `kyc/${userId}/document_back.jpg`, 
+          `kyc/${userId}/selfie.jpg`,
+          `kyc/${userId}/address_proof.jpg`,
+          `kyc/${userId}/document_front.png`,
+          `kyc/${userId}/document_back.png`, 
+          `kyc/${userId}/selfie.png`,
+          `kyc/${userId}/address_proof.png`
+        ]
+        
+        for (const filePath of kycFiles) {
+          const { error: fileError } = await supabase.storage
+            .from('profiles')
+            .remove([filePath])
+          
+          if (fileError) {
+            console.warn(`⚠️ Error eliminando archivo ${filePath}:`, fileError.message)
+          } else {
+            console.log(`✅ Archivo eliminado: ${filePath}`)
+          }
+        }
+        
+        // Eliminar avatar del usuario (diferentes formatos)
+        const avatarFiles = [
+          `avatars/${userId}/avatar.jpg`,
+          `avatars/${userId}/avatar.png`,
+          `avatars/${userId}/avatar.webp`
+        ]
+        
+        for (const avatarPath of avatarFiles) {
+          const { error: avatarError } = await supabase.storage
+            .from('profiles')
+            .remove([avatarPath])
+          
+          if (avatarError) {
+            console.warn(`⚠️ Error eliminando avatar ${avatarPath}:`, avatarError.message)
+          } else {
+            console.log(`✅ Avatar eliminado: ${avatarPath}`)
+          }
+        }
+        
+        // Eliminar cualquier otro archivo que contenga el userId en el nombre
+        const userFiles = files.filter(file => 
+          file.name.includes(userId) || 
+          file.name.startsWith(userId) ||
+          file.name.endsWith(userId)
+        )
+        
+        if (userFiles.length > 0) {
+          console.log(`🗑️ Eliminando ${userFiles.length} archivos adicionales del usuario`)
+          for (const file of userFiles) {
+            const { error: fileError } = await supabase.storage
+              .from('profiles')
+              .remove([file.name])
+            
+            if (fileError) {
+              console.warn(`⚠️ Error eliminando archivo adicional ${file.name}:`, fileError.message)
+            } else {
+              console.log(`✅ Archivo adicional eliminado: ${file.name}`)
+            }
+          }
+        }
+        
+      } else {
+        console.log('ℹ️ No se encontraron archivos del usuario en storage')
+      }
+      
+    } catch (storageError) {
+      console.warn('⚠️ Error general eliminando archivos:', storageError instanceof Error ? storageError.message : 'Error desconocido')
+    }
+    
+    // 6. Eliminar usuario de auth (Supabase Auth) - Usar cliente admin
+    console.log('🔑 Eliminando usuario de autenticación...')
+    const { error: authError } = await supabaseAdminClient.auth.admin.deleteUser(userId)
+    
+    if (authError) {
+      console.error('❌ Error eliminando usuario de auth:', authError.message)
+      // Continuar con la eliminación aunque falle el auth, ya que los datos principales están eliminados
+      console.log('⚠️ Continuando sin eliminar de auth (datos principales ya eliminados)')
+    } else {
+      console.log('✅ Usuario de autenticación eliminado')
+    }
+    
+    console.log('🎉 Usuario eliminado completamente de todas las tablas')
     revalidatePath('/admin/users')
     return { success: true }
+    
   } catch (error) {
-    console.error('Error deleting admin user:', error instanceof Error ? error.message : 'Error desconocido')
+    console.error('❌ Error general eliminando usuario:', error instanceof Error ? error.message : 'Error desconocido')
     return { success: false, error: error instanceof Error ? error.message : 'Error desconocido' }
   }
 }

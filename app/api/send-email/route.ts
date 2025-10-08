@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Resend } from 'resend'
-
-// Configurar cliente de Resend
-const resend = new Resend(process.env.RESEND_API_KEY)
+import { sendViaZeptoMail } from '@/lib/zeptomail'
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,47 +12,40 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Verificar variables de entorno de Resend
-    const resendApiKey = process.env.RESEND_API_KEY
-    const fromEmail = process.env.FROM_EMAIL
-
-    if (!resendApiKey) {
-      console.error('❌ RESEND_API_KEY no configurada')
-      return NextResponse.json(
-        { error: 'API key de Resend no configurada' },
-        { status: 500 }
-      )
-    }
-
-    console.log('🔑 Resend API Key configurada:', resendApiKey ? 'Sí' : 'No')
+    // Variables de entorno ZeptoMail
+    const fromEmail = process.env.ZEPTOMAIL_FROM_EMAIL || process.env.FROM_EMAIL
     console.log('📧 Enviando correo a:', to)
     console.log('📨 Asunto:', subject)
     console.log('👤 Usuario:', userName)
 
-    const senderEmail = fromEmail?.replace(/.*<(.+)>.*/, '$1') || 'noreply@nmhn.com'
-    const senderName = fromEmail?.replace(/<.*>/, '').trim() || 'NMHN'
-
-    const emailData = {
-      from: `${senderName} <${senderEmail}>`,
-      to: [to],
-      subject: subject,
-      html: html,
-    }
+    const sender = fromEmail || 'noreply@nmhn.com'
 
     console.log('📨 Configuración del correo:', {
-      from: emailData.from,
-      to: emailData.to,
-      subject: emailData.subject,
-      hasHtmlContent: !!emailData.html
+      from: sender,
+      to,
+      subject,
+      hasHtmlContent: !!html
     })
 
-    const data = await resend.emails.send(emailData)
+    const result = await sendViaZeptoMail({
+      from: sender,
+      to: [to],
+      subject,
+      html,
+    })
 
-    console.log(`✅ Correo ${type} enviado a ${to}:`, data.id)
+    if (!result.success) {
+      return NextResponse.json(
+        { error: result.error || 'Error al enviar con ZeptoMail', details: result.data },
+        { status: 500 }
+      )
+    }
+
+    console.log(`✅ Correo ${type} enviado a ${to}:`, result.data)
     return NextResponse.json({ 
       success: true, 
-      id: data.id,
-      message: 'Correo enviado exitosamente con Resend'
+      id: result.data?.data?.[0]?.message_id || result.data?.message_id,
+      message: 'Correo enviado exitosamente con ZeptoMail'
     })
   } catch (error: any) {
     console.error('❌ Error en API de correo:', error)

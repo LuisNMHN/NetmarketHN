@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Eye, EyeOff, Mail, Lock, User, Sun, Moon, Check } from "lucide-react"
 import Link from "next/link"
 import { supabaseBrowser } from "@/lib/supabase/client"
+import { AuthSpinner } from "@/components/ui/auth-spinner"
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -26,7 +27,9 @@ export default function RegisterPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [showSuccessModal, setShowSuccessModal] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [authLoading, setAuthLoading] = useState(false)
   const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
 
   // Si ya hay sesión, redirigir al dashboard
   useEffect(() => {
@@ -36,6 +39,10 @@ export default function RegisterPage() {
         router.replace(isAdmin ? '/admin' : '/dashboard')
       }
     })
+  }, [])
+
+  useEffect(() => {
+    setMounted(true)
   }, [])
 
   const toggleTheme = () => {
@@ -106,7 +113,7 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!isFormValid()) return
-    setLoading(true)
+    setAuthLoading(true)
     
     console.log('🚀 Iniciando registro para:', formData.email)
     
@@ -138,12 +145,14 @@ export default function RegisterPage() {
       if (error) {
         console.error('❌ Error en signUp:', error)
         setErrors((prev) => ({ ...prev, submit: error.message }))
+        setAuthLoading(false)
         return
       }
 
       if (!data.user) {
         console.error('❌ No se creó el usuario')
         setErrors((prev) => ({ ...prev, submit: 'No se pudo crear el usuario' }))
+        setAuthLoading(false)
         return
       }
 
@@ -164,23 +173,37 @@ export default function RegisterPage() {
 
           if (profileError) {
             console.warn('⚠️ Error creando perfil con función SQL:', profileError)
-            console.log('🔄 Intentando fallback manual...')
             
-            // Fallback: crear perfil manualmente
-            const { error: manualError } = await supabase
+            // Verificar si el perfil ya existe
+            const { data: existingProfile, error: checkError } = await supabase
               .from('profiles')
-              .insert({
-                id: data.user.id,
-                full_name: formData.name,
-                email: formData.email,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              })
-              
-            if (manualError) {
-              console.error('❌ Error en fallback manual:', manualError)
+              .select('id')
+              .eq('id', data.user.id)
+              .maybeSingle()
+            
+            if (checkError) {
+              console.error('❌ Error verificando perfil existente:', checkError.message)
+            } else if (existingProfile) {
+              console.log('ℹ️ Perfil ya existe, continuando...')
             } else {
-              console.log('✅ Perfil creado manualmente')
+              console.log('🔄 Intentando fallback manual...')
+              
+              // Fallback: crear perfil manualmente solo si no existe
+              const { error: manualError } = await supabase
+                .from('profiles')
+                .insert({
+                  id: data.user.id,
+                  full_name: formData.name,
+                  email: formData.email,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                })
+                
+              if (manualError) {
+                console.error('❌ Error en fallback manual:', manualError.message || manualError)
+              } else {
+                console.log('✅ Perfil creado manualmente')
+              }
             }
           } else {
             console.log('✅ Perfil creado con función SQL')
@@ -193,26 +216,113 @@ export default function RegisterPage() {
           
           router.replace(isAdmin ? '/admin' : '/dashboard')
         } catch (profileCreationError) {
-          console.error('❌ Error creando perfiles:', profileCreationError)
+          console.error('❌ Error creando perfiles:', profileCreationError instanceof Error ? profileCreationError.message : profileCreationError)
           // Continuar con el flujo normal aunque falle la creación de perfil
-          const { data: isAdmin } = await supabase.rpc('has_role', { role_name: 'admin' })
-          router.replace(isAdmin ? '/admin' : '/dashboard')
+          try {
+            const { data: isAdmin } = await supabase.rpc('has_role', { role_name: 'admin' })
+            router.replace(isAdmin ? '/admin' : '/dashboard')
+          } catch (redirectError) {
+            console.error('❌ Error en redirección:', redirectError instanceof Error ? redirectError.message : redirectError)
+            router.replace('/dashboard')
+          }
         }
       } else {
         console.log('📧 Usuario necesita confirmar email')
+        
+        // Enviar correo de verificación personalizado
+        try {
+          const response = await fetch('/api/auth/send-verification', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              email: formData.email,
+              userName: formData.name
+            }),
+          })
+
+          if (response.ok) {
+            console.log('✅ Correo de verificación personalizado enviado')
+          } else {
+            console.warn('⚠️ Error enviando correo personalizado, usando modal por defecto')
+          }
+        } catch (error) {
+          console.warn('⚠️ Error enviando correo personalizado:', error)
+        }
+        
         // Usuario necesita confirmar email
         setShowSuccessModal(true)
+        setAuthLoading(false)
       }
     } catch (error) {
-      console.error('❌ Error en registro:', error)
+      console.error('❌ Error en registro:', error instanceof Error ? error.message : error)
       setErrors((prev) => ({ ...prev, submit: 'Error inesperado. Intenta nuevamente.' }))
-    } finally {
-      setLoading(false)
+      setAuthLoading(false)
+    }
+  }
+
+  const handleGoogleSignUp = async () => {
+    console.log('🔄 Iniciando Google Sign Up...')
+    setAuthLoading(true)
+    setErrors({})
+    
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`
+        }
+      })
+      
+      if (error) {
+        console.error('❌ Error Google Sign Up:', error)
+        setErrors((prev) => ({ ...prev, submit: 'Error al registrarse con Google' }))
+        setAuthLoading(false)
+      } else {
+        console.log('✅ Google OAuth iniciado correctamente')
+      }
+      // Si no hay error, el usuario será redirigido automáticamente
+    } catch (error) {
+      console.error('❌ Error inesperado Google Sign Up:', error)
+      setErrors((prev) => ({ ...prev, submit: 'Error inesperado al conectar con Google' }))
+      setAuthLoading(false)
+    }
+  }
+
+  const handleFacebookSignUp = async () => {
+    console.log('🔄 Iniciando Facebook Sign Up...')
+    setAuthLoading(true)
+    setErrors({})
+    
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'facebook',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          scopes: 'public_profile'
+        }
+      })
+      
+      if (error) {
+        console.error('❌ Error Facebook Sign Up:', error)
+        setErrors((prev) => ({ ...prev, submit: 'Error al registrarse con Facebook' }))
+        setAuthLoading(false)
+      } else {
+        console.log('✅ Facebook OAuth iniciado correctamente')
+      }
+      // Si no hay error, el usuario será redirigido automáticamente
+    } catch (error) {
+      console.error('❌ Error inesperado Facebook Sign Up:', error)
+      setErrors((prev) => ({ ...prev, submit: 'Error inesperado al conectar con Facebook' }))
+      setAuthLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-background relative">
+    <>
+      {authLoading && <AuthSpinner message="Creando cuenta..." />}
+      <div className="min-h-screen flex items-center justify-center p-4 bg-background relative">
       <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
         <DialogContent>
           <DialogHeader className="text-center">
@@ -244,7 +354,11 @@ export default function RegisterPage() {
         className="absolute top-4 right-4 bg-transparent"
         aria-label="Cambiar tema"
       >
-        {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        {mounted ? (
+          theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />
+        ) : (
+          <span className="h-4 w-4 inline-block" />
+        )}
       </Button>
 
       <div className="w-full max-w-md">
@@ -257,11 +371,17 @@ export default function RegisterPage() {
               </Link>
             </div>
             <CardTitle className="text-2xl">Crear cuenta</CardTitle>
-            <CardDescription>La primera plataforma P2P diseñada para hondureños 🇭🇳</CardDescription>
+            <CardDescription>La primera plataforma de comercio digital diseñada para hondureños 🇭🇳</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-3">
-              <Button variant="outline" className="w-full bg-transparent" type="button">
+              <Button 
+                variant="outline" 
+                className="w-full bg-transparent" 
+                type="button"
+                onClick={handleGoogleSignUp}
+                disabled={loading}
+              >
                 <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24">
                   <path
                     fill="#4285F4"
@@ -280,20 +400,20 @@ export default function RegisterPage() {
                     d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                   />
                 </svg>
-                Continuar con Google
+                {loading ? "Conectando..." : "Continuar con Google"}
               </Button>
-              <Button variant="outline" className="w-full bg-transparent" type="button">
-                <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24">
-                  <path
-                    fill="#000000"
-                    d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09z"
-                  />
-                  <path
-                    fill="#000000"
-                    d="M15.53 3.83c.893-1.09 1.479-2.58 1.309-4.081-1.27.052-2.82.808-3.73 1.818-.78.896-1.454 2.338-1.284 3.713 1.338.104 2.715-.688 3.705-1.45z"
-                  />
+              
+              <Button 
+                variant="outline" 
+                className="w-full bg-transparent" 
+                type="button"
+                onClick={handleFacebookSignUp}
+                disabled={loading}
+              >
+                <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24" fill="#1877F2">
+                  <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
                 </svg>
-                Continuar con Apple
+                {loading ? "Conectando..." : "Continuar con Facebook"}
               </Button>
             </div>
 
@@ -417,5 +537,6 @@ export default function RegisterPage() {
         </Card>
       </div>
     </div>
+    </>
   )
 }

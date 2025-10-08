@@ -17,6 +17,7 @@ import {
   Search,
   Bell,
   ChevronRight,
+  LogOut,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -29,8 +30,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useState } from "react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { useEffect, useState } from "react"
 import { Suspense } from "react"
+import { supabaseBrowser } from "@/lib/supabase/client"
+import { AuthSpinner } from "@/components/ui/auth-spinner"
 
 const navigation = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
@@ -51,6 +62,75 @@ export default function AdminLayoutClient({
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [adminName, setAdminName] = useState<string>("Administrador")
+  const [adminEmail, setAdminEmail] = useState<string>("admin@nmhn.com")
+  const [adminInitials, setAdminInitials] = useState<string>("AD")
+  const [logoutLoading, setLogoutLoading] = useState(false)
+  const [showLogoutModal, setShowLogoutModal] = useState(false)
+
+  useEffect(() => {
+    const loadAdmin = async () => {
+      try {
+        const supabase = supabaseBrowser()
+        const { data } = await supabase.auth.getSession()
+        const session = data.session
+        if (!session) return
+
+        const fallbackEmail = session.user.email || "admin@nmhn.com"
+        setAdminEmail(fallbackEmail)
+
+        // Intentar traer nombre desde perfiles
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("full_name")
+          .eq("id", session.user.id)
+          .maybeSingle()
+
+        const name = profile?.full_name || session.user.user_metadata?.full_name || fallbackEmail
+        setAdminName(name)
+
+        const initials = name
+          .split(" ")
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((s) => s.charAt(0).toUpperCase())
+          .join("") || "AD"
+        setAdminInitials(initials)
+      } catch (e) {
+        // En caso de error, dejamos los valores por defecto
+      }
+    }
+    loadAdmin()
+  }, [])
+
+  const handleSignOut = async () => {
+    setLogoutLoading(true)
+    try {
+      const supabase = supabaseBrowser()
+      await supabase.auth.signOut()
+    } catch {}
+    // Pequeño delay para mostrar el spinner
+    setTimeout(() => {
+      window.location.href = "/login"
+    }, 1000)
+  }
+
+  const handleConfirmSignOut = async () => {
+    setLogoutLoading(true)
+    setShowLogoutModal(false)
+    try {
+      const supabase = supabaseBrowser()
+      await supabase.auth.signOut()
+    } catch {}
+    // Pequeño delay para mostrar el spinner
+    setTimeout(() => {
+      window.location.href = "/login"
+    }, 1000)
+  }
+
+  const handleSignOutClick = () => {
+    setShowLogoutModal(true)
+  }
 
   const generateBreadcrumbs = () => {
     const paths = pathname.split("/").filter(Boolean)
@@ -74,6 +154,7 @@ export default function AdminLayoutClient({
 
   return (
     <Suspense fallback={<div>Loading...</div>}>
+      {logoutLoading && <AuthSpinner message="Cerrando sesión..." />}
       <div className="flex min-h-screen bg-background">
         {/* Mobile overlay */}
         {sidebarOpen && (
@@ -156,11 +237,11 @@ export default function AdminLayoutClient({
                   <DropdownMenuTrigger asChild>
                     <button className="flex items-center gap-3 w-full hover:bg-sidebar-accent rounded-lg p-2 transition-colors">
                       <div className="flex size-10 items-center justify-center rounded-full bg-sidebar-primary shrink-0">
-                        <span className="text-sm font-semibold text-sidebar-primary-foreground">AD</span>
+                        <span className="text-sm font-semibold text-sidebar-primary-foreground">{adminInitials}</span>
                       </div>
                       <div className="flex-1 min-w-0 text-left">
-                        <p className="text-sm font-medium text-sidebar-foreground truncate">Administrador</p>
-                        <p className="text-xs text-muted-foreground truncate">admin@nmhn.com</p>
+                        <p className="text-sm font-medium text-sidebar-foreground truncate">{adminName}</p>
+                        <p className="text-xs text-muted-foreground truncate">{adminEmail}</p>
                       </div>
                     </button>
                   </DropdownMenuTrigger>
@@ -170,7 +251,7 @@ export default function AdminLayoutClient({
                     <DropdownMenuItem>Perfil</DropdownMenuItem>
                     <DropdownMenuItem>Configuración</DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem className="text-destructive">Cerrar Sesión</DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleSignOutClick} className="text-destructive">Cerrar Sesión</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
@@ -254,6 +335,39 @@ export default function AdminLayoutClient({
           <main className="flex-1 p-4 sm:p-6 lg:p-8">{children}</main>
         </div>
       </div>
+
+      {/* Modal de confirmación de logout */}
+      <Dialog open={showLogoutModal} onOpenChange={setShowLogoutModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <LogOut className="h-5 w-5 text-destructive" />
+              Confirmar Salida
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="text-left space-y-2">
+                <p>¿Estás seguro que deseas cerrar sesión?</p>
+                <p className="text-sm text-muted-foreground">
+                  Esta acción cerrará tu sesión actual y limpiará todos los datos locales almacenados en tu dispositivo.
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setShowLogoutModal(false)} className="w-full sm:w-auto">
+              Cancelar
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleConfirmSignOut} 
+              className="w-full sm:w-auto"
+              disabled={logoutLoading}
+            >
+              {logoutLoading ? "Cerrando..." : "Sí, Cerrar Sesión"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Suspense>
   )
 }
