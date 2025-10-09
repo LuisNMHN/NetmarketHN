@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import LoadingSpinner from "@/components/ui/loading-spinner"
+import { AuthSpinner } from "@/components/ui/auth-spinner"
 import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
@@ -18,6 +19,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   Table,
   TableBody,
@@ -37,6 +44,11 @@ import {
   type HNLDBalance,
   type HNLDTransaction
 } from "@/lib/actions/hnld"
+import {
+  createPurchaseRequest,
+  processCardPurchase,
+  type PurchaseRequest
+} from "@/lib/actions/purchase_requests"
 import { 
   Wallet, 
   Plus, 
@@ -53,7 +65,10 @@ import {
   Search,
   CheckCircle,
   XCircle,
-  Clock
+  Clock,
+  Info,
+  Shield,
+  HelpCircle
 } from "lucide-react"
 
 export default function SaldoPage() {
@@ -65,6 +80,7 @@ export default function SaldoPage() {
   const [withdrawOpen, setWithdrawOpen] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [infoOpen, setInfoOpen] = useState(false)
   const { toast } = useToast()
 
   // Form states
@@ -132,32 +148,76 @@ export default function SaldoPage() {
     }
 
     setProcessing(true)
+    
     try {
-      const result = await emitHNLD(amount, depositForm.description || `Depósito via ${depositForm.method}`)
-      
-      if (result.success) {
-        toast({
-          title: "✅ Depósito exitoso",
-          description: `Se emitieron L.${amount.toFixed(2)} HNLD a tu cuenta`,
-        })
-        setDepositForm({ amount: "", method: "", description: "" })
-        setDepositOpen(false)
-        await loadHNLDData()
-      } else {
-        toast({
-          title: "❌ Error en depósito",
-          description: result.error || "No se pudo procesar el depósito",
-          variant: "destructive",
-        })
+      if (depositForm.method === "card") {
+        // Procesar compra con tarjeta
+        await handleCardPurchase(amount)
+      } else if (depositForm.method === "request") {
+        // Procesar solicitud de compra
+        await handlePurchaseRequest(amount)
       }
     } catch (error) {
       toast({
         title: "❌ Error",
-        description: "Error inesperado al procesar el depósito",
+        description: "Error inesperado al procesar la compra",
         variant: "destructive",
       })
     } finally {
       setProcessing(false)
+    }
+  }
+
+  const handleCardPurchase = async (amount: number) => {
+    // Simular datos de tarjeta (en producción vendrían del formulario)
+    const cardData = {
+      number: "4111111111111111",
+      expiry: "12/25",
+      cvv: "123",
+      name: "Usuario Test"
+    }
+    
+    toast({
+      title: "🔄 Procesando pago...",
+      description: "Procesando tu compra con tarjeta",
+    })
+    
+    const result = await processCardPurchase(amount, cardData)
+    
+    if (result.success) {
+      toast({
+        title: "✅ Compra con tarjeta exitosa",
+        description: `Se compraron L.${amount.toFixed(2)} HNLD a tu cuenta`,
+      })
+      setDepositForm({ amount: "", method: "", description: "" })
+      setDepositOpen(false)
+      await loadHNLDData()
+    } else {
+      toast({
+        title: "❌ Error en compra con tarjeta",
+        description: result.error || "No se pudo procesar el pago con tarjeta",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handlePurchaseRequest = async (amount: number) => {
+    // Crear solicitud de compra
+    const result = await createPurchaseRequest(amount, depositForm.description)
+    
+    if (result.success) {
+      toast({
+        title: "✅ Solicitud publicada",
+        description: `Solicitud de compra por L.${amount.toFixed(2)} HNLD publicada. Los vendedores podrán contactarte.`,
+      })
+      setDepositForm({ amount: "", method: "", description: "" })
+      setDepositOpen(false)
+    } else {
+      toast({
+        title: "❌ Error al publicar solicitud",
+        description: result.error || "No se pudo publicar la solicitud de compra",
+        variant: "destructive",
+      })
     }
   }
 
@@ -196,25 +256,25 @@ export default function SaldoPage() {
       
       if (result.success) {
         toast({
-          title: "✅ Retiro exitoso",
-          description: `Se quemaron L.${amount.toFixed(2)} HNLD de tu cuenta`,
+          title: "✅ Venta exitosa",
+          description: `Se vendieron L.${amount.toFixed(2)} HNLD de tu cuenta`,
         })
         setWithdrawForm({ amount: "", account: "", description: "" })
         setWithdrawOpen(false)
         await loadHNLDData()
       } else {
         toast({
-          title: "❌ Error en retiro",
-          description: result.error || "No se pudo procesar el retiro",
+          title: "❌ Error en venta",
+          description: result.error || "No se pudo procesar la venta",
           variant: "destructive",
         })
       }
     } catch (error) {
-      toast({
-        title: "❌ Error",
-        description: "Error inesperado al procesar el retiro",
-        variant: "destructive",
-      })
+        toast({
+          title: "❌ Error",
+          description: "Error inesperado al procesar la venta",
+          variant: "destructive",
+        })
     } finally {
       setProcessing(false)
     }
@@ -379,60 +439,114 @@ export default function SaldoPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-6">
+    <>
+      {refreshing && <AuthSpinner message="Actualizando datos..." />}
+      <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold">Balance HNLD</h1>
-          <p className="text-muted-foreground">Honduras Lempira Digital - Respaldo 1:1</p>
-        </div>
-        <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
+      <div className="flex items-center justify-end space-x-2">
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => setInfoOpen(true)}
+          className="transition-all duration-200 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 dark:hover:bg-blue-950 dark:hover:border-blue-800 dark:hover:text-blue-300"
+        >
+          <Info className="mr-2 h-4 w-4" />
+          ¿Qué es HNLD?
+        </Button>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={handleRefresh} 
+          disabled={refreshing}
+          className="transition-all duration-200 hover:bg-green-50 hover:border-green-200 hover:text-green-700 dark:hover:bg-green-950 dark:hover:border-green-800 dark:hover:text-green-300 disabled:hover:bg-transparent disabled:hover:border-border disabled:hover:text-muted-foreground"
+        >
           <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-          Actualizar
+          {refreshing ? "Actualizando..." : "Actualizar"}
         </Button>
       </div>
 
       {/* Balance Overview */}
-      <div className="grid gap-6 md:grid-cols-3">
-        <Card className="shadow-sm border-l-4 border-l-green-500">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-base md:text-lg font-semibold">Balance Total</CardTitle>
-            <Coins className="h-5 w-5 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">L.{hnldBalance.balance.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">HNLD en tu cuenta</p>
-          </CardContent>
-        </Card>
+      <TooltipProvider>
+        <div className="grid gap-6 md:grid-cols-3">
+          <Card className="shadow-sm border-l-4 border-l-green-500">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <div className="flex items-center space-x-2">
+                <CardTitle className="text-base md:text-lg font-semibold">Balance Total</CardTitle>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <HelpCircle className="h-4 w-4 text-muted-foreground hover:text-green-600 transition-colors" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <div className="max-w-xs">
+                      <p className="font-semibold mb-2 text-sm">Balance Total</p>
+                      <p className="text-xs leading-relaxed">Todo el dinero HNLD que tienes en tu cuenta, incluyendo el disponible y el reservado en transacciones pendientes. Cada HNLD equivale a un lempira físico.</p>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <Coins className="h-5 w-5 text-green-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">L.{hnldBalance.balance.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">HNLD en tu cuenta</p>
+            </CardContent>
+          </Card>
 
-        <Card className="shadow-sm border-l-4 border-l-blue-500">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-base md:text-lg font-semibold">Disponible</CardTitle>
-            <DollarSign className="h-5 w-5 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">L.{hnldBalance.available_balance.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">Listo para usar</p>
-          </CardContent>
-        </Card>
+          <Card className="shadow-sm border-l-4 border-l-blue-500">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <div className="flex items-center space-x-2">
+                <CardTitle className="text-base md:text-lg font-semibold">Disponible</CardTitle>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <HelpCircle className="h-4 w-4 text-muted-foreground hover:text-blue-600 transition-colors" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <div className="max-w-xs">
+                      <p className="font-semibold mb-2 text-sm">Balance Disponible</p>
+                      <p className="text-xs leading-relaxed">Dinero que puedes usar inmediatamente para transferencias, retiros o pagos. No está bloqueado en transacciones pendientes. Cada lempira digital está respaldado por un lempira físico.</p>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <DollarSign className="h-5 w-5 text-blue-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-600">L.{hnldBalance.available_balance.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">Listo para usar</p>
+            </CardContent>
+          </Card>
 
-        <Card className="shadow-sm border-l-4 border-l-orange-500">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-base md:text-lg font-semibold">Reservado</CardTitle>
-            <Banknote className="h-5 w-5 text-orange-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-600">L.{hnldBalance.reserved_balance.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">En transacciones pendientes</p>
-          </CardContent>
-        </Card>
-      </div>
+          <Card className="shadow-sm border-l-4 border-l-orange-500">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <div className="flex items-center space-x-2">
+                <CardTitle className="text-base md:text-lg font-semibold">Reservado</CardTitle>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <HelpCircle className="h-4 w-4 text-muted-foreground hover:text-orange-600 transition-colors" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <div className="max-w-xs">
+                      <p className="font-semibold mb-2 text-sm">Balance Reservado</p>
+                      <p className="text-xs leading-relaxed">Dinero temporalmente bloqueado en transacciones pendientes, escrows o pagos en proceso. Se libera automáticamente cuando se completa la transacción. El lempira digital mantiene su valor 1:1 con el lempira físico.</p>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <Banknote className="h-5 w-5 text-orange-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-orange-600">L.{hnldBalance.reserved_balance.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">En transacciones pendientes</p>
+            </CardContent>
+          </Card>
+        </div>
+      </TooltipProvider>
 
       {/* Action Buttons */}
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle className="text-base md:text-lg font-semibold">Acciones HNLD</CardTitle>
-          <CardDescription>Gestiona tu balance de Honduras Lempira Digital</CardDescription>
+          <CardDescription>Gestiona tu balance de Honduras Lempira Digital (HNLD)</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-3">
@@ -440,17 +554,17 @@ export default function SaldoPage() {
               <DialogTrigger asChild>
                 <Button className="h-16 flex-col space-y-2" disabled={processing}>
                   <Plus className="h-5 w-5" />
-                  <span>Emitir HNLD</span>
+                  <span>Comprar HNLD</span>
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Emitir HNLD (Depósito)</DialogTitle>
-                  <DialogDescription>Convierte Lempiras físicas en HNLD digitales</DialogDescription>
+                  <DialogTitle>Comprar HNLD</DialogTitle>
+                  <DialogDescription>Convierte lempiras físicos en HNLD digitales</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4">
                   <div>
-                    <Label htmlFor="deposit-amount">Monto en Lempiras</Label>
+                    <Label htmlFor="deposit-amount">Monto en lempiras</Label>
                     <Input
                       id="deposit-amount"
                       type="number"
@@ -460,7 +574,7 @@ export default function SaldoPage() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="deposit-method">Método de Depósito</Label>
+                    <Label htmlFor="deposit-method">Método de Compra</Label>
                     <Select
                       value={depositForm.method}
                       onValueChange={(value) => setDepositForm((prev) => ({ ...prev, method: value }))}
@@ -469,11 +583,20 @@ export default function SaldoPage() {
                         <SelectValue placeholder="Selecciona un método" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="bank">Transferencia Bancaria</SelectItem>
-                        <SelectItem value="cash">Depósito en Efectivo</SelectItem>
-                        <SelectItem value="mobile">Pago Móvil</SelectItem>
+                        <SelectItem value="card">Tarjeta de Débito/Crédito</SelectItem>
+                        <SelectItem value="request">Publicar Solicitud de Compra</SelectItem>
                       </SelectContent>
                     </Select>
+                    {depositForm.method === "card" && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        💳 Compra instantánea con tarjeta. Serás redirigido a la plataforma de pagos segura.
+                      </p>
+                    )}
+                    {depositForm.method === "request" && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        📢 Publica tu solicitud de compra. Los vendedores podrán contactarte para negociar.
+                      </p>
+                    )}
                   </div>
                   <div>
                     <Label htmlFor="deposit-description">Descripción (opcional)</Label>
@@ -490,7 +613,7 @@ export default function SaldoPage() {
                     Cancelar
                   </Button>
                   <Button onClick={handleDeposit} disabled={processing}>
-                    {processing ? "Procesando..." : "Emitir HNLD"}
+                    {processing ? "Procesando..." : "Comprar HNLD"}
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -500,13 +623,13 @@ export default function SaldoPage() {
               <DialogTrigger asChild>
                 <Button variant="outline" className="h-16 flex-col space-y-2 bg-transparent" disabled={processing}>
                   <Minus className="h-5 w-5" />
-                  <span>Quemar HNLD</span>
+                  <span>Vender HNLD</span>
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Quemar HNLD (Retiro)</DialogTitle>
-                  <DialogDescription>Convierte HNLD digitales en Lempiras físicas</DialogDescription>
+                  <DialogTitle>Vender HNLD</DialogTitle>
+                  <DialogDescription>Convierte HNLD digitales en lempiras físicos</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4">
                   <div>
@@ -546,7 +669,7 @@ export default function SaldoPage() {
                     Cancelar
                   </Button>
                   <Button onClick={handleWithdraw} disabled={processing}>
-                    {processing ? "Procesando..." : "Quemar HNLD"}
+                    {processing ? "Procesando..." : "Vender HNLD"}
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -718,6 +841,111 @@ export default function SaldoPage() {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+
+      {/* Modal de información sobre HNLD */}
+      <Dialog open={infoOpen} onOpenChange={setInfoOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center space-x-2">
+              <Coins className="h-6 w-6 text-green-600" />
+              <span>¿Qué es HNLD?</span>
+            </DialogTitle>
+            <DialogDescription>
+              Honduras Lempira Digital - Tu moneda digital respaldada 1:1
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4 pr-2">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="space-y-3">
+                <div className="flex items-start space-x-3">
+                  <div className="flex-shrink-0 w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
+                    <DollarSign className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-sm">Respaldo 1:1</h4>
+                    <p className="text-sm text-muted-foreground">
+                      Cada HNLD está respaldado por 1 lempira físico en reserva
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start space-x-3">
+                  <div className="flex-shrink-0 w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
+                    <TrendingUp className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-sm">Estabilidad</h4>
+                    <p className="text-sm text-muted-foreground">
+                      Valor fijo equivalente al lempira hondureño
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="space-y-3">
+                <div className="flex items-start space-x-3">
+                  <div className="flex-shrink-0 w-8 h-8 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center">
+                    <Send className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-sm">Transferencias</h4>
+                    <p className="text-sm text-muted-foreground">
+                      Envía y recibe dinero de forma instantánea
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start space-x-3">
+                  <div className="flex-shrink-0 w-8 h-8 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center">
+                    <Shield className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-sm">Seguridad</h4>
+                    <p className="text-sm text-muted-foreground">
+                      Transacciones seguras con tecnología blockchain
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-gradient-to-r from-green-50 to-blue-50 dark:bg-slate-800 dark:border-slate-700 p-4 rounded-lg border border-green-200">
+              <h4 className="font-semibold text-green-800 dark:text-green-300 mb-2">¿Cómo funciona?</h4>
+              <ul className="text-sm text-green-700 dark:text-slate-200 space-y-1">
+                <li>• Depositas lempiras físicos y recibes HNLD equivalentes</li>
+                <li>• Puedes transferir HNLD a otros usuarios instantáneamente</li>
+                <li>• Retiras tus HNLD y recibes lempiras físicos de vuelta</li>
+                <li>• Todas las transacciones quedan registradas y auditadas</li>
+              </ul>
+            </div>
+            
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:bg-slate-700 dark:border-slate-600 p-4 rounded-lg border border-blue-200">
+              <h4 className="font-semibold text-blue-800 dark:text-blue-300 mb-2">⚠️ Importante</h4>
+              <ul className="text-sm text-blue-700 dark:text-slate-200 space-y-2">
+                <li className="flex items-start space-x-2">
+                  <span className="text-blue-600 dark:text-blue-300 font-bold flex-shrink-0">•</span>
+                  <span><strong>No es una criptomoneda:</strong> HNLD es una representación digital del lempira hondureño, no una criptomoneda como Bitcoin o Ethereum.</span>
+                </li>
+                <li className="flex items-start space-x-2">
+                  <span className="text-blue-600 dark:text-blue-300 font-bold flex-shrink-0">•</span>
+                  <span><strong>Sin especulación:</strong> Su valor es fijo y estable, siempre equivale a 1 lempira físico. No hay fluctuaciones de precio ni riesgo de pérdida por volatilidad.</span>
+                </li>
+                <li className="flex items-start space-x-2">
+                  <span className="text-blue-600 dark:text-blue-300 font-bold flex-shrink-0">•</span>
+                  <span><strong>Respaldo garantizado:</strong> Cada HNLD está respaldado por lempiras físicos en reserva, garantizando su valor y convertibilidad.</span>
+                </li>
+              </ul>
+            </div>
+            
+            <div className="flex items-center justify-center space-x-2 text-sm text-muted-foreground">
+              <Banknote className="h-4 w-4" />
+              <span>HNLD = Honduras Lempira Digital</span>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      </div>
+    </>
   )
 }

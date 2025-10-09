@@ -183,7 +183,7 @@ export default function DashboardPage() {
               <Button asChild variant="outline" className="h-20 flex-col space-y-2 bg-transparent hover:bg-primary hover:text-primary-foreground hover:shadow-md transition">
                 <Link href="/dashboard/saldo">
                   <DollarSign className="h-6 w-6" />
-                  <span>Ver Saldo</span>
+                  <span>Balance HNLD</span>
                 </Link>
               </Button>
 

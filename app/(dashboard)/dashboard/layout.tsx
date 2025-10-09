@@ -5,10 +5,12 @@ import type React from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { CreditCard, Gavel, Home, LogOut, Receipt, User, Menu, MoreVertical, Link2, Shield, Bell, Cat, Dog, Fish, Bird, Rabbit, Turtle, Heart, Star, Zap, Circle, AlertTriangle, X } from "lucide-react"
+import { CreditCard, Gavel, Home, LogOut, Receipt, User, Menu, MoreVertical, Link2, Shield, Bell, Cat, Dog, Fish, Bird, Rabbit, Turtle, Heart, Star, Zap, Circle, AlertTriangle, X, Search, MessageSquare } from "lucide-react"
 import { useState, useEffect } from "react"
 import { useTheme } from "next-themes"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { NotificationsBell } from "@/components/ui/notifications-bell"
+import { FloatingChat } from "@/components/ui/floating-chat"
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from "@/components/ui/drawer"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -32,7 +34,8 @@ interface DashboardLayoutProps {
 
 const menuItems = [
   { id: "resumen", label: "Resumen", icon: Home, href: "/dashboard" },
-  { id: "saldo", label: "Saldo", icon: CreditCard, href: "/dashboard/saldo" },
+  { id: "saldo", label: "Balance HNLD", icon: CreditCard, href: "/dashboard/saldo" },
+  { id: "solicitudes", label: "Solicitudes", icon: Search, href: "/dashboard/solicitudes" },
   { id: "subastas", label: "Subastas", icon: Gavel, href: "/dashboard/subastas" },
   { id: "transacciones", label: "Transacciones", icon: Receipt, href: "/dashboard/transacciones" },
   { id: "links", label: "Links de Pago", icon: Link2, href: "/dashboard/links" },
@@ -341,7 +344,8 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
   const getSectionTitle = (pathname: string) => {
     if (pathname === "/dashboard") return "Resumen"
     if (pathname.startsWith("/dashboard/subastas")) return "Subastas"
-    if (pathname.startsWith("/dashboard/saldo")) return "Saldo"
+    if (pathname.startsWith("/dashboard/saldo")) return "Balance HNLD"
+    if (pathname.startsWith("/dashboard/solicitudes")) return "Solicitudes"
     if (pathname.startsWith("/dashboard/transacciones")) return "Transacciones"
     if (pathname.startsWith("/dashboard/links")) return "Links de Pago"
     if (pathname.startsWith("/dashboard/verificacion")) return "Verificación"
@@ -530,61 +534,7 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
                   <span className="text-sm md:text-base font-bold text-right">Hola, {displayName}!</span>
 
                   {/* Notificaciones */}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="rounded-full h-11 w-11 bg-muted hover:bg-muted/80 transition-all duration-200 border border-border relative"
-                        title="Notificaciones"
-                      >
-                        <Bell className="h-5 w-5 text-foreground" />
-                        {hasNotif && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-destructive rounded-full" />}
-                        <span className="sr-only">Abrir notificaciones</span>
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-80">
-                      <div className="px-3 py-2">
-                        <p className="text-sm font-semibold">Notificaciones</p>
-                      </div>
-                      {(() => {
-                        const kycNotification = getKycNotification()
-                        if (kycNotification.show && hasNotif) {
-                          return (
-                            <div className="px-3 py-3 text-left text-sm flex gap-2 items-start">
-                              <kycNotification.icon className={`h-4 w-4 mt-0.5 ${
-                                kycNotification.type === "success" ? "text-green-600" :
-                                kycNotification.type === "warning" ? "text-amber-600" :
-                                kycNotification.type === "error" ? "text-red-600" :
-                                "text-blue-600"
-                              }`} />
-                              <div className="flex-1">
-                                <p className="font-medium">{kycNotification.title}</p>
-                                <p className="text-muted-foreground mt-1">{kycNotification.message}</p>
-                                <div className="mt-2 flex justify-between items-center">
-                                  {kycNotification.action && (
-                                    <Button 
-                                      size="sm" 
-                                      variant="outline" 
-                                      asChild
-                                      className="text-xs"
-                                    >
-                                      <Link href="/dashboard/verificacion">{kycNotification.action}</Link>
-                                    </Button>
-                                  )}
-                                  <Button size="sm" variant="ghost" onClick={markNotifRead}>Marcar como leída</Button>
-                                </div>
-                              </div>
-                            </div>
-                          )
-                        } else {
-                          return (
-                            <div className="px-3 py-3 text-sm text-muted-foreground">Sin notificaciones</div>
-                          )
-                        }
-                      })()}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <NotificationsBell className="rounded-full h-11 w-11 bg-muted hover:bg-muted/80 transition-all duration-200 border border-border" />
                   <Button
                     variant="ghost"
                     size="icon"
@@ -897,6 +847,9 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
           </div>
         </DrawerContent>
       </Drawer>
+
+      {/* Chat Flotante */}
+      <FloatingChat />
     </>
   )
 }
