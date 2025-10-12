@@ -38,10 +38,23 @@ export default function LoginPage() {
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
       if (data.session) {
-        const { data: isAdmin } = await supabase.rpc('has_role', { role_name: 'admin' })
-        router.replace(isAdmin ? '/admin' : '/dashboard')
+        router.replace('/dashboard')
       }
     })
+
+    // Manejar errores de URL
+    const urlParams = new URLSearchParams(window.location.search)
+    const error = urlParams.get('error')
+    
+    if (error === 'no_profile') {
+      setSubmitError('Tu cuenta no tiene un perfil creado. Contacta al administrador.')
+    } else if (error === 'profile_error') {
+      setSubmitError('Error verificando perfil de usuario. Intenta nuevamente.')
+    } else if (error === 'auth_error') {
+      setSubmitError('Error de autenticación. Intenta nuevamente.')
+    } else if (error === 'callback_error') {
+      setSubmitError('Error en el proceso de autenticación. Intenta nuevamente.')
+    }
   }, [])
 
   const toggleTheme = () => {
@@ -117,9 +130,62 @@ export default function LoginPage() {
         setAuthLoading(false)
         return
       }
+
+      // Verificar si el usuario tiene perfil creado
+      if (data.user) {
+        console.log('🔍 Verificando perfil para usuario:', data.user.email)
+        try {
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('id, full_name')
+            .eq('id', data.user.id)
+            .maybeSingle()
+
+          if (profileError) {
+            console.error('❌ Error verificando perfil:', profileError.message || profileError)
+            setSubmitError(`Error verificando perfil: ${profileError.message || 'Error desconocido'}`)
+            setAuthLoading(false)
+            return
+          }
+
+          if (!profile) {
+            console.log('⚠️ Usuario sin perfil creado')
+            setSubmitError('Tu cuenta no tiene un perfil creado. Contacta al administrador.')
+            setAuthLoading(false)
+            return
+          }
+
+          console.log('✅ Perfil encontrado:', profile.full_name)
+        } catch (error) {
+          console.error('❌ Error en verificación de perfil:', error instanceof Error ? error.message : error)
+          setSubmitError(`Error verificando perfil: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+          setAuthLoading(false)
+          return
+        }
+      }
       
-      const { data: isAdmin } = await supabase.rpc('has_role', { role_name: 'admin' })
-      router.replace(isAdmin ? '/admin' : '/dashboard')
+      // Verificar si es admin para redirigir al panel correcto
+      try {
+        const { data: userRoles } = await supabase
+          .from('user_roles')
+          .select(`
+            role_id,
+            roles!inner(name)
+          `)
+          .eq('user_id', data.user.id)
+          .eq('roles.name', 'admin')
+          .maybeSingle()
+        
+        // Redirigir al panel correcto según el rol
+        if (userRoles) {
+          router.replace('/admin')
+        } else {
+          router.replace('/dashboard')
+        }
+      } catch (error) {
+        console.error('Error verificando rol:', error)
+        router.replace('/dashboard')
+      }
     } catch (error) {
       setSubmitError('Error inesperado al iniciar sesión')
       setAuthLoading(false)

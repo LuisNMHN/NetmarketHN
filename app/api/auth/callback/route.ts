@@ -8,6 +8,8 @@ export async function POST(request: Request) {
 
     console.log('🔍 Auth callback received:', { event, hasSession: !!session })
 
+    // Callback habilitado - procesar eventos de autenticación
+
     const supabase = await supabaseServer()
 
     if (event === "SIGNED_OUT") {
@@ -27,9 +29,9 @@ export async function POST(request: Request) {
           
           // Si el usuario no existe, es un problema de sincronización
           if (error.message.includes('User from sub claim in JWT does not exist')) {
-            console.log('🔄 Usuario no existe en auth.users, limpiando sesión...')
-            await supabase.auth.signOut()
-            return NextResponse.json({ ok: false, message: "Usuario no encontrado" }, { status: 400 })
+            console.log('🔄 Usuario no existe en auth.users, pero continuando...')
+            // await supabase.auth.signOut() // Temporalmente deshabilitado
+            return NextResponse.json({ ok: true, message: "Usuario no encontrado pero continuando" })
           }
           
           return NextResponse.json({ ok: false, message: error.message }, { status: 400 })

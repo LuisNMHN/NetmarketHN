@@ -18,7 +18,7 @@ import {
   acceptPurchaseOffer,
   type PurchaseRequest
 } from "@/lib/actions/purchase_requests"
-import { ChatButton } from "@/components/ui/chat-button"
+import StartChatButton from "@/components/chat/StartChatButton"
 import { 
   Plus, 
   Clock, 
@@ -270,13 +270,11 @@ export default function MisSolicitudesPage() {
                         Ver Ofertas
                       </Button>
                     )}
-                    {request.status === 'active' && (request.offers_count || 0) > 0 && (
-                      <ChatButton
-                        requestId={request.id}
-                        otherUserId="seller_placeholder" // Se actualizará cuando tengamos el seller_id
-                        otherUserName="Vendedor"
-                        otherUserEmail=""
-                        requestAmount={request.amount}
+                    {(request.offers_count || 0) > 0 && (
+                      <StartChatButton
+                        solicitudId={request.id}
+                        targetUserId={request.buyer_id}
+                        targetUserName="Comprador"
                         variant="outline"
                         size="sm"
                       />

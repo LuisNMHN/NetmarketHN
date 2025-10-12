@@ -18,14 +18,34 @@ export async function GET(request: NextRequest) {
         return NextResponse.redirect(`${requestUrl.origin}/login?error=auth_error`)
       }
 
-      if (data.user) {
-        // Verificar si es admin
-        const { data: isAdmin } = await supabase.rpc('has_role', { role_name: 'admin' })
-        
-        // Redirigir según el rol
-        const redirectUrl = isAdmin ? '/admin' : '/dashboard'
-        return NextResponse.redirect(`${requestUrl.origin}${redirectUrl}`)
-      }
+                  if (data.user) {
+                    // Verificar si el usuario tiene perfil creado
+                    try {
+                      const { data: profile, error: profileError } = await supabase
+                        .from('profiles')
+                        .select('id')
+                        .eq('id', data.user.id)
+                        .maybeSingle()
+
+                      if (profileError) {
+                        console.error('❌ Error verificando perfil en callback:', profileError.message || profileError)
+                        return NextResponse.redirect(`${requestUrl.origin}/login?error=profile_error`)
+                      }
+
+                      if (!profile) {
+                        console.log('⚠️ Usuario sin perfil en callback')
+                        return NextResponse.redirect(`${requestUrl.origin}/login?error=no_profile`)
+                      }
+
+                      console.log('✅ Perfil verificado en callback')
+                    } catch (error) {
+                      console.error('❌ Error en verificación de perfil en callback:', error instanceof Error ? error.message : error)
+                      return NextResponse.redirect(`${requestUrl.origin}/login?error=profile_error`)
+                    }
+
+                    // Redirigir al dashboard por defecto
+                    return NextResponse.redirect(`${requestUrl.origin}/dashboard`)
+                  }
     } catch (error) {
       console.error('Error in auth callback:', error)
       return NextResponse.redirect(`${requestUrl.origin}/login?error=callback_error`)

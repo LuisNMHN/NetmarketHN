@@ -59,8 +59,7 @@ export async function middleware(req: NextRequest) {
     // Si no hay perfil, redirigir a página de error con opción de registro
     if (error || !profile) {
       console.error('❌ Usuario sin perfil en base de datos:', session.user.email)
-      // Cerrar sesión y redirigir a página de error
-      await supabase.auth.signOut()
+      // Redirigir a página de error sin cerrar sesión
       const redirectUrl = new URL('/account-not-found', req.url)
       redirectUrl.searchParams.set('email', session.user.email || '')
       return NextResponse.redirect(redirectUrl)
@@ -68,27 +67,45 @@ export async function middleware(req: NextRequest) {
 
     // Verificación adicional para rutas de admin
     if (req.nextUrl.pathname.startsWith('/admin')) {
-      const { data: hasAdminRole } = await supabase.rpc('has_role', { 
-        role_name: 'admin' 
-      })
+      // Verificar rol admin directamente sin usar has_role
+      const { data: userRoles } = await supabase
+        .from('user_roles')
+        .select(`
+          role_id,
+          roles!inner(name)
+        `)
+        .eq('user_id', session.user.id)
+        .eq('roles.name', 'admin')
+        .maybeSingle()
       
-      if (!hasAdminRole) {
+      if (!userRoles) {
         return NextResponse.redirect(new URL('/dashboard', req.url))
       }
     }
   }
 
-  // Si el usuario está autenticado y trata de acceder a rutas de auth, redirigir al dashboard
+  // Si el usuario está autenticado y trata de acceder a rutas de auth, redirigir al panel correcto
   if (isAuthRoute) {
     const { data: { session } } = await supabase.auth.getSession()
     
     if (session) {
       // Verificar si es admin para redirigir al panel correcto
-      const { data: hasAdminRole } = await supabase.rpc('has_role', { 
-        role_name: 'admin' 
-      })
+      const { data: userRoles } = await supabase
+        .from('user_roles')
+        .select(`
+          role_id,
+          roles!inner(name)
+        `)
+        .eq('user_id', session.user.id)
+        .eq('roles.name', 'admin')
+        .maybeSingle()
       
-      return NextResponse.redirect(new URL(hasAdminRole ? '/admin' : '/dashboard', req.url))
+      // Redirigir al panel correcto según el rol
+      if (userRoles) {
+        return NextResponse.redirect(new URL('/admin', req.url))
+      } else {
+        return NextResponse.redirect(new URL('/dashboard', req.url))
+      }
     }
   }
 
@@ -98,15 +115,12 @@ export async function middleware(req: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Match only the routes that need authentication:
-     * - /dashboard/* (dashboard routes)
-     * - /admin/* (admin routes)
-     * - /login, /register, /forgot-password (auth routes for redirects)
+     * Match all request paths except for the ones starting with:
+     * - api (API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
      */
-    '/dashboard/:path*',
-    '/admin/:path*',
-    '/login',
-    '/register',
-    '/forgot-password',
+    '/((?!api|_next/static|_next/image|favicon.ico).*)',
   ],
 }

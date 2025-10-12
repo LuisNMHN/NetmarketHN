@@ -9,8 +9,7 @@ import { CreditCard, Gavel, Home, LogOut, Receipt, User, Menu, MoreVertical, Lin
 import { useState, useEffect } from "react"
 import { useTheme } from "next-themes"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { NotificationsBell } from "@/components/ui/notifications-bell"
-import { FloatingChat } from "@/components/ui/floating-chat"
+// Componentes de chat eliminados temporalmente
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from "@/components/ui/drawer"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -26,6 +25,7 @@ import { supabaseBrowser } from "@/lib/supabase/client"
 import { usePathname } from "next/navigation"
 import { getKycDraft } from "@/app/actions/kyc_data"
 import { AuthSpinner } from "@/components/ui/auth-spinner"
+import ChatLauncher from "@/components/chat/ChatLauncher"
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -150,13 +150,13 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
         .eq("id", session.user.id)
         .maybeSingle()
       
-      // Si no hay perfil en la base de datos, el usuario no debería tener acceso
+      // Si no hay perfil en la base de datos, continuar sin cerrar sesión
       if (profileError || !profile) {
-        console.error('❌ Usuario sin perfil en base de datos:', session.user.email)
-        // Cerrar sesión y redirigir al login
-        await supabase.auth.signOut()
-        window.location.href = '/login'
-        return
+        console.log('⚠️ Usuario sin perfil en base de datos:', session.user.email)
+        console.log('⚠️ Continuando sin cerrar sesión')
+        // await supabase.auth.signOut() // Temporalmente deshabilitado
+        // window.location.href = '/login' // Temporalmente deshabilitado
+        // return // Temporalmente deshabilitado
       }
       
       const name = profile?.full_name || session.user.user_metadata?.full_name || session.user.email || userName
@@ -533,8 +533,7 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
                 <div className="hidden sm:flex items-center space-x-4">
                   <span className="text-sm md:text-base font-bold text-right">Hola, {displayName}!</span>
 
-                  {/* Notificaciones */}
-                  <NotificationsBell className="rounded-full h-11 w-11 bg-muted hover:bg-muted/80 transition-all duration-200 border border-border" />
+                  {/* Notificaciones - Componente eliminado temporalmente */}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -849,7 +848,7 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
       </Drawer>
 
       {/* Chat Flotante */}
-      <FloatingChat />
+      <ChatLauncher />
     </>
   )
 }

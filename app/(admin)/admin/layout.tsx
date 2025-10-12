@@ -17,11 +17,17 @@ export default async function AdminLayout({
   }
 
   // Verificar si el usuario tiene rol admin
-  const { data: hasAdminRole } = await supabase.rpc('has_role', { 
-    role_name: 'admin' 
-  })
+  const { data: userRoles } = await supabase
+    .from('user_roles')
+    .select(`
+      role_id,
+      roles!inner(name)
+    `)
+    .eq('user_id', session.user.id)
+    .eq('roles.name', 'admin')
+    .maybeSingle()
 
-  if (!hasAdminRole) {
+  if (!userRoles) {
     redirect('/dashboard')
   }
 

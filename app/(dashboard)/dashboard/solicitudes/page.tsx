@@ -29,7 +29,7 @@ import {
   createPurchaseOffer,
   type PurchaseRequest
 } from "@/lib/actions/purchase_requests"
-import { ChatButton } from "@/components/ui/chat-button"
+import StartChatButton from "@/components/chat/StartChatButton"
 import { 
   Search, 
   Plus, 
@@ -305,14 +305,13 @@ export default function SolicitudesPage() {
                     <Send className="mr-2 h-4 w-4" />
                     Hacer Oferta
                   </Button>
-                  <ChatButton
-                    requestId={request.id}
-                    otherUserId={request.buyer_id}
-                    otherUserName={request.buyer_name || "Usuario"}
-                    otherUserEmail={request.buyer_email || ""}
-                    requestAmount={request.amount}
+                  <StartChatButton
+                    solicitudId={request.id}
+                    targetUserId={request.buyer_id}
+                    targetUserName={request.buyer_name}
                     variant="outline"
                     size="sm"
+                    className="flex-1"
                   />
                 </div>
               </CardContent>
