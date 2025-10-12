@@ -142,10 +142,6 @@ export function useChat() {
             profiles!inner(
               id,
               full_name
-            ),
-            user_profiles!inner(
-              user_id,
-              avatar_url
             )
           `)
           .in('conversation_id', conversationIds)
@@ -206,8 +202,8 @@ export function useChat() {
               last_read_at: p.last_read_at,
               cleared_at: p.cleared_at,
               created_at: p.created_at,
-              user_name: p.profiles?.full_name,
-              user_avatar: p.user_profiles?.avatar_url
+              user_name: p.profiles?.full_name || p.user_id?.slice(0, 8) || 'Usuario',
+              user_avatar: null
             })),
             last_message: lastMessage ? {
               id: lastMessage.id,

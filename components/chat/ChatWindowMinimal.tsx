@@ -308,15 +308,15 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
                       >
                         <div className="flex items-center space-x-3">
                           <Avatar className="h-10 w-10">
-                            <AvatarImage src={conversation.participants[0]?.user_avatar} />
+                            <AvatarImage src={conversation.participants?.find(p => currentUserId && p.user_id !== currentUserId)?.user_avatar} />
                             <AvatarFallback>
-                              {conversation.participants[0]?.user_name?.charAt(0) || 'U'}
+                              {conversation.participants?.find(p => currentUserId && p.user_id !== currentUserId)?.user_name?.charAt(0) || 'U'}
                             </AvatarFallback>
                           </Avatar>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between">
                               <p className="font-medium truncate">
-                                {conversation.participants[0]?.user_name || 'Usuario'}
+                                {conversation.participants?.find(p => currentUserId && p.user_id !== currentUserId)?.user_name || 'Usuario'}
                               </p>
                               {conversation.unread_count > 0 && (
                                 <Badge variant="destructive" className="text-xs">

@@ -88,18 +88,33 @@ export default function StartChatButton({
     setLoading(true)
     
     try {
+      console.log('Debug iniciando chat con parámetros:', {
+        solicitudId,
+        targetUserId,
+        targetUserName
+      })
+      
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
         console.error('No hay sesión activa')
         return
       }
 
+      console.log('Debug sesión activa:', { userId: session.user.id })
+
       // Verificar si ya existe una conversación para esta solicitud
-      const { data: existingConversation } = await supabase
+      console.log('Debug verificando conversación existente:', { solicitudId })
+      
+      const { data: existingConversation, error: checkError } = await supabase
         .from('chat_conversations')
         .select('id')
         .eq('solicitud_id', solicitudId)
         .maybeSingle()
+
+      if (checkError) {
+        console.error('Error verificando conversación existente:', checkError)
+        throw checkError
+      }
 
       if (existingConversation) {
         // Verificar si el usuario actual es participante
@@ -120,6 +135,8 @@ export default function StartChatButton({
       }
 
       // Crear nueva conversación
+      console.log('Debug creando nueva conversación:', { solicitudId })
+      
       const { data: newConversation, error: conversationError } = await supabase
         .from('chat_conversations')
         .insert({
@@ -130,10 +147,19 @@ export default function StartChatButton({
 
       if (conversationError) {
         console.error('Error creando conversación:', conversationError)
+        console.error('Detalles del error:', JSON.stringify(conversationError, null, 2))
         throw conversationError
       }
 
+      console.log('Debug conversación creada:', newConversation)
+
       // Agregar participantes
+      console.log('Debug agregando participantes:', {
+        conversationId: newConversation.id,
+        currentUserId: session.user.id,
+        targetUserId
+      })
+      
       const { error: participantsError } = await supabase
         .from('chat_conversation_participants')
         .insert([
@@ -151,8 +177,11 @@ export default function StartChatButton({
 
       if (participantsError) {
         console.error('Error agregando participantes:', participantsError)
+        console.error('Detalles del error:', JSON.stringify(participantsError, null, 2))
         throw participantsError
       }
+
+      console.log('Debug participantes agregados exitosamente')
 
       console.log(`Chat iniciado con ${targetUserName || 'usuario'}`)
       // Abrir ventana de chat

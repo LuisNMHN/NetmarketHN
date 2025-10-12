@@ -11,7 +11,9 @@ import {
   X, 
   Send, 
   MoreVertical,
-  RotateCcw
+  RotateCcw,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react'
 import { supabaseBrowser } from '@/lib/supabase/client'
 import { formatDistanceToNow } from 'date-fns'
@@ -23,7 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
-interface ChatWindowMinimalProps {
+interface ChatWindowProps {
   isOpen: boolean
   onClose: () => void
   globalUnreadCount: number
@@ -31,7 +33,7 @@ interface ChatWindowMinimalProps {
   initialConversation?: any
 }
 
-export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, onUnreadCountChange, initialConversation }: ChatWindowMinimalProps) {
+export default function ChatWindow({ isOpen, onClose, globalUnreadCount, onUnreadCountChange, initialConversation }: ChatWindowProps) {
   const [activeView, setActiveView] = useState<'conversations' | 'chat'>('conversations')
   const [selectedConversation, setSelectedConversation] = useState<any>(null)
   const [messageInput, setMessageInput] = useState('')
@@ -42,6 +44,8 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
   const [messages, setMessages] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteType, setDeleteType] = useState<'messages' | 'conversation' | null>(null)
 
   const supabase = supabaseBrowser()
 
@@ -111,30 +115,61 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
   useEffect(() => {
     if (initialConversation && isOpen) {
       console.log('Conversación inicial recibida:', initialConversation)
-      // Crear conversación simulada para mostrar directamente el chat
-      const mockConversation = {
-        id: `temp_${initialConversation.solicitudId}`,
-        solicitud_id: initialConversation.solicitudId,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        participants: [
-          {
-            conversation_id: `temp_${initialConversation.solicitudId}`,
-            user_id: initialConversation.targetUserId,
-            last_read_at: new Date().toISOString(),
-            cleared_at: null,
-            created_at: new Date().toISOString(),
-            user_name: initialConversation.targetUserName || 'Usuario',
-            user_avatar: null
-          }
-        ],
-        last_message: null,
-        unread_count: 0
+      
+      // Obtener nombre real del usuario desde profiles
+      const getRealUserName = async () => {
+        try {
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('full_name')
+            .eq('id', initialConversation.targetUserId)
+            .maybeSingle()
+          
+          console.log('Debug nombre real obtenido:', {
+            targetUserId: initialConversation.targetUserId,
+            profileData,
+            realName: profileData?.full_name
+          })
+          
+          return profileData?.full_name || 'Usuario'
+        } catch (error) {
+          console.error('Error obteniendo nombre real:', error)
+          return 'Usuario'
+        }
       }
-      setSelectedConversation(mockConversation)
-      setActiveView('chat')
+      
+      // Crear conversación simulada con nombre real
+      const createMockConversation = async () => {
+        const realUserName = await getRealUserName()
+        
+        const mockConversation = {
+          id: `temp_${initialConversation.solicitudId}`,
+          solicitud_id: initialConversation.solicitudId,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          participants: [
+            {
+              conversation_id: `temp_${initialConversation.solicitudId}`,
+              user_id: initialConversation.targetUserId,
+              last_read_at: new Date().toISOString(),
+              cleared_at: null,
+              created_at: new Date().toISOString(),
+              user_name: realUserName,
+              user_avatar: null
+            }
+          ],
+          last_message: null,
+          unread_count: 0
+        }
+        
+        console.log('Debug mockConversation creada:', mockConversation)
+        setSelectedConversation(mockConversation)
+        setActiveView('chat')
+      }
+      
+      createMockConversation()
     }
-  }, [initialConversation, isOpen])
+  }, [initialConversation, isOpen, supabase])
 
   // Cargar conversaciones
   useEffect(() => {
@@ -148,28 +183,42 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
         const { data: { session } } = await supabase.auth.getSession()
         if (!session) return
 
-        // Obtener conversaciones del usuario (simplificado)
+        // Obtener conversaciones del usuario actual directamente
         const { data: conversationsData, error: conversationsError } = await supabase
-          .from('chat_conversations')
+          .from('chat_conversation_participants')
           .select(`
-            id,
-            solicitud_id,
+            conversation_id,
+            last_read_at,
+            cleared_at,
             created_at,
-            updated_at
+            chat_conversations!inner(
+              id,
+              solicitud_id,
+              created_at,
+              updated_at
+            )
           `)
-          .order('updated_at', { ascending: false })
+          .eq('user_id', currentUserId)
+          .order('created_at', { ascending: false })
 
         if (conversationsError) {
-          console.error('Error específico:', conversationsError)
-          console.error('Detalles del error:', JSON.stringify(conversationsError, null, 2))
+          console.error('Error obteniendo conversaciones:', conversationsError)
           throw conversationsError
         }
+
+        console.log('Debug conversaciones obtenidas:', {
+          currentUserId,
+          conversationsData,
+          count: conversationsData?.length
+        })
 
         // Obtener participantes para cada conversación
         const conversationsWithParticipants = await Promise.all(
           (conversationsData || []).map(async (conv) => {
-            // Obtener participantes de la conversación
-            const { data: participantsData } = await supabase
+            // Obtener todos los participantes de esta conversación
+            console.log('Debug consultando participantes para:', conv.conversation_id)
+            
+            const { data: participantsData, error: participantsError } = await supabase
               .from('chat_conversation_participants')
               .select(`
                 user_id,
@@ -177,48 +226,107 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
                 cleared_at,
                 created_at
               `)
-              .eq('conversation_id', conv.id)
-
-            // Obtener información de usuarios para cada participante
-            const participantsWithInfo = await Promise.all(
-              (participantsData || []).map(async (participant) => {
-                // Obtener nombre del usuario
-                const { data: profileData } = await supabase
-                  .from('profiles')
-                  .select('full_name')
-                  .eq('id', participant.user_id)
-                  .maybeSingle()
-
-                // Obtener avatar del usuario
-                const { data: userProfileData } = await supabase
-                  .from('user_profiles')
-                  .select('avatar_url')
-                  .eq('user_id', participant.user_id)
-                  .maybeSingle()
-
-                return {
-                  conversation_id: conv.id,
-                  user_id: participant.user_id,
-                  last_read_at: participant.last_read_at,
-                  cleared_at: participant.cleared_at,
-                  created_at: participant.created_at,
-                  user_name: profileData?.full_name || 'Usuario',
-                  user_avatar: userProfileData?.avatar_url || null
-                }
-              })
-            )
-
-            return {
-              ...conv,
-              participants: participantsWithInfo
+              .eq('conversation_id', conv.conversation_id)
+            
+            if (participantsError) {
+              console.error('Error obteniendo participantes:', participantsError)
+              return null
             }
+
+            console.log('Debug participantes raw:', {
+              conversationId: conv.conversation_id,
+              participantsData,
+              count: participantsData?.length,
+              allUserIds: participantsData?.map(p => p.user_id),
+              currentUserId,
+              isCurrentUserInParticipants: participantsData?.some(p => p.user_id === currentUserId)
+            })
+
+            // Obtener nombres de participantes desde profiles
+            const participantIds = participantsData?.map(p => p.user_id) || []
+            let participantNames = {}
+            let profilesData = null
+            
+            if (participantIds.length > 0) {
+              const { data: profilesDataResult, error: profilesError } = await supabase
+                .from('profiles')
+                .select('id, full_name')
+                .in('id', participantIds)
+              
+              profilesData = profilesDataResult
+              
+              if (profilesError) {
+                console.error('Error obteniendo profiles:', profilesError)
+              } else {
+                participantNames = profilesData?.reduce((acc, profile) => {
+                  acc[profile.id] = profile.full_name
+                  return acc
+                }, {}) || {}
+              }
+            }
+
+            console.log('Debug nombres obtenidos:', {
+              participantIds,
+              participantNames,
+              profilesData: profilesData
+            })
+
+            // Procesar participantes
+            const participantsWithInfo = (participantsData || []).map((participant) => {
+              const userName = participantNames[participant.user_id] || 
+                              participant.user_id?.slice(0, 8) || 
+                              'Usuario'
+              
+              console.log('Debug participante individual:', {
+                user_id: participant.user_id,
+                found_name: participantNames[participant.user_id],
+                final_userName: userName,
+                all_participantNames: participantNames,
+                isCurrentUser: participant.user_id === currentUserId
+              })
+              
+              return {
+                conversation_id: conv.conversation_id,
+                user_id: participant.user_id,
+                last_read_at: participant.last_read_at,
+                cleared_at: participant.cleared_at,
+                created_at: participant.created_at,
+                user_name: userName,
+                user_avatar: null
+              }
+            })
+
+            console.log('Debug participantes procesados:', {
+              conversationId: conv.conversation_id,
+              participantsWithInfo,
+              count: participantsWithInfo.length,
+              allUserIds: participantsWithInfo.map(p => p.user_id),
+              currentUserId
+            })
+
+            const finalConversation = {
+              id: conv.conversation_id,
+              solicitud_id: conv.chat_conversations.solicitud_id,
+              created_at: conv.chat_conversations.created_at,
+              updated_at: conv.chat_conversations.updated_at,
+              participants: participantsWithInfo,
+              unread_count: 0 // Por ahora sin contador
+            }
+
+            console.log('Debug conversación final:', {
+              conversationId: conv.conversation_id,
+              finalConversation,
+              participantsCount: finalConversation.participants.length,
+              participantUserIds: finalConversation.participants.map(p => p.user_id),
+              currentUserId
+            })
+
+            return finalConversation
           })
         )
 
-        // Filtrar solo conversaciones donde el usuario actual es participante
-        const userConversations = conversationsWithParticipants.filter(conv =>
-          conv.participants.some(p => p.user_id === session.user.id)
-        )
+        // Filtrar conversaciones válidas
+        const userConversations = conversationsWithParticipants.filter(conv => conv !== null)
 
         // Obtener último mensaje y contador de no leídos para cada conversación
         const conversationsWithMessages = await Promise.all(
@@ -231,6 +339,7 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
                 body,
                 created_at,
                 sender_id,
+                full_name,
                 is_author_deleted
               `)
               .eq('conversation_id', conv.id)
@@ -295,7 +404,6 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
         onUnreadCountChange(totalUnread)
       } catch (error) {
         console.error('Error cargando conversaciones:', error)
-        console.error('Detalles del error:', JSON.stringify(error, null, 2))
         setError(`Error cargando conversaciones: ${error instanceof Error ? error.message : 'Error desconocido'}`)
       } finally {
         setLoading(false)
@@ -327,6 +435,7 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
           attachment_size,
           client_message_id,
           is_author_deleted,
+          full_name,
           created_at,
           updated_at
         `)
@@ -338,40 +447,35 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
         return
       }
       
-      // Obtener información de remitentes para cada mensaje
-      const formattedMessages = await Promise.all(
-        (messagesData || []).map(async (msg) => {
-          // Obtener nombre del remitente
-          const { data: senderProfile } = await supabase
-            .from('profiles')
-            .select('full_name')
-            .eq('id', msg.sender_id)
-            .maybeSingle()
+      console.log('Debug mensajes cargados:', {
+        messagesData,
+        count: messagesData?.length,
+        firstMessage: messagesData?.[0],
+        fullNames: messagesData?.map(m => ({ id: m.id, sender_id: m.sender_id, full_name: m.full_name }))
+      })
 
-          // Obtener avatar del remitente
-          const { data: senderUserProfile } = await supabase
-            .from('user_profiles')
-            .select('avatar_url')
-            .eq('user_id', msg.sender_id)
-            .maybeSingle()
+      // Usar directamente full_name de chat_messages (ya no necesitamos consultar profiles)
+      const formattedMessages = (messagesData || []).map((msg) => ({
+        id: msg.id,
+        conversation_id: msg.conversation_id,
+        sender_id: msg.sender_id,
+        body: msg.body,
+        attachment_url: msg.attachment_url,
+        attachment_type: msg.attachment_type,
+        attachment_size: msg.attachment_size,
+        client_message_id: msg.client_message_id,
+        is_author_deleted: msg.is_author_deleted,
+        full_name: msg.full_name,
+        created_at: msg.created_at,
+        updated_at: msg.updated_at,
+        sender_name: msg.full_name || msg.sender_id?.slice(0, 8) || 'Usuario',
+        sender_avatar: null
+      }))
 
-          return {
-            id: msg.id,
-            conversation_id: msg.conversation_id,
-            sender_id: msg.sender_id,
-            body: msg.body,
-            attachment_url: msg.attachment_url,
-            attachment_type: msg.attachment_type,
-            attachment_size: msg.attachment_size,
-            client_message_id: msg.client_message_id,
-            is_author_deleted: msg.is_author_deleted,
-            created_at: msg.created_at,
-            updated_at: msg.updated_at,
-            sender_name: senderProfile?.full_name || 'Usuario',
-            sender_avatar: senderUserProfile?.avatar_url || null
-          }
-        })
-      )
+      console.log('Debug mensajes formateados:', {
+        formattedMessages,
+        firstFormatted: formattedMessages[0]
+      })
       
       setMessages(formattedMessages)
       
@@ -418,19 +522,28 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
         return
       }
 
+      // Obtener el nombre completo del usuario actual
+      const { data: currentUserProfile } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', session.user.id)
+        .maybeSingle()
+
       // Insertar mensaje en la base de datos
       const { data: newMessageData, error: insertError } = await supabase
         .from('chat_messages')
         .insert({
           conversation_id: selectedConversation.id,
           sender_id: session.user.id,
-          body: messageText
+          body: messageText,
+          full_name: currentUserProfile?.full_name || 'Usuario'
         })
         .select(`
           id,
           conversation_id,
           sender_id,
           body,
+          full_name,
           created_at,
           updated_at,
           is_author_deleted
@@ -496,6 +609,144 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSendMessage()
+    }
+  }
+
+  // Borrar mensajes del usuario actual
+  const handleDeleteMyMessages = async () => {
+    if (!selectedConversation || !currentUserId) return
+
+    try {
+      const { error } = await supabase
+        .from('chat_messages')
+        .update({ is_author_deleted: true })
+        .eq('conversation_id', selectedConversation.id)
+        .eq('sender_id', currentUserId)
+
+      if (error) {
+        console.error('Error borrando mensajes:', error)
+        return
+      }
+
+      // Actualizar mensajes locales
+      setMessages(prev => prev.map(msg => 
+        msg.sender_id === currentUserId 
+          ? { ...msg, is_author_deleted: true }
+          : msg
+      ))
+
+      console.log('Mensajes del usuario borrados')
+      setShowDeleteConfirm(false)
+    } catch (error) {
+      console.error('Error borrando mensajes:', error)
+    }
+  }
+
+  // Borrar conversación completa (solo admin)
+  const handleDeleteConversation = async () => {
+    if (!selectedConversation || userRole !== 'admin') return
+
+    try {
+      // Eliminar mensajes de la conversación
+      const { error: messagesError } = await supabase
+        .from('chat_messages')
+        .delete()
+        .eq('conversation_id', selectedConversation.id)
+
+      if (messagesError) {
+        console.error('Error borrando mensajes:', messagesError)
+        return
+      }
+
+      // Eliminar participantes de la conversación
+      const { error: participantsError } = await supabase
+        .from('chat_conversation_participants')
+        .delete()
+        .eq('conversation_id', selectedConversation.id)
+
+      if (participantsError) {
+        console.error('Error borrando participantes:', participantsError)
+        return
+      }
+
+      // Eliminar la conversación
+      const { error: conversationError } = await supabase
+        .from('chat_conversations')
+        .delete()
+        .eq('id', selectedConversation.id)
+
+      if (conversationError) {
+        console.error('Error borrando conversación:', conversationError)
+        return
+      }
+
+      // Remover de la lista local
+      setConversations(prev => prev.filter(conv => conv.id !== selectedConversation.id))
+      setSelectedConversation(null)
+      setActiveView('conversations')
+      setMessages([])
+
+      console.log('Conversación completamente eliminada')
+      setShowDeleteConfirm(false)
+    } catch (error) {
+      console.error('Error borrando conversación:', error)
+    }
+  }
+
+  // Limpiar historial (marcar como leído)
+  const handleClearHistory = async () => {
+    if (!selectedConversation || !currentUserId) return
+
+    try {
+      const { error } = await supabase
+        .from('chat_conversation_participants')
+        .update({ 
+          cleared_at: new Date().toISOString(),
+          last_read_at: new Date().toISOString()
+        })
+        .eq('conversation_id', selectedConversation.id)
+        .eq('user_id', currentUserId)
+
+      if (error) {
+        console.error('Error limpiando historial:', error)
+        return
+      }
+
+      // Limpiar mensajes locales
+      setMessages([])
+
+      console.log('Historial limpiado')
+    } catch (error) {
+      console.error('Error limpiando historial:', error)
+    }
+  }
+
+  // Borrar mensaje individual
+  const handleDeleteSingleMessage = async (messageId: string) => {
+    if (!currentUserId) return
+
+    try {
+      const { error } = await supabase
+        .from('chat_messages')
+        .update({ is_author_deleted: true })
+        .eq('id', messageId)
+        .eq('sender_id', currentUserId)
+
+      if (error) {
+        console.error('Error borrando mensaje:', error)
+        return
+      }
+
+      // Actualizar mensaje local
+      setMessages(prev => prev.map(msg => 
+        msg.id === messageId 
+          ? { ...msg, is_author_deleted: true }
+          : msg
+      ))
+
+      console.log('Mensaje individual borrado')
+    } catch (error) {
+      console.error('Error borrando mensaje:', error)
     }
   }
 
@@ -571,15 +822,25 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
                       >
                         <div className="flex items-center space-x-3">
                           <Avatar className="h-10 w-10">
-                            <AvatarImage src={conversation.participants[0]?.user_avatar} />
+                            <AvatarImage src={conversation.participants?.find(p => currentUserId && p.user_id !== currentUserId)?.user_avatar} />
                             <AvatarFallback>
-                              {conversation.participants[0]?.user_name?.charAt(0) || 'U'}
+                              {conversation.participants?.find(p => currentUserId && p.user_id !== currentUserId)?.user_name?.charAt(0) || 'U'}
                             </AvatarFallback>
                           </Avatar>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between">
                               <p className="font-medium truncate">
-                                {conversation.participants[0]?.user_name || 'Usuario'}
+                                {(() => {
+                                  const otherParticipant = conversation.participants?.find(p => currentUserId && p.user_id !== currentUserId)
+                                  console.log('Debug UI lista:', {
+                                    conversationId: conversation.id,
+                                    participants: conversation.participants,
+                                    currentUserId,
+                                    otherParticipant,
+                                    finalName: otherParticipant?.user_name || 'Usuario'
+                                  })
+                                  return otherParticipant?.user_name || 'Usuario'
+                                })()}
                               </p>
                               {conversation.unread_count > 0 && (
                                 <Badge variant="destructive" className="text-xs">
@@ -613,14 +874,24 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
                     <X className="h-4 w-4" />
                   </Button>
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src={selectedConversation?.participants[0]?.user_avatar} />
+                    <AvatarImage src={selectedConversation?.participants?.find(p => currentUserId && p.user_id !== currentUserId)?.user_avatar} />
                     <AvatarFallback>
-                      {selectedConversation?.participants[0]?.user_name?.charAt(0) || 'U'}
+                      {selectedConversation?.participants?.find(p => currentUserId && p.user_id !== currentUserId)?.user_name?.charAt(0) || 'U'}
                     </AvatarFallback>
                   </Avatar>
                   <div>
                     <p className="font-medium">
-                      {selectedConversation?.participants[0]?.user_name || 'Usuario'}
+                      {(() => {
+                        const otherParticipant = selectedConversation?.participants?.find(p => currentUserId && p.user_id !== currentUserId)
+                        console.log('Debug UI header:', {
+                          selectedConversation,
+                          participants: selectedConversation?.participants,
+                          currentUserId,
+                          otherParticipant,
+                          finalName: otherParticipant?.user_name || 'Usuario'
+                        })
+                        return otherParticipant?.user_name || 'Usuario'
+                      })()}
                     </p>
                     <p className="text-xs text-muted-foreground">En línea</p>
                   </div>
@@ -632,10 +903,32 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleClearHistory}>
                       <RotateCcw className="mr-2 h-4 w-4" />
                       Limpiar historial
                     </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={() => {
+                        setDeleteType('messages')
+                        setShowDeleteConfirm(true)
+                      }}
+                      className="text-orange-600"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Borrar mis mensajes
+                    </DropdownMenuItem>
+                    {userRole === 'admin' && (
+                      <DropdownMenuItem 
+                        onClick={() => {
+                          setDeleteType('conversation')
+                          setShowDeleteConfirm(true)
+                        }}
+                        className="text-red-600"
+                      >
+                        <AlertTriangle className="mr-2 h-4 w-4" />
+                        Eliminar conversación
+                      </DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
@@ -648,7 +941,7 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
                     return (
                       <div
                         key={message.id}
-                        className={`flex ${isCurrentUser ? 'justify-end' : 'justify-start'}`}
+                        className={`flex group ${isCurrentUser ? 'justify-end' : 'justify-start'}`}
                       >
                         <div className={`max-w-[70%] ${isCurrentUser ? 'order-2' : 'order-1'}`}>
                           <div className={`p-3 rounded-lg ${
@@ -662,15 +955,35 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
                               <p className="text-sm">{message.body}</p>
                             )}
                           </div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {formatDate(message.created_at)}
-                          </p>
+                          <div className="flex items-center justify-between mt-1">
+                            <p className="text-xs text-muted-foreground">
+                              {formatDate(message.created_at)}
+                            </p>
+                            {isCurrentUser && !message.is_author_deleted && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="sm" className="h-4 w-4 p-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <MoreVertical className="h-3 w-3" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem 
+                                    onClick={() => handleDeleteSingleMessage(message.id)}
+                                    className="text-red-600"
+                                  >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Borrar mensaje
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
+                          </div>
                         </div>
                         {!isCurrentUser && (
                           <Avatar className="h-6 w-6 order-1 mr-2">
                             <AvatarImage src={message.sender_avatar} />
                             <AvatarFallback>
-                              {message.sender_name?.charAt(0) || 'U'}
+                              {message.sender_name?.charAt(0) || message.full_name?.charAt(0) || 'U'}
                             </AvatarFallback>
                           </Avatar>
                         )}
@@ -699,6 +1012,43 @@ export default function ChatWindowMinimal({ isOpen, onClose, globalUnreadCount, 
           )}
         </div>
       </div>
+
+      {/* Diálogo de confirmación de borrado */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center space-x-3 mb-4">
+              <AlertTriangle className="h-6 w-6 text-red-600" />
+              <h3 className="text-lg font-semibold">
+                {deleteType === 'messages' ? 'Borrar mis mensajes' : 'Borrar conversación'}
+              </h3>
+            </div>
+            <p className="text-gray-600 mb-6">
+              {deleteType === 'messages' 
+                ? '¿Estás seguro de que quieres borrar todos tus mensajes de esta conversación? Esta acción no se puede deshacer.'
+                : '¿Estás seguro de que quieres eliminar completamente esta conversación? Esta acción eliminará TODOS los mensajes, participantes y la conversación misma. Esta acción es IRREVERSIBLE.'
+              }
+            </p>
+            <div className="flex space-x-3 justify-end">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setShowDeleteConfirm(false)
+                  setDeleteType(null)
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button 
+                variant="destructive"
+                onClick={deleteType === 'messages' ? handleDeleteMyMessages : handleDeleteConversation}
+              >
+                {deleteType === 'messages' ? 'Borrar mensajes' : 'Eliminar conversación'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
