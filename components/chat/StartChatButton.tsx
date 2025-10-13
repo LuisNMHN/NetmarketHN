@@ -1,209 +1,132 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { MessageSquare } from 'lucide-react'
-import { supabaseBrowser } from '@/lib/supabase/client'
+import { MessageSquare, Loader2 } from 'lucide-react'
+import { createChatConversation } from '@/lib/actions/chat'
+import { useToast } from '@/hooks/use-toast'
 
 interface StartChatButtonProps {
-  solicitudId: string
-  targetUserId: string
-  targetUserName?: string
+  currentUserId: string
+  otherUserId: string
+  purchaseRequestId?: string
+  onChatStarted?: (conversationId: string) => void
   className?: string
+  size?: 'sm' | 'default' | 'lg'
   variant?: 'default' | 'outline' | 'secondary' | 'ghost' | 'link' | 'destructive'
-  size?: 'default' | 'sm' | 'lg' | 'icon'
-  onChatStarted?: () => void
 }
 
-export default function StartChatButton({
-  solicitudId,
-  targetUserId,
-  targetUserName,
-  className,
-  variant = 'outline',
+export function StartChatButton({
+  currentUserId,
+  otherUserId,
+  purchaseRequestId,
+  onChatStarted,
+  className = '',
   size = 'sm',
-  onChatStarted
+  variant = 'outline'
 }: StartChatButtonProps) {
-  const [loading, setLoading] = useState(false)
-  const [userRole, setUserRole] = useState<'user' | 'admin' | null>(null)
-  const [isInitialized, setIsInitialized] = useState(false)
-
-  const supabase = supabaseBrowser()
-
-  // Función para abrir chat
-  const openChat = () => {
-    // Disparar evento global para abrir chat
-    window.dispatchEvent(new CustomEvent('openChat', { 
-      detail: { 
-        solicitudId, 
-        targetUserId, 
-        targetUserName 
-      } 
-    }))
-    onChatStarted?.()
-  }
-
-  // Verificar rol del usuario
-  useEffect(() => {
-    const checkUserRole = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) {
-          setUserRole(null)
-          setIsInitialized(true)
-          return
-        }
-
-        const { data: userRoles } = await supabase
-          .from('user_roles')
-          .select(`
-            role_id,
-            roles!inner(name)
-          `)
-          .eq('user_id', session.user.id)
-          .maybeSingle()
-
-        const role = (userRoles as any)?.roles?.name === 'admin' ? 'admin' : 'user'
-        setUserRole(role)
-        setIsInitialized(true)
-      } catch (error) {
-        console.error('Error verificando rol:', error)
-        setUserRole(null)
-        setIsInitialized(true)
-      }
-    }
-
-    checkUserRole()
-  }, [supabase])
-
-  // Solo usuarios con rol 'user' pueden usar el chat
-  const canUseChat = userRole === 'user'
-
-  // No renderizar si el usuario no puede usar el chat
-  if (!isInitialized || !canUseChat) {
-    return null
-  }
+  const [isLoading, setIsLoading] = useState(false)
+  const { toast } = useToast()
 
   const handleStartChat = async () => {
-    setLoading(true)
-    
+    if (isLoading) return
+
+    console.log('🚀 Iniciando chat con:', {
+      currentUserId,
+      otherUserId,
+      purchaseRequestId
+    })
+
+    setIsLoading(true)
     try {
-      console.log('Debug iniciando chat con parámetros:', {
-        solicitudId,
-        targetUserId,
-        targetUserName
-      })
-      
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        console.error('No hay sesión activa')
-        return
-      }
+      console.log('📡 Llamando a createChatConversation...')
+      const result = await createChatConversation(
+        currentUserId,
+        otherUserId,
+        purchaseRequestId
+      )
 
-      console.log('Debug sesión activa:', { userId: session.user.id })
+      console.log('📝 Resultado de crear conversación:', result)
 
-      // Verificar si ya existe una conversación para esta solicitud
-      console.log('Debug verificando conversación existente:', { solicitudId })
-      
-      const { data: existingConversation, error: checkError } = await supabase
-        .from('chat_conversations')
-        .select('id')
-        .eq('solicitud_id', solicitudId)
-        .maybeSingle()
-
-      if (checkError) {
-        console.error('Error verificando conversación existente:', checkError)
-        throw checkError
-      }
-
-      if (existingConversation) {
-        // Verificar si el usuario actual es participante
-        const { data: participant } = await supabase
-          .from('chat_conversation_participants')
-          .select('user_id')
-          .eq('conversation_id', existingConversation.id)
-          .eq('user_id', session.user.id)
-          .maybeSingle()
-
-        if (participant) {
-          console.log(`Chat existente con ${targetUserName || 'usuario'}`)
-          // Abrir ventana de chat
-          openChat()
-          onChatStarted?.()
-          return
-        }
-      }
-
-      // Crear nueva conversación
-      console.log('Debug creando nueva conversación:', { solicitudId })
-      
-      const { data: newConversation, error: conversationError } = await supabase
-        .from('chat_conversations')
-        .insert({
-          solicitud_id: solicitudId
+      if (result.success && result.data) {
+        toast({
+          title: "✅ Chat iniciado",
+          description: "La conversación ha sido creada correctamente"
         })
-        .select('id')
-        .single()
+        
+        if (onChatStarted) {
+          onChatStarted(result.data.id)
+        }
 
-      if (conversationError) {
-        console.error('Error creando conversación:', conversationError)
-        console.error('Detalles del error:', JSON.stringify(conversationError, null, 2))
-        throw conversationError
+        // Abrir el chat automáticamente
+        console.log('💬 Abriendo chat automáticamente para conversación:', result.data.id)
+        // Aquí necesitamos una forma de comunicar al ChatLauncher que abra el chat
+        // Por ahora, emitimos un evento personalizado
+        window.dispatchEvent(new CustomEvent('openChat', { 
+          detail: { conversationId: result.data.id } 
+        }))
+      } else {
+        console.error('❌ Error creando conversación:', result.error)
+        toast({
+          title: "❌ Error",
+          description: result.error || "No se pudo iniciar el chat",
+          variant: "destructive"
+        })
       }
-
-      console.log('Debug conversación creada:', newConversation)
-
-      // Agregar participantes
-      console.log('Debug agregando participantes:', {
-        conversationId: newConversation.id,
-        currentUserId: session.user.id,
-        targetUserId
-      })
-      
-      const { error: participantsError } = await supabase
-        .from('chat_conversation_participants')
-        .insert([
-          {
-            conversation_id: newConversation.id,
-            user_id: session.user.id,
-            last_read_at: new Date().toISOString()
-          },
-          {
-            conversation_id: newConversation.id,
-            user_id: targetUserId,
-            last_read_at: new Date().toISOString()
-          }
-        ])
-
-      if (participantsError) {
-        console.error('Error agregando participantes:', participantsError)
-        console.error('Detalles del error:', JSON.stringify(participantsError, null, 2))
-        throw participantsError
-      }
-
-      console.log('Debug participantes agregados exitosamente')
-
-      console.log(`Chat iniciado con ${targetUserName || 'usuario'}`)
-      // Abrir ventana de chat
-      openChat()
-      onChatStarted?.()
     } catch (error) {
-      console.error('Error iniciando chat:', error)
+      console.error('❌ Error inesperado iniciando chat:', error)
+      
+      // Detectar diferentes tipos de errores
+      if (error instanceof Error) {
+        if (error.message.includes('Failed to fetch')) {
+          console.error('🔌 Error de conexión - Failed to fetch')
+          toast({
+            title: "🔌 Error de conexión",
+            description: "No se pudo conectar con el servidor. Verifica tu conexión a internet.",
+            variant: "destructive"
+          })
+        } else if (error.message.includes('NetworkError')) {
+          console.error('🌐 Error de red')
+          toast({
+            title: "🌐 Error de red",
+            description: "Problema de conectividad. Intenta nuevamente.",
+            variant: "destructive"
+          })
+        } else {
+          console.error('⚠️ Error general:', error.message)
+          toast({
+            title: "❌ Error",
+            description: error.message,
+            variant: "destructive"
+          })
+        }
+      } else {
+        console.error('🚫 Error desconocido:', error)
+        toast({
+          title: "❌ Error desconocido",
+          description: "Ocurrió un error inesperado. Intenta nuevamente.",
+          variant: "destructive"
+        })
+      }
     } finally {
-      setLoading(false)
+      setIsLoading(false)
     }
   }
 
   return (
     <Button
       onClick={handleStartChat}
-      disabled={loading}
-      variant={variant}
+      disabled={isLoading}
       size={size}
-      className={className}
+      variant={variant}
+      className={`rounded-lg transition-all duration-200 ${className}`}
     >
-      <MessageSquare className="h-4 w-4 mr-2" />
-      {loading ? 'Iniciando...' : 'Negociar'}
+      {isLoading ? (
+        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+      ) : (
+        <MessageSquare className="h-4 w-4 mr-2" />
+      )}
+      {isLoading ? 'Iniciando...' : 'Negociar'}
     </Button>
   )
 }

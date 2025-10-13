@@ -18,7 +18,6 @@ import {
   acceptPurchaseOffer,
   type PurchaseRequest
 } from "@/lib/actions/purchase_requests"
-import StartChatButton from "@/components/chat/StartChatButton"
 import { 
   Plus, 
   Clock, 
@@ -256,7 +255,7 @@ export default function MisSolicitudesPage() {
                   </div>
                   
                   <div className="flex space-x-2">
-                    <Button 
+                    <Button
                       variant="outline" 
                       size="sm"
                       onClick={() => handleViewDetails(request)}
@@ -264,21 +263,6 @@ export default function MisSolicitudesPage() {
                       <Eye className="mr-2 h-4 w-4" />
                       Ver Detalles
                     </Button>
-                    {(request.offers_count || 0) > 0 && request.status === 'active' && (
-                      <Button size="sm">
-                        <MessageSquare className="mr-2 h-4 w-4" />
-                        Ver Ofertas
-                      </Button>
-                    )}
-                    {(request.offers_count || 0) > 0 && (
-                      <StartChatButton
-                        solicitudId={request.id}
-                        targetUserId={request.buyer_id}
-                        targetUserName="Comprador"
-                        variant="outline"
-                        size="sm"
-                      />
-                    )}
                   </div>
                 </div>
               </CardContent>

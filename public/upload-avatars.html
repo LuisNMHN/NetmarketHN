@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subir Avatares de Ejemplo</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .success {
+            color: green;
+            margin-top: 10px;
+        }
+        .error {
+            color: red;
+            margin-top: 10px;
+        }
+        .avatar-preview {
+            width: 100px;
+            height: 100px;
+            border: 1px solid #ddd;
+            border-radius: 50%;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Subir Avatares de Ejemplo a Supabase</h1>
+        
+        <div class="form-group">
+            <label for="supabaseUrl">Supabase URL:</label>
+            <input type="text" id="supabaseUrl" placeholder="https://tu-proyecto.supabase.co">
+        </div>
+        
+        <div class="form-group">
+            <label for="supabaseKey">Supabase Anon Key:</label>
+            <input type="text" id="supabaseKey" placeholder="tu-anon-key">
+        </div>
+        
+        <button onclick="initializeSupabase()">Inicializar Supabase</button>
+        <button onclick="uploadAvatars()">Subir Avatares</button>
+        <button onclick="listAvatars()">Listar Avatares</button>
+        
+        <div id="status"></div>
+        <div id="avatarList"></div>
+    </div>
+
+    <script>
+        let supabase = null;
+        
+        function initializeSupabase() {
+            const url = document.getElementById('supabaseUrl').value;
+            const key = document.getElementById('supabaseKey').value;
+            
+            if (!url || !key) {
+                showStatus('Por favor, ingresa la URL y la clave de Supabase', 'error');
+                return;
+            }
+            
+            try {
+                supabase = window.supabase.createClient(url, key);
+                showStatus('Supabase inicializado correctamente', 'success');
+            } catch (error) {
+                showStatus('Error inicializando Supabase: ' + error.message, 'error');
+            }
+        }
+        
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = `<div class="${type}">${message}</div>`;
+        }
+        
+        function createAvatarSVG(name) {
+            const animal = name.replace('animal_', '').split('_')[0];
+            const color = name.split('_').pop();
+            
+            return `
+                <svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="50" cy="50" r="45" fill="#${color}" stroke="#333" stroke-width="2"/>
+                    <text x="50" y="55" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="white">
+                        ${animal.charAt(0).toUpperCase()}
+                    </text>
+                </svg>
+            `;
+        }
+        
+        async function uploadAvatars() {
+            if (!supabase) {
+                showStatus('Primero inicializa Supabase', 'error');
+                return;
+            }
+            
+            const avatares = [
+                'animal_cat_a1b2c3',
+                'animal_dog_d4e5f6',
+                'animal_bird_g7h8i9',
+                'animal_fish_j0k1l2',
+                'animal_rabbit_m3n4o5',
+                'animal_turtle_p6q7r8',
+                'animal_butterfly_s9t0u1',
+                'animal_dolphin_v2w3x4',
+                'animal_elephant_y5z6a7',
+                'animal_lion_b8c9d0',
+                'animal_heart_ec4899'
+            ];
+            
+            showStatus('Subiendo avatares...', 'success');
+            
+            for (const nombreAvatar of avatares) {
+                try {
+                    const svgContent = createAvatarSVG(nombreAvatar);
+                    const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+                    
+                    const filePath = `avatars/${nombreAvatar}.svg`;
+                    
+                    const { data, error } = await supabase.storage
+                        .from('profiles')
+                        .upload(filePath, blob, {
+                            contentType: 'image/svg+xml',
+                            upsert: true
+                        });
+                    
+                    if (error) {
+                        console.error(`Error subiendo ${nombreAvatar}:`, error);
+                        showStatus(`Error subiendo ${nombreAvatar}: ${error.message}`, 'error');
+                    } else {
+                        console.log(`${nombreAvatar} subido:`, data.path);
+                        showStatus(`${nombreAvatar} subido exitosamente`, 'success');
+                    }
+                    
+                } catch (error) {
+                    console.error(`Error procesando ${nombreAvatar}:`, error);
+                    showStatus(`Error procesando ${nombreAvatar}: ${error.message}`, 'error');
+                }
+            }
+            
+            showStatus('Proceso completado', 'success');
+        }
+        
+        async function listAvatars() {
+            if (!supabase) {
+                showStatus('Primero inicializa Supabase', 'error');
+                return;
+            }
+            
+            try {
+                const { data: files, error } = await supabase.storage
+                    .from('profiles')
+                    .list('avatars');
+                
+                if (error) {
+                    showStatus('Error listando archivos: ' + error.message, 'error');
+                    return;
+                }
+                
+                const listDiv = document.getElementById('avatarList');
+                if (files && files.length > 0) {
+                    listDiv.innerHTML = '<h3>Avatares disponibles:</h3>' + 
+                        files.map(file => `
+                            <div style="margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                                <strong>${file.name}</strong><br>
+                                <small>Creado: ${new Date(file.created_at).toLocaleString()}</small><br>
+                                <img src="${supabase.storage.from('profiles').getPublicUrl(`avatars/${file.name}`).data.publicUrl}" 
+                                     class="avatar-preview" alt="${file.name}">
+                            </div>
+                        `).join('');
+                } else {
+                    listDiv.innerHTML = '<p>No hay avatares disponibles</p>';
+                }
+                
+            } catch (error) {
+                showStatus('Error listando avatares: ' + error.message, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

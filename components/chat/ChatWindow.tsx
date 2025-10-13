@@ -1,1054 +1,1074 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import React from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Separator } from '@/components/ui/separator'
 import { 
-  MessageSquare, 
-  X, 
   Send, 
+  Paperclip, 
+  Smile, 
   MoreVertical,
-  RotateCcw,
+  Phone,
+  Video,
+  Search,
+  Bell,
+  Settings,
+  Archive,
   Trash2,
-  AlertTriangle
+  Users,
+  X
 } from 'lucide-react'
-import { supabaseBrowser } from '@/lib/supabase/client'
-import { formatDistanceToNow } from 'date-fns'
-import { es } from 'date-fns/locale'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { ConversationActions } from './ConversationActions'
+import AvatarTest from './AvatarTest'
+import AvatarDebug from './AvatarDebug'
+import { useChat, ChatMessage, ChatParticipant } from '@/lib/hooks/useChat'
+import { useToast } from '@/hooks/use-toast'
+import { getAvatarUrl } from '@/lib/utils/avatar-utils'
 
 interface ChatWindowProps {
-  isOpen: boolean
+  userId: string
+  selectedConversationId?: string | null
   onClose: () => void
-  globalUnreadCount: number
-  onUnreadCountChange: (count: number) => void
-  initialConversation?: any
+  onShowNotifications: () => void
+  onShowSettings: () => void
+  className?: string
 }
 
-export default function ChatWindow({ isOpen, onClose, globalUnreadCount, onUnreadCountChange, initialConversation }: ChatWindowProps) {
-  const [activeView, setActiveView] = useState<'conversations' | 'chat'>('conversations')
-  const [selectedConversation, setSelectedConversation] = useState<any>(null)
-  const [messageInput, setMessageInput] = useState('')
-  const [userRole, setUserRole] = useState<'user' | 'admin' | null>(null)
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
-  const [isInitialized, setIsInitialized] = useState(false)
-  const [conversations, setConversations] = useState<any[]>([])
-  const [messages, setMessages] = useState<any[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [deleteType, setDeleteType] = useState<'messages' | 'conversation' | null>(null)
+export function ChatWindow({ 
+  userId, 
+  selectedConversationId,
+  onClose, 
+  onShowNotifications, 
+  onShowSettings, 
+  className = '' 
+}: ChatWindowProps) {
+  const [message, setMessage] = useState('')
+  const [showConversations, setShowConversations] = useState(true)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [isUserScrolling, setIsUserScrolling] = useState(false)
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true)
+  const [hasNewMessages, setHasNewMessages] = useState(false)
+  const [lastMessageCount, setLastMessageCount] = useState(0)
+  const [localTypingState, setLocalTypingState] = useState(false)
+  
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const typingRef = useRef<boolean>(false)
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  const supabase = supabaseBrowser()
+  // Función helper para logs en color negro
+  const logBlack = (message: string, ...args: any[]) => {
+    console.log(`%c${message}`, 'color: black; font-weight: bold;', ...args)
+  }
+  
 
-  // Deshabilitar scroll del body cuando el chat está abierto
+  const {
+    conversations,
+    currentConversation,
+    messages,
+    loading,
+    typingUsers,
+    unreadCount,
+    setCurrentConversation,
+    loadMessages,
+    sendMessage,
+    setTyping,
+    deleteConversationForUser,
+    restoreConversationForUser
+  } = useChat()
+
+  // Estados locales para manejar el envío de mensajes
+  const [sendingMessage, setSendingMessage] = useState(false)
+  const [messagesLoading, setMessagesLoading] = useState(false)
+  const [isConnected, setIsConnected] = useState(true) // Simular conexión
+
+  const { toast } = useToast()
+
+  // Funciones locales para reemplazar las que no están en el hook actual
+  const formatTime = (dateString: string) => {
+    return new Date(dateString).toLocaleTimeString('es-ES', {
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+
+  const formatTimeAgo = (dateString: string) => {
+    const now = new Date()
+    const date = new Date(dateString)
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+    
+    if (diffInSeconds < 60) return 'Ahora'
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m`
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h`
+    return `${Math.floor(diffInSeconds / 86400)}d`
+  }
+
+  const getOtherParticipant = (conversation: any) => {
+    if (!conversation || !conversation.participants) return null
+    return conversation.participants.find((p: any) => p.user_id !== userId) || null
+  }
+
+  // Seleccionar conversación automáticamente si se proporciona
   useEffect(() => {
-    if (isOpen) {
-      // Guardar el scroll actual
-      const scrollY = window.scrollY
-      
-      // Deshabilitar scroll del body
-      document.body.style.position = 'fixed'
-      document.body.style.top = `-${scrollY}px`
-      document.body.style.width = '100%'
-      document.body.style.overflow = 'hidden'
-      
-      return () => {
-        // Restaurar scroll del body
-        document.body.style.position = ''
-        document.body.style.top = ''
-        document.body.style.width = ''
-        document.body.style.overflow = ''
-        
-        // Restaurar posición de scroll
-        window.scrollTo(0, scrollY)
-      }
-    }
-  }, [isOpen])
-
-  // Verificar rol del usuario
-  useEffect(() => {
-    const checkUserRole = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) {
-          setUserRole(null)
-          setIsInitialized(true)
-          return
-        }
-
-        const { data: userRoles } = await supabase
-          .from('user_roles')
-          .select(`
-            role_id,
-            roles!inner(name)
-          `)
-          .eq('user_id', session.user.id)
-          .maybeSingle()
-
-        const role = (userRoles as any)?.roles?.name === 'admin' ? 'admin' : 'user'
-        setUserRole(role)
-        setCurrentUserId(session.user.id)
-        setIsInitialized(true)
-      } catch (error) {
-        console.error('Error verificando rol:', error)
-        setUserRole(null)
-        setIsInitialized(true)
-      }
-    }
-
-    checkUserRole()
-  }, [supabase])
-
-  // Solo usuarios con rol 'user' pueden usar el chat
-  const canUseChat = userRole === 'user'
-
-  // Manejar conversación inicial
-  useEffect(() => {
-    if (initialConversation && isOpen) {
-      console.log('Conversación inicial recibida:', initialConversation)
-      
-      // Obtener nombre real del usuario desde profiles
-      const getRealUserName = async () => {
-        try {
-          const { data: profileData } = await supabase
-            .from('profiles')
-            .select('full_name')
-            .eq('id', initialConversation.targetUserId)
-            .maybeSingle()
-          
-          console.log('Debug nombre real obtenido:', {
-            targetUserId: initialConversation.targetUserId,
-            profileData,
-            realName: profileData?.full_name
-          })
-          
-          return profileData?.full_name || 'Usuario'
-        } catch (error) {
-          console.error('Error obteniendo nombre real:', error)
-          return 'Usuario'
-        }
-      }
-      
-      // Crear conversación simulada con nombre real
-      const createMockConversation = async () => {
-        const realUserName = await getRealUserName()
-        
-        const mockConversation = {
-          id: `temp_${initialConversation.solicitudId}`,
-          solicitud_id: initialConversation.solicitudId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          participants: [
-            {
-              conversation_id: `temp_${initialConversation.solicitudId}`,
-              user_id: initialConversation.targetUserId,
-              last_read_at: new Date().toISOString(),
-              cleared_at: null,
-              created_at: new Date().toISOString(),
-              user_name: realUserName,
-              user_avatar: null
-            }
-          ],
-          last_message: null,
-          unread_count: 0
-        }
-        
-        console.log('Debug mockConversation creada:', mockConversation)
-        setSelectedConversation(mockConversation)
-        setActiveView('chat')
-      }
-      
-      createMockConversation()
-    }
-  }, [initialConversation, isOpen, supabase])
-
-  // Cargar conversaciones
-  useEffect(() => {
-    if (!isInitialized || !canUseChat) return
-
-    const loadConversations = async () => {
-      setLoading(true)
-      setError(null)
-
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) return
-
-        // Obtener conversaciones del usuario actual directamente
-        const { data: conversationsData, error: conversationsError } = await supabase
-          .from('chat_conversation_participants')
-          .select(`
-            conversation_id,
-            last_read_at,
-            cleared_at,
-            created_at,
-            chat_conversations!inner(
-              id,
-              solicitud_id,
-              created_at,
-              updated_at
-            )
-          `)
-          .eq('user_id', currentUserId)
-          .order('created_at', { ascending: false })
-
-        if (conversationsError) {
-          console.error('Error obteniendo conversaciones:', conversationsError)
-          throw conversationsError
-        }
-
-        console.log('Debug conversaciones obtenidas:', {
-          currentUserId,
-          conversationsData,
-          count: conversationsData?.length
+    if (selectedConversationId && conversations.length > 0) {
+      const conversation = conversations.find(c => c.id === selectedConversationId)
+      if (conversation) {
+        logBlack('🔄 ChatWindow: Configurando conversación seleccionada:', {
+          selectedConversationId,
+          conversationId: conversation.id,
+          currentConversationId: currentConversation?.id,
+          timestamp: new Date().toISOString()
         })
-
-        // Obtener participantes para cada conversación
-        const conversationsWithParticipants = await Promise.all(
-          (conversationsData || []).map(async (conv) => {
-            // Obtener todos los participantes de esta conversación
-            console.log('Debug consultando participantes para:', conv.conversation_id)
-            
-            const { data: participantsData, error: participantsError } = await supabase
-              .from('chat_conversation_participants')
-              .select(`
-                user_id,
-                last_read_at,
-                cleared_at,
-                created_at
-              `)
-              .eq('conversation_id', conv.conversation_id)
-            
-            if (participantsError) {
-              console.error('Error obteniendo participantes:', participantsError)
-              return null
-            }
-
-            console.log('Debug participantes raw:', {
-              conversationId: conv.conversation_id,
-              participantsData,
-              count: participantsData?.length,
-              allUserIds: participantsData?.map(p => p.user_id),
-              currentUserId,
-              isCurrentUserInParticipants: participantsData?.some(p => p.user_id === currentUserId)
-            })
-
-            // Obtener nombres de participantes desde profiles
-            const participantIds = participantsData?.map(p => p.user_id) || []
-            let participantNames = {}
-            let profilesData = null
-            
-            if (participantIds.length > 0) {
-              const { data: profilesDataResult, error: profilesError } = await supabase
-                .from('profiles')
-                .select('id, full_name')
-                .in('id', participantIds)
-              
-              profilesData = profilesDataResult
-              
-              if (profilesError) {
-                console.error('Error obteniendo profiles:', profilesError)
-              } else {
-                participantNames = profilesData?.reduce((acc, profile) => {
-                  acc[profile.id] = profile.full_name
-                  return acc
-                }, {}) || {}
-              }
-            }
-
-            console.log('Debug nombres obtenidos:', {
-              participantIds,
-              participantNames,
-              profilesData: profilesData
-            })
-
-            // Procesar participantes
-            const participantsWithInfo = (participantsData || []).map((participant) => {
-              const userName = participantNames[participant.user_id] || 
-                              participant.user_id?.slice(0, 8) || 
-                              'Usuario'
-              
-              console.log('Debug participante individual:', {
-                user_id: participant.user_id,
-                found_name: participantNames[participant.user_id],
-                final_userName: userName,
-                all_participantNames: participantNames,
-                isCurrentUser: participant.user_id === currentUserId
-              })
-              
-              return {
-                conversation_id: conv.conversation_id,
-                user_id: participant.user_id,
-                last_read_at: participant.last_read_at,
-                cleared_at: participant.cleared_at,
-                created_at: participant.created_at,
-                user_name: userName,
-                user_avatar: null
-              }
-            })
-
-            console.log('Debug participantes procesados:', {
-              conversationId: conv.conversation_id,
-              participantsWithInfo,
-              count: participantsWithInfo.length,
-              allUserIds: participantsWithInfo.map(p => p.user_id),
-              currentUserId
-            })
-
-            const finalConversation = {
-              id: conv.conversation_id,
-              solicitud_id: conv.chat_conversations.solicitud_id,
-              created_at: conv.chat_conversations.created_at,
-              updated_at: conv.chat_conversations.updated_at,
-              participants: participantsWithInfo,
-              unread_count: 0 // Por ahora sin contador
-            }
-
-            console.log('Debug conversación final:', {
-              conversationId: conv.conversation_id,
-              finalConversation,
-              participantsCount: finalConversation.participants.length,
-              participantUserIds: finalConversation.participants.map(p => p.user_id),
-              currentUserId
-            })
-
-            return finalConversation
-          })
-        )
-
-        // Filtrar conversaciones válidas
-        const userConversations = conversationsWithParticipants.filter(conv => conv !== null)
-
-        // Obtener último mensaje y contador de no leídos para cada conversación
-        const conversationsWithMessages = await Promise.all(
-          userConversations.map(async (conv) => {
-            // Obtener último mensaje
-            const { data: lastMessageData } = await supabase
-              .from('chat_messages')
-              .select(`
-                id,
-                body,
-                created_at,
-                sender_id,
-                full_name,
-                is_author_deleted
-              `)
-              .eq('conversation_id', conv.id)
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle()
-
-            // Obtener información del remitente si existe el mensaje
-            let lastMessage = null
-            if (lastMessageData) {
-              const { data: senderProfile } = await supabase
-                .from('profiles')
-                .select('full_name')
-                .eq('id', lastMessageData.sender_id)
-                .maybeSingle()
-
-              const { data: senderUserProfile } = await supabase
-                .from('user_profiles')
-                .select('avatar_url')
-                .eq('user_id', lastMessageData.sender_id)
-                .maybeSingle()
-
-              lastMessage = {
-                id: lastMessageData.id,
-                conversation_id: conv.id,
-                sender_id: lastMessageData.sender_id,
-                body: lastMessageData.body,
-                created_at: lastMessageData.created_at,
-                updated_at: lastMessageData.created_at,
-                is_author_deleted: lastMessageData.is_author_deleted,
-                sender_name: senderProfile?.full_name || 'Usuario',
-                sender_avatar: senderUserProfile?.avatar_url || null
-              }
-            }
-
-            // Calcular mensajes no leídos
-            const participant = conv.participants.find(p => p.user_id === session.user.id)
-            const { count: unreadCount } = await supabase
-              .from('chat_messages')
-              .select('*', { count: 'exact', head: true })
-              .eq('conversation_id', conv.id)
-              .gt('created_at', participant?.last_read_at || '1970-01-01')
-              .neq('sender_id', session.user.id)
-              .eq('is_author_deleted', false)
-
-            return {
-              id: conv.id,
-              solicitud_id: conv.solicitud_id,
-              created_at: conv.created_at,
-              updated_at: conv.updated_at,
-              participants: conv.participants,
-              last_message: lastMessage,
-              unread_count: unreadCount || 0
-            }
-          })
-        )
-
-        setConversations(conversationsWithMessages)
         
-        // Actualizar contador global
-        const totalUnread = conversationsWithMessages.reduce((total, conv) => total + conv.unread_count, 0)
-        onUnreadCountChange(totalUnread)
-      } catch (error) {
-        console.error('Error cargando conversaciones:', error)
-        setError(`Error cargando conversaciones: ${error instanceof Error ? error.message : 'Error desconocido'}`)
-      } finally {
-        setLoading(false)
+        setCurrentConversation(conversation)
+        setShowConversations(false) // Cambiar a vista de chat individual
+        
+        // Forzar carga de mensajes para esta conversación
+        loadMessages(conversation.id)
+        
+        logBlack('🔄 ChatWindow: Conversación configurada y mensajes cargados')
       }
     }
+  }, [selectedConversationId, conversations, setCurrentConversation]) // Remover currentConversation para evitar bucles
 
-    loadConversations()
-  }, [isInitialized, canUseChat, supabase, currentUserId, onUnreadCountChange])
+  // Función para hacer scroll inteligente
+  const scrollToBottom = useCallback((behavior: 'smooth' | 'instant' = 'smooth') => {
+    if (messagesEndRef.current && shouldAutoScroll) {
+      // Intentar scroll con el elemento de referencia
+      messagesEndRef.current.scrollIntoView({ behavior })
+      
+      // También hacer scroll del viewport de ScrollArea
+      if (scrollAreaRef.current) {
+        const viewport = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement
+        if (viewport) {
+          viewport.scrollTo({
+            top: viewport.scrollHeight,
+            behavior: behavior
+          })
+        }
+      }
+    }
+  }, [shouldAutoScroll])
 
-  // Seleccionar conversación
-  const handleSelectConversation = async (conversation: any) => {
-    setSelectedConversation(conversation)
-    setActiveView('chat')
+  // Detectar si el usuario está cerca del final
+  const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const element = event.currentTarget
+    const { scrollTop, scrollHeight, clientHeight } = element
+    
+    // Detectar si está cerca del final (dentro de 100px)
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
+    
+    if (isNearBottom) {
+      setIsUserScrolling(false)
+      setShouldAutoScroll(true)
+    } else {
+      setIsUserScrolling(true)
+      setShouldAutoScroll(false)
+    }
+    
+    // Limpiar timeout anterior
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current)
+    }
+    
+    // Resetear estado después de 2 segundos sin scroll
+    scrollTimeoutRef.current = setTimeout(() => {
+      setIsUserScrolling(false)
+    }, 2000)
+  }, [])
+
+  // Función para detectar scroll en el viewport de ScrollArea
+  const handleScrollAreaScroll = useCallback(() => {
+    if (scrollAreaRef.current) {
+      const viewport = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement
+      if (viewport) {
+        const { scrollTop, scrollHeight, clientHeight } = viewport
+        const isNearBottom = scrollHeight - scrollTop - clientHeight < 50
+        
+        console.log('🔄 Scroll detectado:', {
+          scrollTop,
+          scrollHeight,
+          clientHeight,
+          isNearBottom,
+          currentUserScrolling: isUserScrolling,
+          currentShouldAutoScroll: shouldAutoScroll
+        })
+        
+        // Solo cambiar estado si hay una diferencia significativa
+        if (isNearBottom && isUserScrolling) {
+          console.log('📍 Usuario cerca del final - habilitando scroll automático')
+          setIsUserScrolling(false)
+          setShouldAutoScroll(true)
+        } else if (!isNearBottom && !isUserScrolling) {
+          console.log('📍 Usuario scrolleando hacia arriba - deshabilitando scroll automático')
+          setIsUserScrolling(true)
+          setShouldAutoScroll(false)
+        }
+        
+        // Limpiar timeout anterior
+        if (scrollTimeoutRef.current) {
+          clearTimeout(scrollTimeoutRef.current)
+        }
+        
+        // Resetear estado después de 3 segundos sin scroll
+        scrollTimeoutRef.current = setTimeout(() => {
+          console.log('⏰ Timeout de scroll - reseteando estado')
+          setIsUserScrolling(false)
+        }, 3000)
+      }
+    }
+  }, []) // Sin dependencias para evitar bucles
+
+  // Detectar mensajes nuevos
+  useEffect(() => {
+    if (messages.length > lastMessageCount) {
+      console.log('📨 Nuevo mensaje detectado:', {
+        previousCount: lastMessageCount,
+        currentCount: messages.length,
+        shouldAutoScroll,
+        isUserScrolling
+      })
+      
+      // Diagnóstico detallado del renderizado
+      logBlack('🔍 DIAGNÓSTICO: ChatWindow detectando cambios en mensajes:', {
+        messagesCount: messages.length,
+        previousCount: lastMessageCount,
+        currentConversationId: currentConversation?.id,
+        shouldAutoScroll,
+        isUserScrolling,
+        lastMessage: messages[0] ? {
+          id: messages[0].id,
+          content: messages[0].body,
+          sender_id: messages[0].sender_id,
+          created_at: messages[0].created_at
+        } : null,
+        timestamp: new Date().toISOString()
+      })
+      
+      
+      setLastMessageCount(messages.length)
+      
+      // Solo hacer scroll automático si el usuario no está scrolleando manualmente
+      if (shouldAutoScroll && !isUserScrolling) {
+        setTimeout(() => {
+          console.log('📜 Ejecutando scroll automático por mensaje nuevo')
+          scrollToBottom('smooth')
+        }, 100)
+        setHasNewMessages(false)
+      } else if (isUserScrolling) {
+        // Indicar que hay mensajes nuevos cuando el usuario está scrolleando
+        setHasNewMessages(true)
+      }
+    }
+  }, [messages.length, lastMessageCount]) // Simplificar dependencias
+
+  // Scroll inmediato cuando se carga una nueva conversación
+  useEffect(() => {
+    if (currentConversation) {
+      console.log('🔄 Nueva conversación cargada:', currentConversation.id)
+      
+      // Diagnóstico detallado del cambio de conversación
+      logBlack('🔍 DIAGNÓSTICO: ChatWindow cambiando conversación:', {
+        conversationId: currentConversation.id,
+        conversationName: getOtherParticipant(currentConversation)?.user_name || 'Usuario',
+        messagesCount: messages.length,
+        lastMessageCount,
+        shouldAutoScroll,
+        isUserScrolling,
+        timestamp: new Date().toISOString()
+      })
+      
+      
+      setShouldAutoScroll(true)
+      setIsUserScrolling(false)
+      setLastMessageCount(messages.length) // Inicializar contador
+      
+      // Limpiar estado de typing al cambiar conversación
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current)
+        typingTimeoutRef.current = null
+      }
+      typingRef.current = false // Resetear estado de typing
+      setLocalTypingState(false) // Estado local inmediato
+      
+      setTimeout(() => {
+        scrollToBottom('instant')
+      }, 100)
+    }
+  }, [currentConversation?.id]) // Solo depender del ID de la conversación
+
+  // Configurar listener de scroll en el viewport de ScrollArea
+  useEffect(() => {
+    if (scrollAreaRef.current) {
+      const viewport = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement
+      if (viewport) {
+        viewport.addEventListener('scroll', handleScrollAreaScroll)
+        
+        return () => {
+          viewport.removeEventListener('scroll', handleScrollAreaScroll)
+        }
+      }
+    }
+  }, []) // Sin dependencias para evitar bucles
+
+  // Limpiar timeouts al desmontar
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current)
+      }
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  // Focus en el input cuando se abre el chat
+  useEffect(() => {
+    if (currentConversation) {
+      inputRef.current?.focus()
+    }
+  }, [currentConversation?.id]) // Solo depender del ID para evitar bucles
+
+  // Log de estados de escritura cuando cambian (eliminado para evitar bucles)
+  // useEffect(() => {
+  //   const currentTypingUsers = typingUsers.filter(typing => 
+  //     typing.conversation_id === currentConversation?.id && 
+  //     typing.is_typing &&
+  //     typing.user_id !== userId
+  //   )
+  //   
+  //   console.log('⌨️ ChatWindow: Estados de escritura actualizados:', {
+  //     totalTypingUsers: typingUsers.length,
+  //     currentConversationId: currentConversation?.id,
+  //     currentTypingUsers: currentTypingUsers.length,
+  //     typingUsers: currentTypingUsers.map(t => ({
+  //       userId: t.user_id,
+  //       conversationId: t.conversation_id,
+  //       isTyping: t.is_typing
+  //     }))
+  //   })
+  // }, [typingUsers, currentConversation?.id, userId])
+
+  const handleSendMessage = useCallback(async () => {
+    if (!message.trim() || sendingMessage || !currentConversation) return
+
+    setSendingMessage(true)
+    const messageToSend = message.trim()
     
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-
-      // Cargar mensajes de la conversación
-      const { data: messagesData, error: messagesError } = await supabase
-        .from('chat_messages')
-        .select(`
-          id,
-          conversation_id,
-          sender_id,
-          body,
-          attachment_url,
-          attachment_type,
-          attachment_size,
-          client_message_id,
-          is_author_deleted,
-          full_name,
-          created_at,
-          updated_at
-        `)
-        .eq('conversation_id', conversation.id)
-        .order('created_at', { ascending: true })
-
-      if (messagesError) {
-        console.error('Error cargando mensajes:', messagesError)
-        return
-      }
+      const result = await sendMessage(currentConversation.id, messageToSend)
+      const success = !!result
       
-      console.log('Debug mensajes cargados:', {
-        messagesData,
-        count: messagesData?.length,
-        firstMessage: messagesData?.[0],
-        fullNames: messagesData?.map(m => ({ id: m.id, sender_id: m.sender_id, full_name: m.full_name }))
-      })
-
-      // Usar directamente full_name de chat_messages (ya no necesitamos consultar profiles)
-      const formattedMessages = (messagesData || []).map((msg) => ({
-        id: msg.id,
-        conversation_id: msg.conversation_id,
-        sender_id: msg.sender_id,
-        body: msg.body,
-        attachment_url: msg.attachment_url,
-        attachment_type: msg.attachment_type,
-        attachment_size: msg.attachment_size,
-        client_message_id: msg.client_message_id,
-        is_author_deleted: msg.is_author_deleted,
-        full_name: msg.full_name,
-        created_at: msg.created_at,
-        updated_at: msg.updated_at,
-        sender_name: msg.full_name || msg.sender_id?.slice(0, 8) || 'Usuario',
-        sender_avatar: null
-      }))
-
-      console.log('Debug mensajes formateados:', {
-        formattedMessages,
-        firstFormatted: formattedMessages[0]
-      })
-      
-      setMessages(formattedMessages)
-      
-      // Marcar mensajes como leídos
-      try {
-        await supabase.rpc('mark_chat_messages_read', {
-          p_conversation_id: conversation.id
-        })
+      if (success) {
+        setMessage('')
         
-        // Actualizar contador de no leídos
-        const updatedConversations = conversations.map(conv => 
-          conv.id === conversation.id 
-            ? { ...conv, unread_count: 0 }
-            : conv
-        )
-        setConversations(updatedConversations)
+        // Limpiar estado de typing al enviar mensaje
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current)
+          typingTimeoutRef.current = null
+        }
+        if (typingRef.current) {
+          typingRef.current = false
+          setLocalTypingState(false) // Estado local inmediato
+          setTyping(currentConversation.id, false).catch(console.error)
+        }
         
-        const totalUnread = updatedConversations.reduce((total, conv) => total + conv.unread_count, 0)
-        onUnreadCountChange(totalUnread)
-      } catch (error) {
-        console.error('Error marcando mensajes como leídos:', error)
-      }
-    } catch (error) {
-      console.error('Error seleccionando conversación:', error)
-      toast.error('Error cargando conversación')
-    }
-  }
-
-  // Enviar mensaje
-  const handleSendMessage = async () => {
-    if (!messageInput.trim()) return
-
-    const messageText = messageInput.trim()
-    setMessageInput('')
-
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-
-      // Verificar que hay una conversación seleccionada
-      if (!selectedConversation) {
-        console.error('No hay conversación seleccionada')
-        setMessageInput(messageText)
-        return
-      }
-
-      // Obtener el nombre completo del usuario actual
-      const { data: currentUserProfile } = await supabase
-        .from('profiles')
-        .select('full_name')
-        .eq('id', session.user.id)
-        .maybeSingle()
-
-      // Insertar mensaje en la base de datos
-      const { data: newMessageData, error: insertError } = await supabase
-        .from('chat_messages')
-        .insert({
-          conversation_id: selectedConversation.id,
-          sender_id: session.user.id,
-          body: messageText,
-          full_name: currentUserProfile?.full_name || 'Usuario'
+        // Forzar scroll al final después de enviar mensaje
+        setShouldAutoScroll(true)
+        setIsUserScrolling(false)
+        setTimeout(() => {
+          scrollToBottom('smooth')
+        }, 100)
+      } else {
+        toast({
+          title: "❌ Error",
+          description: "No se pudo enviar el mensaje",
+          variant: "destructive"
         })
-        .select(`
-          id,
-          conversation_id,
-          sender_id,
-          body,
-          full_name,
-          created_at,
-          updated_at,
-          is_author_deleted
-        `)
-        .single()
-
-      if (insertError) {
-        console.error('Error insertando mensaje:', insertError)
-        throw insertError
       }
-
-      // Obtener información del remitente
-      const { data: senderProfile } = await supabase
-        .from('profiles')
-        .select('full_name')
-        .eq('id', newMessageData.sender_id)
-        .maybeSingle()
-
-      const { data: senderUserProfile } = await supabase
-        .from('user_profiles')
-        .select('avatar_url')
-        .eq('user_id', newMessageData.sender_id)
-        .maybeSingle()
-
-      const newMessage = {
-        id: newMessageData.id,
-        conversation_id: newMessageData.conversation_id,
-        sender_id: newMessageData.sender_id,
-        body: newMessageData.body,
-        created_at: newMessageData.created_at,
-        updated_at: newMessageData.updated_at,
-        is_author_deleted: newMessageData.is_author_deleted,
-        sender_name: senderProfile?.full_name || 'Usuario',
-        sender_avatar: senderUserProfile?.avatar_url || null
-      }
-
-      // El mensaje ya está formateado correctamente
-
-      // Agregar mensaje a la lista local
-      setMessages(prev => [...prev, newMessage])
-      
-      // Actualizar la conversación con el último mensaje
-      const updatedConversations = conversations.map(conv => 
-        conv.id === selectedConversation.id 
-          ? { 
-              ...conv, 
-              last_message: newMessage,
-              updated_at: newMessage.created_at
-            }
-          : conv
-      )
-      setConversations(updatedConversations)
-      
-      console.log('Mensaje enviado')
     } catch (error) {
       console.error('Error enviando mensaje:', error)
-      setMessageInput(messageText)
+      toast({
+        title: "❌ Error",
+        description: "No se pudo enviar el mensaje",
+        variant: "destructive"
+      })
+    } finally {
+      setSendingMessage(false)
     }
-  }
+  }, [message, sendingMessage, currentConversation, sendMessage, toast, scrollToBottom])
 
-  // Manejar tecla Enter
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSendMessage()
     }
-  }
+  }, [handleSendMessage])
 
-  // Borrar mensajes del usuario actual
-  const handleDeleteMyMessages = async () => {
-    if (!selectedConversation || !currentUserId) return
-
-    try {
-      const { error } = await supabase
-        .from('chat_messages')
-        .update({ is_author_deleted: true })
-        .eq('conversation_id', selectedConversation.id)
-        .eq('sender_id', currentUserId)
-
-      if (error) {
-        console.error('Error borrando mensajes:', error)
-        return
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setMessage(value)
+    
+    // Sistema de typing ultra fluido con estado local
+    if (currentConversation) {
+      const isTyping = value.length > 0
+      
+      // Actualizar estado local inmediatamente para UI fluida
+      if (isTyping !== typingRef.current) {
+        typingRef.current = isTyping
+        setLocalTypingState(isTyping) // Estado local inmediato
+        
+        // Si empieza a escribir, activar typing en servidor
+        if (isTyping) {
+          setTyping(currentConversation.id, true).catch(() => {})
+        }
       }
-
-      // Actualizar mensajes locales
-      setMessages(prev => prev.map(msg => 
-        msg.sender_id === currentUserId 
-          ? { ...msg, is_author_deleted: true }
-          : msg
-      ))
-
-      console.log('Mensajes del usuario borrados')
-      setShowDeleteConfirm(false)
-    } catch (error) {
-      console.error('Error borrando mensajes:', error)
+      
+      // Limpiar timeout anterior
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current)
+      }
+      
+      // Si está escribiendo, renovar timeout
+      if (isTyping) {
+        typingTimeoutRef.current = setTimeout(() => {
+          if (typingRef.current) {
+            typingRef.current = false
+            setLocalTypingState(false) // Estado local inmediato
+            setTyping(currentConversation.id, false).catch(() => {})
+          }
+        }, 1000) // Timeout ultra corto para mejor fluidez
+      } else {
+        // Si no está escribiendo, desactivar typing inmediatamente
+        if (typingRef.current) {
+          typingRef.current = false
+          setLocalTypingState(false) // Estado local inmediato
+          setTyping(currentConversation.id, false).catch(() => {})
+        }
+      }
     }
-  }
+  }, [currentConversation, setTyping])
 
-  // Borrar conversación completa (solo admin)
-  const handleDeleteConversation = async () => {
-    if (!selectedConversation || userRole !== 'admin') return
-
-    try {
-      // Eliminar mensajes de la conversación
-      const { error: messagesError } = await supabase
-        .from('chat_messages')
-        .delete()
-        .eq('conversation_id', selectedConversation.id)
-
-      if (messagesError) {
-        console.error('Error borrando mensajes:', messagesError)
-        return
-      }
-
-      // Eliminar participantes de la conversación
-      const { error: participantsError } = await supabase
-        .from('chat_conversation_participants')
-        .delete()
-        .eq('conversation_id', selectedConversation.id)
-
-      if (participantsError) {
-        console.error('Error borrando participantes:', participantsError)
-        return
-      }
-
-      // Eliminar la conversación
-      const { error: conversationError } = await supabase
-        .from('chat_conversations')
-        .delete()
-        .eq('id', selectedConversation.id)
-
-      if (conversationError) {
-        console.error('Error borrando conversación:', conversationError)
-        return
-      }
-
-      // Remover de la lista local
-      setConversations(prev => prev.filter(conv => conv.id !== selectedConversation.id))
-      setSelectedConversation(null)
-      setActiveView('conversations')
-      setMessages([])
-
-      console.log('Conversación completamente eliminada')
-      setShowDeleteConfirm(false)
-    } catch (error) {
-      console.error('Error borrando conversación:', error)
-    }
-  }
-
-  // Limpiar historial (marcar como leído)
-  const handleClearHistory = async () => {
-    if (!selectedConversation || !currentUserId) return
-
-    try {
-      const { error } = await supabase
-        .from('chat_conversation_participants')
-        .update({ 
-          cleared_at: new Date().toISOString(),
-          last_read_at: new Date().toISOString()
-        })
-        .eq('conversation_id', selectedConversation.id)
-        .eq('user_id', currentUserId)
-
-      if (error) {
-        console.error('Error limpiando historial:', error)
-        return
-      }
-
-      // Limpiar mensajes locales
-      setMessages([])
-
-      console.log('Historial limpiado')
-    } catch (error) {
-      console.error('Error limpiando historial:', error)
-    }
-  }
-
-  // Borrar mensaje individual
-  const handleDeleteSingleMessage = async (messageId: string) => {
-    if (!currentUserId) return
-
-    try {
-      const { error } = await supabase
-        .from('chat_messages')
-        .update({ is_author_deleted: true })
-        .eq('id', messageId)
-        .eq('sender_id', currentUserId)
-
-      if (error) {
-        console.error('Error borrando mensaje:', error)
-        return
-      }
-
-      // Actualizar mensaje local
-      setMessages(prev => prev.map(msg => 
-        msg.id === messageId 
-          ? { ...msg, is_author_deleted: true }
-          : msg
-      ))
-
-      console.log('Mensaje individual borrado')
-    } catch (error) {
-      console.error('Error borrando mensaje:', error)
-    }
-  }
-
-  // Formatear fecha
-  const formatDate = (dateString: string) => {
-    return formatDistanceToNow(new Date(dateString), { 
-      addSuffix: true, 
-      locale: es 
+  const handleConversationSelect = (conversation: any) => {
+    console.log('🔄 ChatWindow: handleConversationSelect llamada:', {
+      conversationId: conversation.id,
+      conversationName: conversation.other_participant_name || 'Usuario',
+      timestamp: new Date().toISOString()
     })
+    
+    // Verificar que la conversación existe y es válida
+    if (!conversation || !conversation.id) {
+      console.error('❌ ChatWindow: Conversación inválida:', conversation)
+      return
+    }
+    
+    // Evitar seleccionar la misma conversación
+    if (currentConversation?.id === conversation.id) {
+      console.log('ℹ️ ChatWindow: Conversación ya seleccionada, ignorando')
+      return
+    }
+    
+    console.log('🔄 ChatWindow: Ejecutando setCurrentConversation...')
+    setCurrentConversation(conversation)
+    
+    console.log('🔄 ChatWindow: Ejecutando setShowConversations(false)...')
+    setShowConversations(false) // Cambiar a vista de chat individual
+    
+    console.log('🔄 ChatWindow: Ejecutando loadMessages...')
+    // Cargar mensajes para la conversación seleccionada
+    loadMessages(conversation.id)
+    
+    console.log('✅ ChatWindow: Conversación seleccionada exitosamente')
   }
 
-  if (!isOpen) return null
+  const filteredConversations = useMemo(() => {
+    console.log('🔍 ChatWindow: Conversaciones disponibles:', {
+      count: conversations.length,
+      conversations: conversations.map(c => ({
+        id: c.id,
+        solicitud_id: c.solicitud_id,
+        participants: c.participants?.length || 0,
+        last_message: c.last_message?.body || 'Sin mensaje'
+      }))
+    })
+    
+    return conversations.filter(conv => {
+      // Buscar en nombres de participantes
+      const participantMatch = conv.participants?.some((p: any) => 
+        p.user_name?.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+      
+      // Buscar en contenido del último mensaje
+      const messageMatch = conv.last_message?.body?.toLowerCase().includes(searchTerm.toLowerCase())
+      
+      return participantMatch || messageMatch
+    })
+  }, [conversations, searchTerm])
+
+  // Componente memoizado para mensajes individuales
+  const MessageItem = React.memo(({ 
+    msg, 
+    index, 
+    userId, 
+    messages,
+    currentConversation
+  }: { 
+    msg: ChatMessage
+    index: number
+    userId: string
+    messages: ChatMessage[]
+    currentConversation: any
+  }) => {
+    const isOwn = msg.sender_id === userId
+    
+    // Obtener información del remitente desde la conversación actual
+    const senderParticipant = currentConversation?.participants?.find((p: ChatParticipant) => p.user_id === msg.sender_id)
+    const senderName = senderParticipant?.user_name || 'Usuario'
+    const senderAvatar = getAvatarUrl(senderParticipant?.user_avatar)
+
+    // Debug: Log de datos del remitente
+    if (index === 0) { // Solo log del primer mensaje para evitar spam
+      console.log('👤 MessageItem: Datos del remitente:', {
+        senderId: msg.sender_id,
+        senderParticipant: senderParticipant ? {
+          user_id: senderParticipant.user_id,
+          user_name: senderParticipant.user_name,
+          user_avatar: senderParticipant.user_avatar
+        } : null,
+        senderName,
+        senderAvatar,
+        conversationId: currentConversation?.id,
+        allParticipants: currentConversation?.participants?.map((p: any) => ({
+          user_id: p.user_id,
+          user_name: p.user_name,
+          user_avatar: p.user_avatar
+        }))
+      })
+    }
+    
+    // Los mensajes están ordenados cronológicamente (más antiguos primero)
+    // Mostrar avatar si es el primer mensaje o si el mensaje anterior es de otro usuario
+    const showAvatar = index === 0 || 
+      messages[index - 1]?.sender_id !== msg.sender_id
+
+    return (
+      <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-4`}>
+        <div className={`flex max-w-[70%] ${isOwn ? 'flex-row-reverse' : 'flex-row'} items-end gap-2`}>
+           {/* Avatar */}
+           {!isOwn && showAvatar && (
+             <Avatar className="h-8 w-8 flex-shrink-0">
+               <AvatarImage src={senderAvatar || ''} alt={senderName} />
+               <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                 {senderName.charAt(0).toUpperCase()}
+               </AvatarFallback>
+             </Avatar>
+           )}
+          
+          {/* Mensaje */}
+          <div className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}>
+            {/* Nombre del remitente */}
+            {!isOwn && showAvatar && (
+              <span className="text-xs text-muted-foreground mb-1 px-2">
+                {senderName}
+              </span>
+            )}
+            
+            {/* Contenido del mensaje */}
+            <div className={`px-4 py-3 rounded-2xl shadow-sm ${
+              isOwn 
+                ? 'bg-primary text-primary-foreground border border-primary/20' 
+                : 'bg-muted text-muted-foreground border border-border/30'
+            }`}>
+                    <p className="text-sm whitespace-pre-wrap break-words">
+                      {msg.body}
+                    </p>
+              
+              {/* Adjuntos - No disponible en la estructura actual */}
+            </div>
+            
+            {/* Timestamp */}
+            <span className="text-xs text-muted-foreground mt-1 px-2">
+              {formatTime(msg.created_at)}
+            </span>
+          </div>
+        </div>
+      </div>
+    )
+  })
+
+  MessageItem.displayName = 'MessageItem'
+
+  // Componente optimizado para hover y clic más reactivos
+  const ConversationItem = ({ 
+    conversation, 
+    currentConversation, 
+    formatTimeAgo, 
+    onSelect 
+  }: { 
+    conversation: any
+    currentConversation: any
+    formatTimeAgo: (dateString: string) => string
+    onSelect: (conversation: any) => void
+  }) => {
+    const isSelected = currentConversation?.id === conversation.id
+    const otherParticipant = getOtherParticipant(conversation)
+
+    const handleDelete = async () => {
+      const result = await deleteConversationForUser(conversation.id)
+      if (result.success) {
+        console.log('✅ Conversación eliminada individualmente')
+      } else {
+        console.error('❌ Error eliminando conversación:', result.error)
+      }
+    }
+
+    const handleRestore = async () => {
+      const result = await restoreConversationForUser(conversation.id)
+      if (result.success) {
+        console.log('✅ Conversación restaurada individualmente')
+      } else {
+        console.error('❌ Error restaurando conversación:', result.error)
+      }
+    }
+
+    const handleClick = () => {
+      console.log('🖱️ ConversationItem: Click detectado:', {
+        conversationId: conversation.id,
+        conversationName: otherParticipant?.user_name || 'Usuario',
+        timestamp: new Date().toISOString()
+      })
+      alert('¡Conversación clickeada!')
+      onSelect(conversation)
+    }
+
+    return (
+      <div
+        onClick={handleClick}
+        className="p-3 m-2 bg-blue-500 text-white rounded-lg cursor-pointer hover:bg-blue-600 transition-colors"
+        style={{
+          minHeight: '60px',
+          position: 'relative',
+          zIndex: 100001
+        }}
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-blue-300 rounded-full flex items-center justify-center">
+            <span className="text-sm font-bold">{otherParticipant?.user_name?.charAt(0) || 'U'}</span>
+          </div>
+          
+          <div className="flex-1">
+            <div className="flex justify-between items-center">
+              <p className="text-sm font-semibold">
+                {otherParticipant?.user_name || 'Usuario'}
+              </p>
+              <div className="flex items-center gap-2">
+                {conversation.unread_count && conversation.unread_count > 0 && (
+                  <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                    {conversation.unread_count}
+                  </span>
+                )}
+                <p className="text-xs opacity-75">
+                  {formatTimeAgo(conversation.updated_at)}
+                </p>
+              </div>
+            </div>
+            
+            <p className="text-xs opacity-75 mt-1">
+              {conversation.last_message?.body || 'Sin mensajes'}
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  ConversationItem.displayName = 'ConversationItem'
+
+  const renderMessage = useCallback((msg: ChatMessage, index: number) => {
+    return (
+      <MessageItem 
+        key={msg.id}
+        msg={msg}
+        index={index}
+        userId={userId}
+        messages={messages}
+        currentConversation={currentConversation}
+      />
+    )
+  }, [userId, messages, currentConversation])
+
+  // Memoizar mensajes renderizados para evitar violación de reglas de hooks
+  const renderedMessages = useMemo(() => {
+    // Los mensajes ya vienen ordenados cronológicamente (más antiguos primero)
+    // Filtrar duplicados por ID para evitar claves duplicadas
+    const uniqueMessages = messages.reduce((acc, msg) => {
+      const existingIndex = acc.findIndex(m => m.id === msg.id)
+      if (existingIndex === -1) {
+        acc.push(msg)
+      } else {
+        // Si existe, mantener el más reciente (por updated_at)
+        if (new Date(msg.updated_at) > new Date(acc[existingIndex].updated_at)) {
+          acc[existingIndex] = msg
+        }
+      }
+      return acc
+    }, [] as ChatMessage[])
+    
+    // Solo mostrar log si hay duplicados removidos
+    if (messages.length !== uniqueMessages.length) {
+      console.log('🔍 ChatWindow: Duplicados removidos:', {
+        originalCount: messages.length,
+        uniqueCount: uniqueMessages.length,
+        removedDuplicates: messages.length - uniqueMessages.length
+      })
+    }
+    
+    return uniqueMessages.map((msg, index) => {
+      return renderMessage(msg, index)
+    })
+  }, [messages, renderMessage])
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50" onClick={onClose}>
-      <div 
-        className="absolute right-0 top-0 h-full w-full max-w-sm sm:max-w-md lg:max-w-lg bg-background shadow-xl flex flex-col border-l border-border"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b">
-          <div className="flex items-center space-x-2">
-            <MessageSquare className="h-5 w-5" />
-            <h2 className="text-lg font-semibold">Chat</h2>
-            {globalUnreadCount > 0 && (
-              <Badge variant="destructive" className="text-xs">
-                {globalUnreadCount}
-              </Badge>
+    <div className={`h-full bg-card flex flex-col ${className}`}>
+      {/* Header */}
+      <div className="p-4 border-b border-border/50">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowConversations(!showConversations)}
+              className="p-1 hover:bg-muted/50"
+            >
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </Button>
+            
+             {currentConversation ? (
+               <div className="flex items-center gap-2">
+                 <Avatar className="h-8 w-8">
+                   <AvatarImage src={getAvatarUrl(getOtherParticipant(currentConversation)?.user_avatar) || ''} alt={getOtherParticipant(currentConversation)?.user_name || 'Usuario'} />
+                   <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                     {getOtherParticipant(currentConversation)?.user_name?.charAt(0) || 'U'}
+                   </AvatarFallback>
+                 </Avatar>
+                <div>
+                  <h3 className="text-sm font-semibold text-card-foreground">
+                    {getOtherParticipant(currentConversation)?.user_name || 'Usuario'}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {isConnected ? 'En línea' : 'Desconectado'}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <h3 className="text-sm font-semibold text-card-foreground">Chat</h3>
             )}
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onClose}
-            className="h-8 w-8 p-0"
-          >
-            <X className="h-4 w-4" />
-          </Button>
+          
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" onClick={onShowNotifications} className="p-1 hover:bg-muted/50 relative">
+              <Bell className="h-4 w-4 text-muted-foreground" />
+              {unreadCount > 0 && (
+                <Badge variant="destructive" className="absolute -top-1 -right-1 h-4 w-4 p-0 text-xs">
+                  {unreadCount}
+                </Badge>
+              )}
+            </Button>
+            
+            <Button variant="ghost" size="sm" onClick={onShowSettings} className="p-1 hover:bg-muted/50">
+              <Settings className="h-4 w-4 text-muted-foreground" />
+            </Button>
+            
+            <Button variant="ghost" size="sm" onClick={onClose} className="p-1 hover:bg-muted/50">
+              <X className="h-4 w-4 text-muted-foreground" />
+            </Button>
+          </div>
         </div>
+      </div>
 
-        {/* Content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {activeView === 'conversations' ? (
-            /* Lista de conversaciones */
-            <div className="w-full flex flex-col">
-              <div className="p-4 border-b">
-                <h3 className="font-medium">Conversaciones</h3>
-                {error && (
-                  <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-600">
-                    {error}
-                  </div>
-                )}
+      {/* Contenido principal */}
+      <div className="flex-1 overflow-hidden">
+        {showConversations ? (
+          /* Vista de lista de conversaciones */
+          <div className="h-full flex flex-col">
+            <div className="p-3 border-b border-border/50">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar conversaciones..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9 h-9 text-sm border-border/50 focus:border-primary/50 rounded-lg"
+                />
               </div>
-              <ScrollArea className="flex-1" style={{ touchAction: 'pan-y' }}>
-                <div className="p-2">
-                  {loading ? (
-                    <div className="text-center py-8">Cargando conversaciones...</div>
-                  ) : error ? (
-                    <div className="text-center py-8 text-red-500">
-                      <p>{error}</p>
-                      <p className="text-xs mt-2">Ejecuta INSTALL_CHAT_SYSTEM.sql para configurar el chat</p>
+            </div>
+            
+            <div 
+              className="flex-1 overflow-y-auto p-2"
+              style={{
+                pointerEvents: 'auto',
+                position: 'relative',
+                zIndex: 100002
+              }}
+            >
+              <div 
+                className="space-y-2"
+                style={{
+                  pointerEvents: 'auto',
+                  position: 'relative',
+                  zIndex: 100003
+                }}
+              >
+                {filteredConversations.length === 0 ? (
+                  <div className="flex items-center justify-center h-32">
+                    <div className="text-center">
+                      <p className="text-sm text-muted-foreground">No hay conversaciones</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Las conversaciones aparecerán aquí cuando recibas mensajes
+                      </p>
                     </div>
-                  ) : conversations.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      No hay conversaciones
-                    </div>
-                  ) : (
-                    conversations.map((conversation) => (
-                      <div
-                        key={conversation.id}
-                        onClick={() => handleSelectConversation(conversation)}
-                        className="p-3 hover:bg-muted rounded-lg cursor-pointer transition-colors"
-                      >
-                        <div className="flex items-center space-x-3">
-                          <Avatar className="h-10 w-10">
-                            <AvatarImage src={conversation.participants?.find(p => currentUserId && p.user_id !== currentUserId)?.user_avatar} />
-                            <AvatarFallback>
-                              {conversation.participants?.find(p => currentUserId && p.user_id !== currentUserId)?.user_name?.charAt(0) || 'U'}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between">
-                              <p className="font-medium truncate">
-                                {(() => {
-                                  const otherParticipant = conversation.participants?.find(p => currentUserId && p.user_id !== currentUserId)
-                                  console.log('Debug UI lista:', {
-                                    conversationId: conversation.id,
-                                    participants: conversation.participants,
-                                    currentUserId,
-                                    otherParticipant,
-                                    finalName: otherParticipant?.user_name || 'Usuario'
-                                  })
-                                  return otherParticipant?.user_name || 'Usuario'
-                                })()}
-                              </p>
-                              {conversation.unread_count > 0 && (
-                                <Badge variant="destructive" className="text-xs">
+                  </div>
+                ) : (
+                  filteredConversations.map((conversation) => (
+                    <div
+                      key={conversation.id}
+                      onClick={() => {
+                        console.log('✅ REAL CONVERSATION CLICK:', conversation.id)
+                        handleConversationSelect(conversation)
+                      }}
+                      className={`p-3 m-2 rounded-lg cursor-pointer transition-colors ${
+                        currentConversation?.id === conversation.id
+                          ? 'bg-primary/10 border-primary/20 shadow-sm border' 
+                          : 'bg-card hover:bg-muted/50 border-border border'
+                      }`}
+                      style={{
+                        minHeight: '60px',
+                        position: 'relative',
+                        zIndex: 100001
+                      }}
+                    >
+                       <div className="flex items-center gap-3">
+                         <Avatar className="h-10 w-10">
+                           <AvatarImage src={getAvatarUrl(getOtherParticipant(conversation)?.user_avatar) || ''} alt={getOtherParticipant(conversation)?.user_name || 'Usuario'} />
+                           <AvatarFallback className="text-sm bg-primary/10 text-primary">
+                             {getOtherParticipant(conversation)?.user_name?.charAt(0) || 'U'}
+                           </AvatarFallback>
+                         </Avatar>
+                        <div className="flex-1">
+                          <div className="flex justify-between items-center">
+                            <p className="text-sm font-semibold truncate text-card-foreground">
+                              {getOtherParticipant(conversation)?.user_name || 'Usuario'}
+                            </p>
+                            <div className="flex items-center gap-2">
+                              {conversation.unread_count && conversation.unread_count > 0 && (
+                                <Badge variant="destructive" className="h-5 w-5 p-0 text-xs flex items-center justify-center">
                                   {conversation.unread_count}
                                 </Badge>
                               )}
+                              <p className="text-xs text-muted-foreground">
+                                {formatTimeAgo(conversation.updated_at)}
+                              </p>
                             </div>
-                            <p className="text-sm text-muted-foreground truncate">
-                              {conversation.last_message?.body || 'Sin mensajes'}
-                            </p>
                           </div>
+                          <p className="text-xs text-muted-foreground truncate mt-1">
+                            {conversation.last_message?.body || 'Sin mensajes'}
+                          </p>
                         </div>
                       </div>
-                    ))
-                  )}
-                </div>
-              </ScrollArea>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
-          ) : (
-            /* Chat individual */
-            <div className="w-full flex flex-col">
-              {/* Header del chat */}
-              <div className="p-4 border-b flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setActiveView('conversations')}
-                    className="h-8 w-8 p-0"
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage src={selectedConversation?.participants?.find(p => currentUserId && p.user_id !== currentUserId)?.user_avatar} />
-                    <AvatarFallback>
-                      {selectedConversation?.participants?.find(p => currentUserId && p.user_id !== currentUserId)?.user_name?.charAt(0) || 'U'}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="font-medium">
-                      {(() => {
-                        const otherParticipant = selectedConversation?.participants?.find(p => currentUserId && p.user_id !== currentUserId)
-                        console.log('Debug UI header:', {
-                          selectedConversation,
-                          participants: selectedConversation?.participants,
-                          currentUserId,
-                          otherParticipant,
-                          finalName: otherParticipant?.user_name || 'Usuario'
-                        })
-                        return otherParticipant?.user_name || 'Usuario'
-                      })()}
-                    </p>
-                    <p className="text-xs text-muted-foreground">En línea</p>
-                  </div>
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={handleClearHistory}>
-                      <RotateCcw className="mr-2 h-4 w-4" />
-                      Limpiar historial
-                    </DropdownMenuItem>
-                    <DropdownMenuItem 
-                      onClick={() => {
-                        setDeleteType('messages')
-                        setShowDeleteConfirm(true)
-                      }}
-                      className="text-orange-600"
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Borrar mis mensajes
-                    </DropdownMenuItem>
-                    {userRole === 'admin' && (
-                      <DropdownMenuItem 
-                        onClick={() => {
-                          setDeleteType('conversation')
-                          setShowDeleteConfirm(true)
-                        }}
-                        className="text-red-600"
-                      >
-                        <AlertTriangle className="mr-2 h-4 w-4" />
-                        Eliminar conversación
-                      </DropdownMenuItem>
+          </div>
+        ) : (
+          /* Vista de chat individual */
+          <div className="h-full flex flex-col">
+          {currentConversation ? (
+            <>
+              {/* Mensajes */}
+              <div className="flex-1 relative overflow-hidden">
+                <ScrollArea 
+                  ref={scrollAreaRef}
+                  className="h-full w-full"
+                  style={{ scrollBehavior: 'smooth' }}
+                >
+                  <div className="p-4">
+                    {messagesLoading ? (
+                      <div className="flex items-center justify-center h-full min-h-[400px]">
+                        <div className="text-center">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2" />
+                          <p className="text-sm text-muted-foreground">Cargando mensajes...</p>
+                        </div>
+                      </div>
+                    ) : messages.length === 0 ? (
+                      <div className="flex items-center justify-center h-full min-h-[400px]">
+                        <div className="text-center">
+                          <p className="text-sm text-muted-foreground">No hay mensajes aún</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Envía el primer mensaje para comenzar la conversación
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-1 pb-4">
+                        {renderedMessages}
+                        
+                        {/* Indicador de escritura - solo para otros usuarios */}
+                        {(() => {
+                          // Filtrar usuarios escribiendo para la conversación actual (servidor)
+                          const currentTypingUsers = typingUsers.filter(typing => 
+                            typing.conversation_id === currentConversation?.id && 
+                            typing.is_typing &&
+                            typing.user_id !== userId // No mostrar el propio estado de escritura
+                          )
+                          
+                          // Debug: Log para verificar filtrado
+                          if (currentTypingUsers.length > 0) {
+                            console.log('⌨️ ChatWindow: Mostrando typing de otros usuarios:', {
+                              currentUserId: userId,
+                              typingUsers: currentTypingUsers.map(t => ({
+                                userId: t.user_id,
+                                userName: t.user_name,
+                                isTyping: t.is_typing,
+                                conversationId: t.conversation_id
+                              }))
+                            })
+                          }
+                          
+                          // Solo mostrar typing de otros usuarios, NO el propio
+                          return currentTypingUsers.length > 0 ? (
+                            <div className="flex justify-start mb-4 animate-in slide-in-from-left-2 duration-200">
+                              <div className="flex items-center gap-2">
+                                <Avatar className="h-8 w-8">
+                                  <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                                    {currentTypingUsers[0]?.user_name?.charAt(0) || 'U'}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="bg-muted px-4 py-3 rounded-2xl border border-border/30 shadow-sm">
+                                  <div className="flex space-x-1">
+                                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDuration: '0.4s' }} />
+                                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.1s', animationDuration: '0.4s' }} />
+                                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.2s', animationDuration: '0.4s' }} />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ) : null
+                        })()}
+                        
+                        {/* Elemento de referencia para scroll */}
+                        <div ref={messagesEndRef} />
+                      </div>
                     )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  </div>
+                </ScrollArea>
+                
+                {/* Botón para volver al final cuando el usuario está scrolleando */}
+                {isUserScrolling && !shouldAutoScroll && (
+                  <div className="absolute bottom-20 right-6 z-10">
+                    <Button
+                      onClick={() => {
+                        setShouldAutoScroll(true)
+                        setIsUserScrolling(false)
+                        scrollToBottom('smooth')
+                      }}
+                      size="sm"
+                      className="rounded-full shadow-lg bg-primary hover:bg-primary/90 text-white"
+                    >
+                      <Send className="h-4 w-4 rotate-45" />
+                    </Button>
+                  </div>
+                )}
+                
+                {/* Botón para volver al final cuando el usuario está scrolleando */}
+                {isUserScrolling && !shouldAutoScroll && (
+                  <div className="absolute bottom-4 right-6 z-10">
+                    <Button
+                      onClick={() => {
+                        setShouldAutoScroll(true)
+                        setIsUserScrolling(false)
+                        setHasNewMessages(false)
+                        scrollToBottom('smooth')
+                      }}
+                      size="sm"
+                      className="rounded-full shadow-lg bg-primary hover:bg-primary/90 text-white relative"
+                    >
+                      <Send className="h-4 w-4 rotate-45" />
+                      {hasNewMessages && (
+                        <div className="absolute -top-1 -right-1 h-3 w-3 bg-red-500 rounded-full animate-pulse" />
+                      )}
+                    </Button>
+                  </div>
+                )}
               </div>
 
-          {/* Mensajes */}
-          <ScrollArea className="flex-1 p-4" style={{ touchAction: 'pan-y' }}>
-                <div className="space-y-4">
-                  {messages.map((message) => {
-                    const isCurrentUser = message.sender_id === currentUserId
-                    return (
-                      <div
-                        key={message.id}
-                        className={`flex group ${isCurrentUser ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div className={`max-w-[70%] ${isCurrentUser ? 'order-2' : 'order-1'}`}>
-                          <div className={`p-3 rounded-lg ${
-                            isCurrentUser 
-                              ? 'bg-primary text-primary-foreground' 
-                              : 'bg-muted'
-                          }`}>
-                            {message.is_author_deleted ? (
-                              <p className="text-sm italic">Mensaje eliminado</p>
-                            ) : (
-                              <p className="text-sm">{message.body}</p>
-                            )}
-                          </div>
-                          <div className="flex items-center justify-between mt-1">
-                            <p className="text-xs text-muted-foreground">
-                              {formatDate(message.created_at)}
-                            </p>
-                            {isCurrentUser && !message.is_author_deleted && (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="sm" className="h-4 w-4 p-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <MoreVertical className="h-3 w-3" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem 
-                                    onClick={() => handleDeleteSingleMessage(message.id)}
-                                    className="text-red-600"
-                                  >
-                                    <Trash2 className="mr-2 h-4 w-4" />
-                                    Borrar mensaje
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            )}
-                          </div>
-                        </div>
-                        {!isCurrentUser && (
-                          <Avatar className="h-6 w-6 order-1 mr-2">
-                            <AvatarImage src={message.sender_avatar} />
-                            <AvatarFallback>
-                              {message.sender_name?.charAt(0) || message.full_name?.charAt(0) || 'U'}
-                            </AvatarFallback>
-                          </Avatar>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </ScrollArea>
-
               {/* Input de mensaje */}
-              <div className="p-4 border-t">
-                <div className="flex space-x-2">
+              <div className="p-4 border-t border-border/50">
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="sm" className="p-2 hover:bg-muted/50">
+                    <Paperclip className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                  
                   <Input
-                    value={messageInput}
-                    onChange={(e) => setMessageInput(e.target.value)}
+                    ref={inputRef}
+                    value={message}
+                    onChange={handleInputChange}
                     onKeyPress={handleKeyPress}
                     placeholder="Escribe un mensaje..."
-                    className="flex-1"
+                    disabled={sendingMessage}
+                    className="flex-1 border-border/50 focus:border-primary/50 rounded-xl"
                   />
-                  <Button onClick={handleSendMessage} disabled={!messageInput.trim()}>
+                  
+                  <Button variant="ghost" size="sm" className="p-2 hover:bg-muted/50">
+                    <Smile className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                  
+                  <Button
+                    onClick={handleSendMessage}
+                    disabled={!message.trim() || sendingMessage}
+                    size="sm"
+                    className="p-2 bg-primary hover:bg-primary/90 rounded-xl"
+                  >
                     <Send className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Diálogo de confirmación de borrado */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <div className="flex items-center space-x-3 mb-4">
-              <AlertTriangle className="h-6 w-6 text-red-600" />
-              <h3 className="text-lg font-semibold">
-                {deleteType === 'messages' ? 'Borrar mis mensajes' : 'Borrar conversación'}
-              </h3>
-            </div>
-            <p className="text-gray-600 mb-6">
-              {deleteType === 'messages' 
-                ? '¿Estás seguro de que quieres borrar todos tus mensajes de esta conversación? Esta acción no se puede deshacer.'
-                : '¿Estás seguro de que quieres eliminar completamente esta conversación? Esta acción eliminará TODOS los mensajes, participantes y la conversación misma. Esta acción es IRREVERSIBLE.'
-              }
-            </p>
-            <div className="flex space-x-3 justify-end">
-              <Button 
-                variant="outline" 
-                onClick={() => {
-                  setShowDeleteConfirm(false)
-                  setDeleteType(null)
-                }}
-              >
-                Cancelar
-              </Button>
-              <Button 
-                variant="destructive"
-                onClick={deleteType === 'messages' ? handleDeleteMyMessages : handleDeleteConversation}
-              >
-                {deleteType === 'messages' ? 'Borrar mensajes' : 'Eliminar conversación'}
-              </Button>
-            </div>
+            </>
+           ) : (
+             <div className="flex-1 flex items-center justify-center">
+               <div className="text-center">
+                 <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                 <h3 className="text-lg font-semibold mb-2 text-card-foreground">Selecciona una conversación</h3>
+                 <p className="text-sm text-muted-foreground">
+                   Elige una conversación de la lista para comenzar a chatear
+                 </p>
+                 
+                 {/* Componente de prueba para avatares */}
+                 <div className="mt-6 space-y-4">
+                   <AvatarTest userId={userId} />
+                   
+                   {/* Debug de avatares específicos */}
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     <AvatarDebug avatarName="animal_cat_a1b2c3" />
+                     <AvatarDebug avatarName="animal_heart_ec4899" />
+                   </div>
+                 </div>
+               </div>
+             </div>
+           )}
           </div>
-        </div>
-      )}
+        )}
+        
+      </div>
     </div>
   )
 }

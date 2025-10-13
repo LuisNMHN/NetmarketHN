@@ -24,12 +24,13 @@ import {
 } from "@/components/ui/tooltip"
 import { useToast } from "@/hooks/use-toast"
 import Link from "next/link"
-import {
+import { supabaseBrowser } from "@/lib/supabase/client"
+import { 
   getActivePurchaseRequests,
   createPurchaseOffer,
   type PurchaseRequest
 } from "@/lib/actions/purchase_requests"
-import StartChatButton from "@/components/chat/StartChatButton"
+import { StartChatButton } from "@/components/chat/StartChatButton"
 import { 
   Search, 
   Plus, 
@@ -51,6 +52,7 @@ export default function SolicitudesPage() {
   const [selectedRequest, setSelectedRequest] = useState<PurchaseRequest | null>(null)
   const [offerOpen, setOfferOpen] = useState(false)
   const [processing, setProcessing] = useState(false)
+  const [userId, setUserId] = useState<string | null>(null)
   const { toast } = useToast()
 
   // Form state para oferta
@@ -191,6 +193,22 @@ export default function SolicitudesPage() {
     request.amount.toString().includes(searchTerm)
   )
 
+  // Obtener ID del usuario actual
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      try {
+        const supabase = supabaseBrowser()
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.user?.id) {
+          setUserId(session.user.id)
+        }
+      } catch (error) {
+        console.error('Error obteniendo usuario:', error)
+      }
+    }
+    getCurrentUser()
+  }, [])
+
   useEffect(() => {
     loadRequests()
   }, [])
@@ -247,6 +265,7 @@ export default function SolicitudesPage() {
           </div>
         </CardContent>
       </Card>
+
 
       {/* Requests Grid */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -305,14 +324,21 @@ export default function SolicitudesPage() {
                     <Send className="mr-2 h-4 w-4" />
                     Hacer Oferta
                   </Button>
-                  <StartChatButton
-                    solicitudId={request.id}
-                    targetUserId={request.buyer_id}
-                    targetUserName={request.buyer_name}
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                  />
+                  
+                  {userId && request.buyer_id && userId !== request.buyer_id && (
+                    <StartChatButton
+                      currentUserId={userId}
+                      otherUserId={request.buyer_id}
+                      purchaseRequestId={request.id}
+                      size="sm"
+                      variant="outline"
+                      className="flex-1"
+                      onChatStarted={(conversationId) => {
+                        console.log('💬 Chat iniciado con conversación:', conversationId)
+                        // Aquí podrías agregar lógica adicional como abrir el chat automáticamente
+                      }}
+                    />
+                  )}
                 </div>
               </CardContent>
             </Card>

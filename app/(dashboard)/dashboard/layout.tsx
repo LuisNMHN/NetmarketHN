@@ -9,7 +9,6 @@ import { CreditCard, Gavel, Home, LogOut, Receipt, User, Menu, MoreVertical, Lin
 import { useState, useEffect } from "react"
 import { useTheme } from "next-themes"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-// Componentes de chat eliminados temporalmente
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from "@/components/ui/drawer"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -25,7 +24,7 @@ import { supabaseBrowser } from "@/lib/supabase/client"
 import { usePathname } from "next/navigation"
 import { getKycDraft } from "@/app/actions/kyc_data"
 import { AuthSpinner } from "@/components/ui/auth-spinner"
-import ChatLauncher from "@/components/chat/ChatLauncher"
+import { ChatLauncher } from "@/components/chat/ChatLauncher"
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -191,7 +190,7 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
       // Cargar datos de KYC para notificaciones inteligentes
       try {
         const kycResult = await getKycDraft()
-        if (kycResult.ok && kycResult.data) {
+        if (kycResult && kycResult.ok && kycResult.data) {
           setKycData(kycResult.data)
           setKycStatus(kycResult.data.status)
           
@@ -233,7 +232,7 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
           // Actualizar el estado local con los nuevos datos
           try {
             const kycResult = await getKycDraft()
-            if (kycResult.ok && kycResult.data) {
+            if (kycResult && kycResult.ok && kycResult.data) {
               setKycData(kycResult.data)
               setKycStatus(kycResult.data.status)
               
@@ -505,7 +504,7 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
 
 		{/* Main Content Area */}
 		<div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-			<header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 md:px-6 py-4">
+			<header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 md:px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 <Button
@@ -740,7 +739,7 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
         </Dialog>
 
         <div
-          className="lg:hidden fixed bottom-0 left-0 right-0 bg-card border-t border-border shadow-lg z-50"
+          className="lg:hidden fixed bottom-0 left-0 right-0 bg-card border-t border-border shadow-lg z-40"
           style={{
             paddingBottom: "calc(8px + env(safe-area-inset-bottom))",
           }}
@@ -847,8 +846,11 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
         </DrawerContent>
       </Drawer>
 
-      {/* Chat Flotante */}
-      <ChatLauncher />
+      {/* Chat Launcher - Solo para usuarios con rol USER */}
+      {userId && (
+        <ChatLauncher userId={userId} />
+      )}
+
     </>
   )
 }
