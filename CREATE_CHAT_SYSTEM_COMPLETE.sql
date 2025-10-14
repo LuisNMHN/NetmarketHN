@@ -498,6 +498,54 @@ SELECT
     COUNT(*) as row_count
 FROM chat_notifications;
 
+-- =========================================================
+-- NUEVA TABLA: LECTURAS DE MENSAJES (NO ALTERA VISIBILIDAD)
+-- =========================================================
+
+-- Tabla que registra qué usuario leyó qué mensaje y cuándo
+CREATE TABLE IF NOT EXISTS chat_message_reads (
+    message_id UUID NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    read_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY (message_id, user_id)
+);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_chat_message_reads_user ON chat_message_reads(user_id);
+CREATE INDEX IF NOT EXISTS idx_chat_message_reads_message ON chat_message_reads(message_id);
+
+-- RLS
+ALTER TABLE chat_message_reads ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can see their own read receipts" ON chat_message_reads
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can mark their own reads" ON chat_message_reads
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- =========================================================
+-- RPC: MARCAR TODOS LOS MENSAJES DE UNA CONVERSACIÓN COMO LEÍDOS PARA UN USUARIO
+-- =========================================================
+
+CREATE OR REPLACE FUNCTION mark_conversation_messages_read(
+  p_conversation_id UUID,
+  p_user_id UUID
+) RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  -- Insertar lecturas idempotentes (ignorar si ya existe)
+  INSERT INTO chat_message_reads(message_id, user_id, read_at)
+  SELECT m.id, p_user_id, NOW()
+  FROM chat_messages m
+  WHERE m.conversation_id = p_conversation_id
+    AND m.is_deleted = false
+  ON CONFLICT (message_id, user_id) DO NOTHING;
+END;
+$$;
+
+
 -- Verificar políticas RLS
 SELECT 
     schemaname, 

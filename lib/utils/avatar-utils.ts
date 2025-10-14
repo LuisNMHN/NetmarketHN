@@ -26,13 +26,6 @@ export function getAvatarUrl(avatarUrl: string | null | undefined): string | nul
   // Intentar con SVG primero (más común para avatares generados)
   const generatedUrl = `${supabaseUrl}/storage/v1/object/public/profiles/avatars/${avatarUrl}.svg`
   
-  // Debug: Log de la URL generada
-  console.log('🔍 getAvatarUrl: Generando URL:', {
-    avatarUrl,
-    supabaseUrl,
-    generatedUrl
-  })
-  
   return generatedUrl
 }
 

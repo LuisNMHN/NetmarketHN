@@ -13,6 +13,8 @@ export interface ChatMessage {
   updated_at: string
   message_type?: string
   is_deleted?: boolean
+  sender_name?: string
+  sender_avatar?: string
 }
 
 // Tipo para mensajes recibidos en tiempo real desde Supabase
@@ -74,12 +76,57 @@ export function useChat() {
     
     setCurrentConversationState(conversation)
     currentConversationRef.current = conversation
+    // Persistir conversación activa para restaurarla al reabrir la ventana
+    try {
+      if (conversation?.id) {
+        localStorage.setItem('currentConversationId', conversation.id)
+      } else {
+        localStorage.removeItem('currentConversationId')
+      }
+    } catch {}
     console.log('🔄 setCurrentConversation: Referencia actualizada:', {
       refId: currentConversationRef.current?.id,
       refHasConversation: !!currentConversationRef.current
     })
   }, [])
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  
+  
+  // Wrapper para setMessages que logea mensajes vacíos pero NO los filtra
+  const setMessagesWithLogging = useCallback((newMessages: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+    setMessages(prev => {
+      const messagesToSet = typeof newMessages === 'function' ? newMessages(prev) : newMessages
+      
+      // Solo logear mensajes vacíos, pero NO filtrarlos
+      messagesToSet.forEach(msg => {
+        const hasBody = msg.body !== null && msg.body !== undefined
+        const isString = typeof msg.body === 'string'
+        const hasLength = isString && msg.body.length > 0
+        const hasContent = hasLength && msg.body.trim().length > 0
+        const isValid = hasBody && isString && hasLength && hasContent
+        
+        if (!isValid) {
+          console.warn('⚠️ useChat: MENSAJE VACÍO DETECTADO (NO FILTRADO):', {
+            id: msg.id,
+            body: msg.body,
+            bodyType: typeof msg.body,
+            bodyLength: msg.body?.length || 0,
+            hasBody,
+            isString,
+            hasLength,
+            hasContent,
+            isValid,
+            senderId: msg.sender_id,
+            createdAt: msg.created_at,
+            timestamp: new Date().toISOString()
+          })
+        }
+      })
+      
+      return messagesToSet // Retornar TODOS los mensajes, sin filtrar
+    })
+  }, [])
+  
   const [typingUsers, setTypingUsers] = useState<ChatTypingStatus[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -121,31 +168,9 @@ export function useChat() {
         email: session.user.email
       })
 
-      // Obtener conversaciones del usuario usando la estructura correcta
+      // Obtener conversaciones del usuario EXCLUYENDO las eliminadas por el propio usuario
       const { data: conversationsData, error: conversationsError } = await supabase
-        .from('chat_conversations')
-        .select(`
-          id,
-          participant_1_id,
-          participant_2_id,
-          purchase_request_id,
-          status,
-          participant_1_notifications,
-          participant_2_notifications,
-          created_at,
-          updated_at,
-          last_message_at,
-          purchase_requests(
-            id,
-            amount,
-            currency,
-            description,
-            status
-          )
-        `)
-        .or(`participant_1_id.eq.${session.user.id},participant_2_id.eq.${session.user.id}`)
-        .eq('status', 'active')
-        .order('last_message_at', { ascending: false })
+        .rpc('get_user_conversations_with_deletion', { p_user_id: session.user.id })
 
       if (conversationsError) {
         console.log('❌ loadConversations: Error obteniendo conversaciones:', conversationsError)
@@ -154,7 +179,7 @@ export function useChat() {
 
       console.log('📚 loadConversations: Conversaciones obtenidas:', {
         count: conversationsData?.length || 0,
-        conversations: conversationsData?.map(c => ({
+        conversations: conversationsData?.map((c: any) => ({
           id: c.id,
           participant_1_id: c.participant_1_id,
           participant_2_id: c.participant_2_id
@@ -162,11 +187,11 @@ export function useChat() {
       })
 
       // Obtener información de participantes
-      const conversationIds = conversationsData?.map(c => c.id) || []
+      const conversationIds = conversationsData?.map((c: any) => c.id) || []
       
       if (conversationIds.length > 0) {
         // Obtener información de participantes desde profiles y user_profiles
-        const participantIds = conversationsData?.flatMap(c => [c.participant_1_id, c.participant_2_id]) || []
+        const participantIds = conversationsData?.flatMap((c: any) => [c.participant_1_id, c.participant_2_id]) || []
         const uniqueParticipantIds = [...new Set(participantIds)]
         
         // Consulta separada para evitar problemas de RLS
@@ -220,10 +245,14 @@ export function useChat() {
                 }
               })
             
-            // Retornar datos con user_profiles vacío por ahora
+            // Retornar datos con user_profiles básico que incluya el nombre
             return {
               ...profile,
-              user_profiles: []
+              user_profiles: [{
+                user_id: profile.id,
+                display_name: profile.full_name,
+                avatar_url: null
+              }]
             }
           }
           
@@ -292,7 +321,7 @@ export function useChat() {
         if (lastMessagesError) throw lastMessagesError
 
         // Procesar datos
-        const processedConversations: ChatConversation[] = conversationsData?.map(conv => {
+        const processedConversations: ChatConversation[] = conversationsData?.map((conv: any) => {
           // Encontrar participantes individuales
           const participant1 = participantsData?.find(p => p.id === conv.participant_1_id)
           const participant2 = participantsData?.find(p => p.id === conv.participant_2_id)
@@ -332,8 +361,8 @@ export function useChat() {
                 last_read_at: conv.created_at,
                 cleared_at: undefined,
                 created_at: conv.created_at,
-                user_name: conv.participant_1_id === session.user.id ? 'Tú' : (participant1?.user_profiles?.[0]?.display_name || participant1?.full_name || 'Usuario'),
-                user_avatar: conv.participant_1_id === session.user.id ? null : participant1?.user_profiles?.[0]?.avatar_url
+                user_name: participant1?.user_profiles?.[0]?.display_name || participant1?.full_name || 'Usuario',
+                user_avatar: participant1?.user_profiles?.[0]?.avatar_url
               },
               {
                 conversation_id: conv.id,
@@ -341,8 +370,8 @@ export function useChat() {
                 last_read_at: conv.created_at,
                 cleared_at: undefined,
                 created_at: conv.created_at,
-                user_name: conv.participant_2_id === session.user.id ? 'Tú' : (participant2?.user_profiles?.[0]?.display_name || participant2?.full_name || 'Usuario'),
-                user_avatar: conv.participant_2_id === session.user.id ? null : participant2?.user_profiles?.[0]?.avatar_url
+                user_name: participant2?.user_profiles?.[0]?.display_name || participant2?.full_name || 'Usuario',
+                user_avatar: participant2?.user_profiles?.[0]?.avatar_url
               }
             ],
             last_message: lastMessage ? {
@@ -465,43 +494,90 @@ export function useChat() {
         throw messagesError
       }
 
-      console.log('📚 loadMessages: Mensajes obtenidos:', {
+      console.log('📚 loadMessages: Mensajes obtenidos de la BD:', {
         count: messagesData?.length || 0,
         messages: messagesData?.map(m => ({
           id: m.id,
           content: m.content,
+          contentType: typeof m.content,
+          contentLength: m.content?.length || 0,
+          isNull: m.content === null,
+          isUndefined: m.content === undefined,
+          isEmpty: m.content === '',
           sender_id: m.sender_id,
           created_at: m.created_at
         }))
       })
 
+      // Obtener información de participantes para los mensajes
+      const senderIds = [...new Set(messagesData?.map(msg => msg.sender_id) || [])]
+      
+      // Obtener datos de participantes si no los tenemos
+      let participantsData: any[] = []
+      if (senderIds.length > 0) {
+        const { data: profilesData, error: profilesError } = await supabase
+          .from('profiles')
+          .select(`
+            id,
+            full_name
+          `)
+          .in('id', senderIds)
+
+        if (profilesError) throw profilesError
+
+        const { data: userProfilesData, error: userProfilesError } = await supabase
+          .from('user_profiles')
+          .select(`
+            user_id,
+            avatar_url,
+            display_name
+          `)
+          .in('user_id', senderIds)
+
+        if (userProfilesError) throw userProfilesError
+
+        // Combinar datos de profiles y user_profiles
+        participantsData = profilesData?.map(profile => {
+          const userProfile = userProfilesData?.find(up => up.user_id === profile.id)
+          return {
+            ...profile,
+            user_profiles: userProfile ? [userProfile] : []
+          }
+        }) || []
+      }
+
       // Procesar mensajes usando la estructura correcta
       const processedMessages: ChatMessage[] = messagesData?.map(msg => {
-        // Validar y limpiar el contenido del mensaje
-        let cleanContent = msg.content || ''
+        // Usar el contenido original del mensaje tal como está
+        const cleanContent = msg.content || ''
         
-        // Verificar si el contenido contiene caracteres no válidos o corruptos
-        if (cleanContent && typeof cleanContent === 'string') {
-          // Filtrar caracteres de control y caracteres no imprimibles
-          cleanContent = cleanContent
-            .replace(/[\x00-\x1F\x7F-\x9F]/g, '') // Remover caracteres de control
-            .replace(/[^\x20-\x7E\u00A0-\uFFFF]/g, '') // Mantener solo caracteres imprimibles
-            .trim()
-          
-          // Si después de la limpieza no queda contenido válido, usar placeholder
-          if (!cleanContent || cleanContent.length === 0) {
-            cleanContent = '[Mensaje no disponible]'
-          }
-        } else {
-          cleanContent = '[Mensaje no disponible]'
+        // Obtener información del remitente
+        const senderParticipant = participantsData?.find(p => p.id === msg.sender_id)
+        const senderName = senderParticipant?.user_profiles?.[0]?.display_name || senderParticipant?.full_name || 'Usuario'
+        const senderAvatar = senderParticipant?.user_profiles?.[0]?.avatar_url
+        
+        // Detectar mensajes vacíos en el procesamiento
+        const isEmpty = !cleanContent || cleanContent.trim().length === 0
+        if (isEmpty) {
+          console.error('🚨 loadMessages: MENSAJE VACÍO EN PROCESAMIENTO:', {
+            id: msg.id,
+            originalContent: msg.content,
+            originalContentType: typeof msg.content,
+            originalContentLength: msg.content?.length || 0,
+            cleanContent: cleanContent,
+            cleanContentType: typeof cleanContent,
+            cleanContentLength: cleanContent?.length || 0,
+            isOriginalNull: msg.content === null,
+            isOriginalUndefined: msg.content === undefined,
+            isOriginalEmpty: msg.content === '',
+            isCleanNull: cleanContent === null,
+            isCleanUndefined: cleanContent === undefined,
+            isCleanEmpty: cleanContent === '',
+            senderName,
+            senderAvatar: !!senderAvatar,
+            timestamp: new Date().toISOString()
+          })
         }
-        
-        console.log('📚 loadMessages: Procesando mensaje:', {
-          id: msg.id,
-          originalContent: msg.content?.substring(0, 50) + '...',
-          cleanContent: cleanContent.substring(0, 50) + '...',
-          contentLength: msg.content?.length || 0
-        })
         
         return {
           id: msg.id,
@@ -511,21 +587,44 @@ export function useChat() {
           created_at: msg.created_at,
           updated_at: msg.updated_at,
           message_type: msg.message_type || 'text',
-          is_deleted: msg.is_deleted || false
+          is_deleted: msg.is_deleted || false,
+          // Agregar información del remitente al mensaje
+          sender_name: senderName,
+          sender_avatar: senderAvatar
         }
       }) || []
 
-      console.log('📚 loadMessages: Mensajes procesados:', {
-        count: processedMessages.length,
-        processedMessages: processedMessages.map(m => ({
+      // Filtrar mensajes vacíos antes de establecer el estado
+      const validMessages = processedMessages.filter(m => {
+        const hasContent = m.body && m.body.trim().length > 0
+        if (!hasContent) {
+          console.error('🚨 loadMessages: FILTRANDO MENSAJE VACÍO:', {
+            id: m.id,
+            body: m.body,
+            bodyType: typeof m.body,
+            bodyLength: m.body?.length || 0,
+            sender_id: m.sender_id,
+            created_at: m.created_at
+          })
+        }
+        return hasContent
+      })
+
+      console.log('📚 loadMessages: Mensajes procesados finales:', {
+        originalCount: processedMessages.length,
+        validCount: validMessages.length,
+        filteredCount: processedMessages.length - validMessages.length,
+        validMessages: validMessages.map(m => ({
           id: m.id,
           body: m.body,
+          bodyType: typeof m.body,
+          bodyLength: m.body?.length || 0,
           sender_id: m.sender_id,
           created_at: m.created_at
         }))
       })
 
-      setMessages(processedMessages)
+      setMessagesWithLogging(validMessages)
 
       // Marcar mensajes como leídos
       await markAsRead(conversationId)
@@ -607,24 +706,8 @@ export function useChat() {
         createdAt: data.created_at
       })
 
-      // Validar y limpiar el contenido del mensaje enviado
-      let cleanContent = data.content || ''
-      
-      // Verificar si el contenido contiene caracteres no válidos o corruptos
-      if (cleanContent && typeof cleanContent === 'string') {
-        // Filtrar caracteres de control y caracteres no imprimibles
-        cleanContent = cleanContent
-          .replace(/[\x00-\x1F\x7F-\x9F]/g, '') // Remover caracteres de control
-          .replace(/[^\x20-\x7E\u00A0-\uFFFF]/g, '') // Mantener solo caracteres imprimibles
-          .trim()
-        
-        // Si después de la limpieza no queda contenido válido, usar placeholder
-        if (!cleanContent || cleanContent.length === 0) {
-          cleanContent = '[Mensaje no disponible]'
-        }
-      } else {
-        cleanContent = '[Mensaje no disponible]'
-      }
+      // Usar el contenido original del mensaje tal como está
+      const cleanContent = data.content || ''
       
       console.log('📤 sendMessage: Procesando mensaje enviado:', {
         id: data.id,
@@ -633,6 +716,30 @@ export function useChat() {
         contentLength: data.content?.length || 0
       })
       
+      // Obtener información del remitente para el mensaje nuevo
+      const { data: { session: currentSession } } = await supabase.auth.getSession()
+      let senderName = 'Tú'
+      let senderAvatar = ''
+      
+      if (currentSession) {
+        // Obtener datos del usuario actual
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('full_name')
+          .eq('id', currentSession.user.id)
+          .single()
+          
+        const { data: userProfileData } = await supabase
+          .from('user_profiles')
+          .select('display_name, avatar_url')
+          .eq('user_id', currentSession.user.id)
+          .single()
+          
+        // Para mensajes propios, usar el nombre real del usuario
+        senderName = userProfileData?.display_name || profileData?.full_name || 'Usuario'
+        senderAvatar = userProfileData?.avatar_url || ''
+      }
+
       // Actualizar mensajes localmente usando la estructura correcta
       const newMessage: ChatMessage = {
         id: data.id,
@@ -642,10 +749,12 @@ export function useChat() {
         created_at: data.created_at,
         updated_at: data.updated_at,
         message_type: data.message_type || 'text',
-        is_deleted: data.is_deleted || false
+        is_deleted: data.is_deleted || false,
+        sender_name: senderName,
+        sender_avatar: senderAvatar
       }
 
-      setMessages(prev => {
+      setMessagesWithLogging(prev => {
         // Verificar si el mensaje ya existe para evitar duplicados
         const messageExists = prev.some(msg => msg.id === newMessage.id)
         if (messageExists) {
@@ -672,6 +781,7 @@ export function useChat() {
           addedMessageId: newMessage.id
         })
         
+        // Retornar mensajes (el filtrado se hará en setMessagesFiltered)
         return newMessages
       })
 
@@ -711,25 +821,28 @@ export function useChat() {
         email: session.user.email
       })
 
-      // Intentar usar la función RPC primero
-      const { error: rpcError } = await supabase.rpc('mark_messages_as_read_by_user', {
-        p_conversation_id: conversationId,
-        p_user_id: session.user.id
-      })
-
-      if (rpcError) {
-        console.log('⚠️ markAsRead: Error con función RPC, saltando marcado como leído:', rpcError)
-        // Por ahora, solo loguear el error y continuar sin fallar
-        // Esto evita que se interrumpa la carga de mensajes
+      // Registrar lecturas sin afectar visibilidad de mensajes
+      try {
+        const start = performance.now()
+        const { error: rpcError } = await supabase.rpc('mark_conversation_messages_read', {
+          p_conversation_id: conversationId,
+          p_user_id: session.user.id
+        })
+        const elapsed = Math.round(performance.now() - start)
+        if (rpcError) {
+          console.warn('⚠️ markAsRead: Error en mark_conversation_messages_read:', rpcError)
+        } else {
+          console.log('📖 markAsRead: Lecturas registradas (ms):', elapsed)
+        }
+      } catch (e) {
+        console.warn('⚠️ markAsRead: Excepción registrando lecturas:', e)
       }
 
       console.log('✅ markAsRead: Mensajes marcados como leídos exitosamente')
 
-      // Actualizar conversaciones localmente
-      setConversations(prev => prev.map(conv => 
-        conv.id === conversationId 
-          ? { ...conv, unread_count: 0 }
-          : conv
+      // Actualizar localmente sin tocar la lista de mensajes (evitar parpadeos/limpieza)
+      setConversations(prev => prev.map(conv =>
+        conv.id === conversationId ? { ...conv, unread_count: 0 } : conv
       ))
     } catch (error) {
       console.error('❌ markAsRead: Error marcando mensajes como leídos:', error)
@@ -752,7 +865,7 @@ export function useChat() {
       if (error) throw error
 
       // Limpiar mensajes localmente
-      setMessages([])
+      setMessagesWithLogging([])
       console.log('Historial limpiado')
     } catch (error) {
       console.error('Error limpiando historial:', error)
@@ -774,7 +887,7 @@ export function useChat() {
       if (error) throw error
 
       // Actualizar mensajes localmente
-      setMessages(prev => prev.map(msg => 
+      setMessagesWithLogging(prev => prev.map(msg => 
         msg.id === messageId 
           ? { ...msg, is_author_deleted: true }
           : msg
@@ -869,7 +982,7 @@ export function useChat() {
       // Si la conversación eliminada era la actual, limpiar estado
       if (currentConversation?.id === conversationId) {
         setCurrentConversation(null)
-        setMessages([])
+        setMessagesWithLogging([])
         localStorage.removeItem('currentConversationId')
       }
 
@@ -978,7 +1091,7 @@ export function useChat() {
             conversationId: newMessage.conversation_id,
             content: newMessage.content?.substring(0, 50) + (newMessage.content?.length > 50 ? '...' : '')
           })
-          setMessages(prev => {
+          setMessagesWithLogging(prev => {
             // Evitar duplicados con verificación más robusta
             const messageExists = prev.some(msg => msg.id === newMessage.id)
             if (messageExists) {
@@ -999,32 +1112,41 @@ export function useChat() {
               content: newMessage.content?.substring(0, 30) + '...'
             })
             
-            // Validar y limpiar el contenido del mensaje de tiempo real
-            let cleanContent = newMessage.content || ''
+            // Usar el contenido original del mensaje tal como está
+            const cleanContent = newMessage.content || ''
             
-            // Verificar si el contenido contiene caracteres no válidos o corruptos
-            if (cleanContent && typeof cleanContent === 'string') {
-              // Filtrar caracteres de control y caracteres no imprimibles
-              cleanContent = cleanContent
-                .replace(/[\x00-\x1F\x7F-\x9F]/g, '') // Remover caracteres de control
-                .replace(/[^\x20-\x7E\u00A0-\uFFFF]/g, '') // Mantener solo caracteres imprimibles
-                .trim()
-              
-              // Si después de la limpieza no queda contenido válido, usar placeholder
-              if (!cleanContent || cleanContent.length === 0) {
-                cleanContent = '[Mensaje no disponible]'
-              }
-            } else {
-              cleanContent = '[Mensaje no disponible]'
+            // Detectar mensajes vacíos en tiempo real
+            const isEmpty = !cleanContent || cleanContent.trim().length === 0
+            if (isEmpty) {
+              console.error('🚨 Realtime: MENSAJE VACÍO EN TIEMPO REAL:', {
+                id: newMessage.id,
+                originalContent: newMessage.content,
+                originalContentType: typeof newMessage.content,
+                originalContentLength: newMessage.content?.length || 0,
+                cleanContent: cleanContent,
+                cleanContentType: typeof cleanContent,
+                cleanContentLength: cleanContent?.length || 0,
+                isOriginalNull: newMessage.content === null,
+                isOriginalUndefined: newMessage.content === undefined,
+                isOriginalEmpty: newMessage.content === '',
+                isCleanNull: cleanContent === null,
+                isCleanUndefined: cleanContent === undefined,
+                isCleanEmpty: cleanContent === '',
+                timestamp: new Date().toISOString()
+              })
             }
             
-            console.log('📨 Realtime: Procesando mensaje:', {
-              id: newMessage.id,
-              originalContent: newMessage.content?.substring(0, 50) + '...',
-              cleanContent: cleanContent.substring(0, 50) + '...',
-              contentLength: newMessage.content?.length || 0
-            })
+            // Obtener información del remitente para mensajes de tiempo real
+            let senderName = 'Usuario'
+            let senderAvatar = ''
             
+            // Buscar en los participantes de la conversación actual
+            const senderParticipant = currentConversationRef.current?.participants?.find((p: ChatParticipant) => p.user_id === newMessage.sender_id)
+            if (senderParticipant) {
+              senderName = senderParticipant.user_name || 'Usuario'
+              senderAvatar = senderParticipant.user_avatar || ''
+            }
+
             // Mapear el mensaje de tiempo real a la estructura correcta
             const mappedMessage: ChatMessage = {
               id: newMessage.id,
@@ -1034,9 +1156,25 @@ export function useChat() {
               created_at: newMessage.created_at,
               updated_at: newMessage.updated_at,
               message_type: newMessage.message_type || 'text',
-              is_deleted: newMessage.is_deleted || false
+              is_deleted: newMessage.is_deleted || false,
+              sender_name: senderName,
+              sender_avatar: senderAvatar
             }
             
+            // Filtrar mensajes vacíos antes de agregar
+            const hasContent = mappedMessage.body && mappedMessage.body.trim().length > 0
+            if (!hasContent) {
+              console.error('🚨 Realtime: FILTRANDO MENSAJE VACÍO DE TIEMPO REAL:', {
+                id: mappedMessage.id,
+                body: mappedMessage.body,
+                bodyType: typeof mappedMessage.body,
+                bodyLength: mappedMessage.body?.length || 0,
+                sender_id: mappedMessage.sender_id,
+                created_at: mappedMessage.created_at
+              })
+              return prev // No agregar mensaje vacío
+            }
+
             // Agregar al final para mantener orden cronológico
             const newMessages = [...prev, mappedMessage]
             console.log('📨 Mensajes actualizados:', {
@@ -1045,6 +1183,7 @@ export function useChat() {
               addedMessageId: mappedMessage.id
             })
             
+            // Retornar mensajes (el filtrado se hará en setMessagesFiltered)
             return newMessages
           })
           
@@ -1066,7 +1205,7 @@ export function useChat() {
         table: 'chat_messages'
       }, (payload) => {
         const updatedMessage = payload.new as ChatMessage
-        setMessages(prev => prev.map(msg => 
+        setMessagesWithLogging(prev => prev.map(msg => 
           msg.id === updatedMessage.id ? updatedMessage : msg
         ))
       })

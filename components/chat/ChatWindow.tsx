@@ -16,11 +16,10 @@ import {
   Phone,
   Video,
   Search,
-  Bell,
-  Settings,
   Archive,
   Trash2,
   Users,
+  ChevronLeft,
   X
 } from 'lucide-react'
 import { ConversationActions } from './ConversationActions'
@@ -87,7 +86,6 @@ export function ChatWindow({
   // Estados locales para manejar el envío de mensajes
   const [sendingMessage, setSendingMessage] = useState(false)
   const [messagesLoading, setMessagesLoading] = useState(false)
-  const [isConnected, setIsConnected] = useState(true) // Simular conexión
 
   const { toast } = useToast()
 
@@ -115,28 +113,21 @@ export function ChatWindow({
     return conversation.participants.find((p: any) => p.user_id !== userId) || null
   }
 
-  // Seleccionar conversación automáticamente si se proporciona
+  // Evitar auto-entrada a conversación: se mostrará primero la lista
   useEffect(() => {
     if (selectedConversationId && conversations.length > 0) {
-      const conversation = conversations.find(c => c.id === selectedConversationId)
-      if (conversation) {
-        logBlack('🔄 ChatWindow: Configurando conversación seleccionada:', {
-          selectedConversationId,
-          conversationId: conversation.id,
-          currentConversationId: currentConversation?.id,
-          timestamp: new Date().toISOString()
-        })
-        
-        setCurrentConversation(conversation)
-        setShowConversations(false) // Cambiar a vista de chat individual
-        
-        // Forzar carga de mensajes para esta conversación
-        loadMessages(conversation.id)
-        
-        logBlack('🔄 ChatWindow: Conversación configurada y mensajes cargados')
-      }
+      logBlack('ℹ️ ChatWindow: selectedConversationId presente, esperando interacción del usuario', {
+        selectedConversationId,
+        timestamp: new Date().toISOString()
+      })
+      setShowConversations(true)
     }
-  }, [selectedConversationId, conversations, setCurrentConversation]) // Remover currentConversation para evitar bucles
+  }, [selectedConversationId, conversations])
+
+  // Deshabilitar restauración automática: iniciar en listado
+  useEffect(() => {
+    setShowConversations(true)
+  }, [])
 
   // Función para hacer scroll inteligente
   const scrollToBottom = useCallback((behavior: 'smooth' | 'instant' = 'smooth') => {
@@ -529,13 +520,52 @@ export function ChatWindow({
   }) => {
     const isOwn = msg.sender_id === userId
     
-    // Obtener información del remitente desde la conversación actual
-    const senderParticipant = currentConversation?.participants?.find((p: ChatParticipant) => p.user_id === msg.sender_id)
-    const senderName = senderParticipant?.user_name || 'Usuario'
-    const senderAvatar = getAvatarUrl(senderParticipant?.user_avatar)
+    // Obtener información del remitente - priorizar datos del mensaje, luego de la conversación
+    let senderName = 'Usuario'
+    let senderAvatar = ''
+    
+    // Obtener el nombre del remitente - usar datos del mensaje o de la conversación
+    if (msg.sender_name) {
+      senderName = msg.sender_name
+    } else {
+      const senderParticipant = currentConversation?.participants?.find((p: ChatParticipant) => p.user_id === msg.sender_id)
+      if (senderParticipant?.user_name) {
+        senderName = senderParticipant.user_name
+      } else {
+        senderName = 'Usuario'
+      }
+    }
+    
+    if (msg.sender_avatar) {
+      senderAvatar = getAvatarUrl(msg.sender_avatar)
+    } else {
+      const senderParticipant = currentConversation?.participants?.find((p: ChatParticipant) => p.user_id === msg.sender_id)
+      senderAvatar = getAvatarUrl(senderParticipant?.user_avatar)
+    }
+    
+    // Si es un mensaje propio y no tenemos avatar, intentar obtenerlo del usuario actual
+    if (isOwn && !senderAvatar) {
+      // Buscar el participante que corresponde al usuario actual
+      const currentUserParticipant = currentConversation?.participants?.find((p: ChatParticipant) => p.user_id === userId)
+      if (currentUserParticipant?.user_avatar) {
+        senderAvatar = getAvatarUrl(currentUserParticipant.user_avatar)
+      }
+    }
+    
+    // Debug: Log de datos del avatar para identificar el problema (solo para el primer mensaje)
+    if (index === 0 && Math.random() < 0.1) { // Solo 10% de las veces para evitar spam
+      console.log('🖼️ MessageItem: Datos del avatar (muestra aleatoria):', {
+        isOwn,
+        senderId: msg.sender_id,
+        userId,
+        senderAvatar,
+        msgSenderAvatar: msg.sender_avatar
+      })
+    }
 
     // Debug: Log de datos del remitente
     if (index === 0) { // Solo log del primer mensaje para evitar spam
+      const senderParticipant = currentConversation?.participants?.find((p: ChatParticipant) => p.user_id === msg.sender_id)
       console.log('👤 MessageItem: Datos del remitente:', {
         senderId: msg.sender_id,
         senderParticipant: senderParticipant ? {
@@ -554,33 +584,19 @@ export function ChatWindow({
       })
     }
     
-    // Los mensajes están ordenados cronológicamente (más antiguos primero)
-    // Mostrar avatar si es el primer mensaje o si el mensaje anterior es de otro usuario
-    const showAvatar = index === 0 || 
-      messages[index - 1]?.sender_id !== msg.sender_id
-
     return (
       <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-4`}>
         <div className={`flex max-w-[70%] ${isOwn ? 'flex-row-reverse' : 'flex-row'} items-end gap-2`}>
-           {/* Avatar */}
-           {!isOwn && showAvatar && (
-             <Avatar className="h-8 w-8 flex-shrink-0">
-               <AvatarImage src={senderAvatar || ''} alt={senderName} />
-               <AvatarFallback className="text-xs bg-primary/10 text-primary">
-                 {senderName.charAt(0).toUpperCase()}
-               </AvatarFallback>
-             </Avatar>
-           )}
+           {/* Avatar - Mostrar en TODOS los mensajes para identificación completa */}
+           <Avatar className="h-8 w-8 flex-shrink-0">
+             <AvatarImage src={senderAvatar || ''} alt={senderName} />
+             <AvatarFallback className="text-xs bg-primary/10 text-primary">
+               {senderName.charAt(0).toUpperCase()}
+             </AvatarFallback>
+           </Avatar>
           
           {/* Mensaje */}
           <div className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}>
-            {/* Nombre del remitente */}
-            {!isOwn && showAvatar && (
-              <span className="text-xs text-muted-foreground mb-1 px-2">
-                {senderName}
-              </span>
-            )}
-            
             {/* Contenido del mensaje */}
             <div className={`px-4 py-3 rounded-2xl shadow-sm ${
               isOwn 
@@ -588,7 +604,7 @@ export function ChatWindow({
                 : 'bg-muted text-muted-foreground border border-border/30'
             }`}>
                     <p className="text-sm whitespace-pre-wrap break-words">
-                      {msg.body}
+                      {msg.body || ''}
                     </p>
               
               {/* Adjuntos - No disponible en la estructura actual */}
@@ -705,43 +721,48 @@ export function ChatWindow({
     )
   }, [userId, messages, currentConversation])
 
-  // Memoizar mensajes renderizados para evitar violación de reglas de hooks
+  // Memoizar mensajes renderizados - MOSTRAR TODOS LOS MENSAJES SIN EXCEPCIÓN
   const renderedMessages = useMemo(() => {
-    // Los mensajes ya vienen ordenados cronológicamente (más antiguos primero)
-    // Filtrar duplicados por ID para evitar claves duplicadas
-    const uniqueMessages = messages.reduce((acc, msg) => {
-      const existingIndex = acc.findIndex(m => m.id === msg.id)
-      if (existingIndex === -1) {
-        acc.push(msg)
-      } else {
-        // Si existe, mantener el más reciente (por updated_at)
-        if (new Date(msg.updated_at) > new Date(acc[existingIndex].updated_at)) {
-          acc[existingIndex] = msg
-        }
-      }
-      return acc
-    }, [] as ChatMessage[])
+    console.log('🔍 ChatWindow: Renderizando TODOS los mensajes:', {
+      totalMessages: messages.length,
+      messages: messages.map(m => ({
+        id: m.id,
+        body: m.body,
+        bodyLength: m.body?.length || 0,
+        senderId: m.sender_id,
+        createdAt: m.created_at
+      }))
+    })
     
-    // Solo mostrar log si hay duplicados removidos
-    if (messages.length !== uniqueMessages.length) {
-      console.log('🔍 ChatWindow: Duplicados removidos:', {
-        originalCount: messages.length,
-        uniqueCount: uniqueMessages.length,
-        removedDuplicates: messages.length - uniqueMessages.length
-      })
-    }
-    
-    return uniqueMessages.map((msg, index) => {
+    // Renderizar TODOS los mensajes sin filtrar ni eliminar ninguno
+    return messages.map((msg, index) => {
       return renderMessage(msg, index)
     })
   }, [messages, renderMessage])
 
   return (
-    <div className={`h-full bg-card flex flex-col ${className}`}>
-      {/* Header */}
-      <div className="p-4 border-b border-border/50">
+    <div className={`h-[100dvh] md:h-full bg-card flex flex-col relative overflow-hidden ${className}`}>
+      {/* Header - fijo en móvil y con altura/offset garantizados */}
+      <div className="p-4 border-b border-border/50 sticky top-0 z-[100005] bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 min-h-14">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
+            {/* Botón volver al listado de conversaciones - solo cuando estamos dentro de un chat */}
+            {!showConversations && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  if (currentConversation) {
+                    console.log('🔙 Volver: limpiando conversación actual para permitir nueva selección')
+                    setCurrentConversation(null)
+                  }
+                  setShowConversations(true)
+                }}
+                className="p-1 hover:bg-muted/50"
+              >
+                <ChevronLeft className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"
@@ -763,9 +784,6 @@ export function ChatWindow({
                   <h3 className="text-sm font-semibold text-card-foreground">
                     {getOtherParticipant(currentConversation)?.user_name || 'Usuario'}
                   </h3>
-                  <p className="text-xs text-muted-foreground">
-                    {isConnected ? 'En línea' : 'Desconectado'}
-                  </p>
                 </div>
               </div>
             ) : (
@@ -774,18 +792,34 @@ export function ChatWindow({
           </div>
           
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" onClick={onShowNotifications} className="p-1 hover:bg-muted/50 relative">
-              <Bell className="h-4 w-4 text-muted-foreground" />
-              {unreadCount > 0 && (
-                <Badge variant="destructive" className="absolute -top-1 -right-1 h-4 w-4 p-0 text-xs">
-                  {unreadCount}
-                </Badge>
-              )}
-            </Button>
-            
-            <Button variant="ghost" size="sm" onClick={onShowSettings} className="p-1 hover:bg-muted/50">
-              <Settings className="h-4 w-4 text-muted-foreground" />
-            </Button>
+            {/* Borrar historial individual (lado del usuario) */}
+            {!showConversations && currentConversation && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  const ok = window.confirm('¿Deseas borrar tu historial de esta conversación? Esta acción solo te afecta a ti.')
+                  if (!ok) return
+                  const id = currentConversation.id
+                  try {
+                    const result = await deleteConversationForUser(id)
+                    if (result.success) {
+                      setCurrentConversation(null)
+                      setShowConversations(true)
+                      console.log('🗑️ Historial individual borrado para conversación:', id)
+                    } else {
+                      console.error('❌ Error borrando historial individual:', result.error)
+                    }
+                  } catch (e) {
+                    console.error('❌ Excepción borrando historial individual:', e)
+                  }
+                }}
+                className="p-1 hover:bg-muted/50"
+                title="Borrar mi historial"
+              >
+                <Trash2 className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            )}
             
             <Button variant="ghost" size="sm" onClick={onClose} className="p-1 hover:bg-muted/50">
               <X className="h-4 w-4 text-muted-foreground" />
@@ -876,6 +910,35 @@ export function ChatWindow({
                               <p className="text-xs text-muted-foreground">
                                 {formatTimeAgo(conversation.updated_at)}
                               </p>
+                              {/* Borrar conversación desde listado (individual) */}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="p-1 hover:bg-muted/50"
+                                title="Borrar mi historial"
+                                onClick={async (e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  const ok = window.confirm('¿Deseas borrar tu historial de esta conversación? Esta acción solo te afecta a ti.')
+                                  if (!ok) return
+                                  try {
+                                    const result = await deleteConversationForUser(conversation.id)
+                                    if (result.success) {
+                                      if (currentConversation?.id === conversation.id) {
+                                        setCurrentConversation(null)
+                                      }
+                                      setShowConversations(true)
+                                      console.log('🗑️ Conversación borrada individualmente desde listado:', conversation.id)
+                                    } else {
+                                      console.error('❌ Error borrando conversación (individual):', result.error)
+                                    }
+                                  } catch (err) {
+                                    console.error('❌ Excepción borrando conversación (individual):', err)
+                                  }
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4 text-muted-foreground" />
+                              </Button>
                             </div>
                           </div>
                           <p className="text-xs text-muted-foreground truncate mt-1">
@@ -898,7 +961,7 @@ export function ChatWindow({
               <div className="flex-1 relative overflow-hidden">
                 <ScrollArea 
                   ref={scrollAreaRef}
-                  className="h-full w-full"
+                  className="h-full w-full pt-2"
                   style={{ scrollBehavior: 'smooth' }}
                 >
                   <div className="p-4">

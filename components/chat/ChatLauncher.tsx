@@ -44,11 +44,21 @@ export function ChatLauncher({ userId, className = '' }: ChatLauncherProps) {
   // Función local para marcar todas las notificaciones como leídas
   const markAllNotificationsAsRead = async () => {
     try {
-      // Marcar mensajes como leídos para la conversación actual
-      if (currentConversation) {
-        await markAsRead(currentConversation.id)
+      // Esperar a que exista una conversación activa
+      let targetConversationId = currentConversation?.id || selectedConversationId || null
+      if (!targetConversationId) {
+        try { targetConversationId = localStorage.getItem('currentConversationId') } catch {}
       }
-      console.log('✅ Notificaciones marcadas como leídas')
+
+      // Si tenemos conversación, marcar como leído; en caso contrario, no hacer nada
+      if (targetConversationId) {
+        // Pequeño defer para evitar carrera con setCurrentConversation/loadMessages
+        await new Promise((r) => setTimeout(r, 50))
+        await markAsRead(targetConversationId)
+        console.log('✅ Notificaciones marcadas como leídas', { targetConversationId })
+      } else {
+        console.log('ℹ️ markAllNotificationsAsRead: No hay conversación activa aún, omitiendo')
+      }
     } catch (error) {
       console.error('❌ Error marcando notificaciones como leídas:', error)
     }
@@ -92,7 +102,7 @@ export function ChatLauncher({ userId, className = '' }: ChatLauncherProps) {
     
     if (!wasOpen) {
       logBlack('🔄 ChatLauncher: Chat abierto - marcando notificaciones como leídas')
-      await markAllNotificationsAsRead()
+      // Defer: cargar/asegurar conversación y mensajes primero, luego marcar leídos
       
       // Si hay una conversación seleccionada, restaurarla
       if (selectedConversationId && currentConversation?.id !== selectedConversationId) {
@@ -103,8 +113,17 @@ export function ChatLauncher({ userId, className = '' }: ChatLauncherProps) {
             conversationName: conversation.other_participant_name
           })
           setCurrentConversation(conversation)
+          // Cargar mensajes explícitamente al abrir
+          try { await loadMessages(conversation.id) } catch {}
         }
       }
+      // Si no hay selectedConversationId pero hay una conversación actual, recargar mensajes
+      if (!selectedConversationId && currentConversation?.id) {
+        try { await loadMessages(currentConversation.id) } catch {}
+      }
+
+      // Ahora sí, marcar como leídos con conversación establecida
+      await markAllNotificationsAsRead()
     } else {
       logBlack('🔄 ChatLauncher: Chat cerrado - manteniendo estado de conversación')
     }
