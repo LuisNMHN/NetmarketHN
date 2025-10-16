@@ -24,7 +24,6 @@ import { supabaseBrowser } from "@/lib/supabase/client"
 import { usePathname } from "next/navigation"
 import { getKycDraft } from "@/app/actions/kyc_data"
 import { AuthSpinner } from "@/components/ui/auth-spinner"
-import { ChatLauncher } from "@/components/chat/ChatLauncher"
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -846,10 +845,6 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
         </DrawerContent>
       </Drawer>
 
-      {/* Chat Launcher - Solo para usuarios con rol USER */}
-      {userId && (
-        <ChatLauncher userId={userId} />
-      )}
 
     </>
   )

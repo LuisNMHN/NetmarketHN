@@ -30,7 +30,6 @@ import {
   createPurchaseOffer,
   type PurchaseRequest
 } from "@/lib/actions/purchase_requests"
-import { StartChatButton } from "@/components/chat/StartChatButton"
 import { 
   Search, 
   Plus, 
@@ -325,20 +324,6 @@ export default function SolicitudesPage() {
                     Hacer Oferta
                   </Button>
                   
-                  {userId && request.buyer_id && userId !== request.buyer_id && (
-                    <StartChatButton
-                      currentUserId={userId}
-                      otherUserId={request.buyer_id}
-                      purchaseRequestId={request.id}
-                      size="sm"
-                      variant="outline"
-                      className="flex-1"
-                      onChatStarted={(conversationId) => {
-                        console.log('💬 Chat iniciado con conversación:', conversationId)
-                        // Aquí podrías agregar lógica adicional como abrir el chat automáticamente
-                      }}
-                    />
-                  )}
                 </div>
               </CardContent>
             </Card>
