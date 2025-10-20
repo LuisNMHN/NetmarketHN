@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
+import { formatCurrency, formatAmount } from "@/lib/utils"
 import { 
   createEscrow,
   lockEscrow,
@@ -186,7 +187,7 @@ export default function TransaccionesPage() {
       if (result.success) {
         toast({
           title: "✅ Escrow creado",
-          description: `Escrow de L.${amount.toFixed(2)} creado exitosamente`,
+          description: `Escrow de ${formatCurrency(amount)} creado exitosamente`,
         })
         setCreateForm({
           payeeEmail: "",
@@ -628,7 +629,7 @@ export default function TransaccionesPage() {
                       </div>
                     </TableCell>
                     <TableCell>{getTypeLabel(escrow.escrow_type)}</TableCell>
-                    <TableCell className="font-semibold">L.{escrow.amount.toFixed(2)}</TableCell>
+                    <TableCell className="font-semibold">{formatCurrency(escrow.amount)}</TableCell>
                     <TableCell>
                       <div className="flex items-center space-x-2">
                         {getStatusIcon(escrow.status)}
@@ -723,7 +724,7 @@ export default function TransaccionesPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>Monto</Label>
-                    <p className="text-lg font-semibold">L.{selectedEscrow.amount.toFixed(2)}</p>
+                    <p className="text-lg font-semibold">{formatCurrency(selectedEscrow.amount)}</p>
                   </div>
                   <div>
                     <Label>Tipo</Label>

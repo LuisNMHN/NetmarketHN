@@ -10,6 +10,8 @@ import { Textarea } from "@/components/ui/textarea"
 import LoadingSpinner from "@/components/ui/loading-spinner"
 import { AuthSpinner } from "@/components/ui/auth-spinner"
 import { Badge } from "@/components/ui/badge"
+import { formatCurrency } from "@/lib/utils"
+import { PurchaseHNLDModal } from "@/components/PurchaseHNLDModal"
 import {
   Dialog,
   DialogContent,
@@ -84,7 +86,6 @@ export default function SaldoPage() {
   const { toast } = useToast()
 
   // Form states
-  const [depositForm, setDepositForm] = useState({ amount: "", method: "", description: "" })
   const [withdrawForm, setWithdrawForm] = useState({ amount: "", account: "", description: "" })
   const [transferForm, setTransferForm] = useState({ amount: "", recipient: "", description: "" })
   const [searchUser, setSearchUser] = useState({ email: "", user: null as any })
@@ -127,100 +128,6 @@ export default function SaldoPage() {
     await loadHNLDData()
   }
 
-  const handleDeposit = async () => {
-    if (!depositForm.amount || !depositForm.method) {
-      toast({
-        title: "Error",
-        description: "Todos los campos son requeridos",
-        variant: "destructive",
-      })
-      return
-    }
-
-    const amount = parseFloat(depositForm.amount)
-    if (amount <= 0) {
-      toast({
-        title: "Error",
-        description: "El monto debe ser mayor a 0",
-        variant: "destructive",
-      })
-      return
-    }
-
-    setProcessing(true)
-    
-    try {
-      if (depositForm.method === "card") {
-        // Procesar compra con tarjeta
-        await handleCardPurchase(amount)
-      } else if (depositForm.method === "request") {
-        // Procesar solicitud de compra
-        await handlePurchaseRequest(amount)
-      }
-    } catch (error) {
-      toast({
-        title: "❌ Error",
-        description: "Error inesperado al procesar la compra",
-        variant: "destructive",
-      })
-    } finally {
-      setProcessing(false)
-    }
-  }
-
-  const handleCardPurchase = async (amount: number) => {
-    // Simular datos de tarjeta (en producción vendrían del formulario)
-    const cardData = {
-      number: "4111111111111111",
-      expiry: "12/25",
-      cvv: "123",
-      name: "Usuario Test"
-    }
-    
-    toast({
-      title: "🔄 Procesando pago...",
-      description: "Procesando tu compra con tarjeta",
-    })
-    
-    const result = await processCardPurchase(amount, cardData)
-    
-    if (result.success) {
-      toast({
-        title: "✅ Compra con tarjeta exitosa",
-        description: `Se compraron L.${amount.toFixed(2)} HNLD a tu cuenta`,
-      })
-      setDepositForm({ amount: "", method: "", description: "" })
-      setDepositOpen(false)
-      await loadHNLDData()
-    } else {
-      toast({
-        title: "❌ Error en compra con tarjeta",
-        description: result.error || "No se pudo procesar el pago con tarjeta",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const handlePurchaseRequest = async (amount: number) => {
-    // Crear solicitud de compra
-    const result = await createPurchaseRequest(amount, depositForm.description)
-    
-    if (result.success) {
-      toast({
-        title: "✅ Solicitud publicada",
-        description: `Solicitud de compra por L.${amount.toFixed(2)} HNLD publicada. Los vendedores podrán contactarte.`,
-      })
-      setDepositForm({ amount: "", method: "", description: "" })
-      setDepositOpen(false)
-    } else {
-      toast({
-        title: "❌ Error al publicar solicitud",
-        description: result.error || "No se pudo publicar la solicitud de compra",
-        variant: "destructive",
-      })
-    }
-  }
-
   const handleWithdraw = async () => {
     if (!withdrawForm.amount || !withdrawForm.account) {
       toast({
@@ -244,7 +151,7 @@ export default function SaldoPage() {
     if (hnldBalance && amount > hnldBalance.available_balance) {
       toast({
         title: "Error",
-        description: `Balance insuficiente. Disponible: L.${hnldBalance.available_balance.toFixed(2)}`,
+        description: `Balance insuficiente. Disponible: ${formatCurrency(hnldBalance.available_balance)}`,
         variant: "destructive",
       })
       return
@@ -257,7 +164,7 @@ export default function SaldoPage() {
       if (result.success) {
         toast({
           title: "✅ Venta exitosa",
-          description: `Se vendieron L.${amount.toFixed(2)} HNLD de tu cuenta`,
+          description: `Se vendieron ${formatCurrency(amount)} HNLD de tu cuenta`,
         })
         setWithdrawForm({ amount: "", account: "", description: "" })
         setWithdrawOpen(false)
@@ -338,7 +245,7 @@ export default function SaldoPage() {
     if (hnldBalance && amount > hnldBalance.available_balance) {
       toast({
         title: "Error",
-        description: `Balance insuficiente. Disponible: L.${hnldBalance.available_balance.toFixed(2)}`,
+        description: `Balance insuficiente. Disponible: ${formatCurrency(hnldBalance.available_balance)}`,
         variant: "destructive",
       })
       return
@@ -355,7 +262,7 @@ export default function SaldoPage() {
       if (result.success) {
         toast({
           title: "✅ Transferencia exitosa",
-          description: `Se transfirieron L.${amount.toFixed(2)} HNLD a ${searchUser.user.name || searchUser.user.email}`,
+          description: `Se transfirieron ${formatCurrency(amount)} HNLD a ${searchUser.user.name || searchUser.user.email}`,
         })
         setTransferForm({ amount: "", recipient: "", description: "" })
         setSearchUser({ email: "", user: null })
@@ -487,7 +394,7 @@ export default function SaldoPage() {
               <Coins className="h-5 w-5 text-green-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">L.{hnldBalance.balance.toFixed(2)}</div>
+              <div className="text-2xl font-bold text-green-600">{formatCurrency(hnldBalance.balance)}</div>
               <p className="text-xs text-muted-foreground">HNLD en tu cuenta</p>
             </CardContent>
           </Card>
@@ -511,7 +418,7 @@ export default function SaldoPage() {
               <DollarSign className="h-5 w-5 text-blue-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-600">L.{hnldBalance.available_balance.toFixed(2)}</div>
+              <div className="text-2xl font-bold text-blue-600">{formatCurrency(hnldBalance.available_balance)}</div>
               <p className="text-xs text-muted-foreground">Listo para usar</p>
             </CardContent>
           </Card>
@@ -535,7 +442,7 @@ export default function SaldoPage() {
               <Banknote className="h-5 w-5 text-orange-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-orange-600">L.{hnldBalance.reserved_balance.toFixed(2)}</div>
+              <div className="text-2xl font-bold text-orange-600">{formatCurrency(hnldBalance.reserved_balance)}</div>
               <p className="text-xs text-muted-foreground">En transacciones pendientes</p>
             </CardContent>
           </Card>
@@ -557,66 +464,12 @@ export default function SaldoPage() {
                   <span>Comprar HNLD</span>
                 </Button>
               </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Comprar HNLD</DialogTitle>
-                  <DialogDescription>Convierte lempiras físicos en HNLD digitales</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="deposit-amount">Monto en lempiras</Label>
-                    <Input
-                      id="deposit-amount"
-                      type="number"
-                      placeholder="0.00"
-                      value={depositForm.amount}
-                      onChange={(e) => setDepositForm((prev) => ({ ...prev, amount: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="deposit-method">Método de Compra</Label>
-                    <Select
-                      value={depositForm.method}
-                      onValueChange={(value) => setDepositForm((prev) => ({ ...prev, method: value }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecciona un método" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="card">Tarjeta de Débito/Crédito</SelectItem>
-                        <SelectItem value="request">Publicar Solicitud de Compra</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {depositForm.method === "card" && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        💳 Compra instantánea con tarjeta. Serás redirigido a la plataforma de pagos segura.
-                      </p>
-                    )}
-                    {depositForm.method === "request" && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        📢 Publica tu solicitud de compra. Los vendedores podrán contactarte para negociar.
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <Label htmlFor="deposit-description">Descripción (opcional)</Label>
-                    <Textarea
-                      id="deposit-description"
-                      placeholder="Agregar una descripción..."
-                      value={depositForm.description}
-                      onChange={(e) => setDepositForm((prev) => ({ ...prev, description: e.target.value }))}
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setDepositOpen(false)} disabled={processing}>
-                    Cancelar
-                  </Button>
-                  <Button onClick={handleDeposit} disabled={processing}>
-                    {processing ? "Procesando..." : "Comprar HNLD"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
+              <PurchaseHNLDModal
+                open={depositOpen}
+                onOpenChange={setDepositOpen}
+                onSuccess={loadHNLDData}
+                defaultMethod="request"
+              />
             </Dialog>
 
             <Dialog open={withdrawOpen} onOpenChange={setWithdrawOpen}>
@@ -642,7 +495,7 @@ export default function SaldoPage() {
                       onChange={(e) => setWithdrawForm((prev) => ({ ...prev, amount: e.target.value }))}
                     />
                     <p className="text-xs text-muted-foreground mt-1">
-                      Disponible: L.{hnldBalance.available_balance.toFixed(2)}
+                      Disponible: {formatCurrency(hnldBalance.available_balance)}
                     </p>
                   </div>
                   <div>
@@ -698,7 +551,7 @@ export default function SaldoPage() {
                       onChange={(e) => setTransferForm((prev) => ({ ...prev, amount: e.target.value }))}
                     />
                     <p className="text-xs text-muted-foreground mt-1">
-                      Disponible: L.{hnldBalance.available_balance.toFixed(2)}
+                      Disponible: {formatCurrency(hnldBalance.available_balance)}
                     </p>
                   </div>
                   <div>
@@ -778,7 +631,7 @@ export default function SaldoPage() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold">L.{transaction.amount.toFixed(2)}</p>
+                    <p className="font-semibold">{formatCurrency(transaction.amount)}</p>
                     {getStatusBadge(transaction.status)}
                   </div>
                 </div>
@@ -822,7 +675,7 @@ export default function SaldoPage() {
                         </div>
                       </TableCell>
                       <TableCell>{transaction.description}</TableCell>
-                      <TableCell className="font-semibold">L.{transaction.amount.toFixed(2)}</TableCell>
+                      <TableCell className="font-semibold">{formatCurrency(transaction.amount)}</TableCell>
                       <TableCell>{getStatusBadge(transaction.status)}</TableCell>
                       <TableCell>
                         {new Date(transaction.created_at).toLocaleDateString('es-HN', {

@@ -24,6 +24,7 @@ import { supabaseBrowser } from "@/lib/supabase/client"
 import { usePathname } from "next/navigation"
 import { getKycDraft } from "@/app/actions/kyc_data"
 import { AuthSpinner } from "@/components/ui/auth-spinner"
+import { NotificationBell } from "@/components/notifications/NotificationBell"
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -531,7 +532,10 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
                 <div className="hidden sm:flex items-center space-x-4">
                   <span className="text-sm md:text-base font-bold text-right">Hola, {displayName}!</span>
 
-                  {/* Notificaciones - Componente eliminado temporalmente */}
+                  {/* Campana de notificaciones */}
+                  <NotificationBell />
+                  
+                  {/* Botón de cambio de tema */}
                   <Button
                     variant="ghost"
                     size="icon"

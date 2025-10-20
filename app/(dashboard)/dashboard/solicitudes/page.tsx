@@ -30,6 +30,7 @@ import {
   createPurchaseOffer,
   type PurchaseRequest
 } from "@/lib/actions/purchase_requests"
+import { formatCurrency, formatAmount } from "@/lib/utils"
 import { 
   Search, 
   Plus, 
@@ -65,12 +66,12 @@ export default function SolicitudesPage() {
   const loadRequests = async () => {
     try {
       const result = await getActivePurchaseRequests(50, 0)
-      if (result.success && result.data) {
+      if (result && result.success && result.data) {
         setRequests(result.data)
       } else {
         toast({
           title: "Error",
-          description: result.error || "No se pudieron cargar las solicitudes",
+          description: result?.error || "No se pudieron cargar las solicitudes",
           variant: "destructive",
         })
       }
@@ -175,6 +176,49 @@ export default function SolicitudesPage() {
     }
   }
 
+  const getPaymentMethodInfo = (request: PurchaseRequest) => {
+    switch (request.payment_method) {
+      case 'local_transfer':
+        return {
+          method: 'Transferencia Local',
+          currency: 'L.',
+          amount: request.amount,
+          details: request.bank_name || 'Banco no especificado'
+        }
+      case 'international_transfer':
+        const country = request.country === 'Otro de la zona euro' ? request.custom_country : request.country
+        const currency = request.currency_type === 'USD' ? 'USD' : 'EUR'
+        const currencySymbol = currency === 'USD' ? '$' : '€'
+        return {
+          method: 'Transferencia Internacional',
+          currency: currencySymbol,
+          amount: request.amount_in_original_currency || request.amount,
+          details: country || 'País no especificado'
+        }
+      case 'card':
+        return {
+          method: 'Tarjeta de Crédito/Débito',
+          currency: 'L.',
+          amount: request.amount,
+          details: 'Compra directa'
+        }
+      case 'digital_balance':
+        return {
+          method: 'Saldo Digital',
+          currency: 'L.',
+          amount: request.amount,
+          details: request.digital_wallet || 'Billetera no especificada'
+        }
+      default:
+        return {
+          method: 'Método no especificado',
+          currency: 'L.',
+          amount: request.amount,
+          details: 'Sin detalles'
+        }
+    }
+  }
+
   const formatTimeAgo = (dateString: string) => {
     const date = new Date(dateString)
     const now = new Date()
@@ -186,11 +230,17 @@ export default function SolicitudesPage() {
     return `Hace ${diffInDays} días`
   }
 
-  const filteredRequests = requests.filter(request =>
-    request.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    request.buyer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    request.amount.toString().includes(searchTerm)
-  )
+  const filteredRequests = requests.filter(request => {
+    const paymentInfo = getPaymentMethodInfo(request)
+    return (
+      request.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      request.buyer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      request.amount.toString().includes(searchTerm) ||
+      request.unique_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      paymentInfo.method.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      paymentInfo.details.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+  })
 
   // Obtener ID del usuario actual
   useEffect(() => {
@@ -235,6 +285,9 @@ export default function SolicitudesPage() {
           <p className="text-sm text-muted-foreground mt-1">
             💡 Solo puedes ver solicitudes de otros usuarios. Tus propias solicitudes aparecen en "Mis Solicitudes"
           </p>
+          <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+            🔒 Tus solicitudes están ocultas aquí para evitar conflictos de interés
+          </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2 sm:gap-2">
           <Button asChild variant="outline" size="sm" className="w-full sm:w-auto">
@@ -256,7 +309,7 @@ export default function SolicitudesPage() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Buscar por monto, descripción o comprador..."
+              placeholder="Buscar por monto, método de pago, país, banco o código..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10"
@@ -272,37 +325,49 @@ export default function SolicitudesPage() {
           <div className="col-span-full text-center py-12">
             <DollarSign className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">No hay solicitudes disponibles</h3>
-            <p className="text-muted-foreground">
-              {searchTerm ? "No se encontraron solicitudes que coincidan con tu búsqueda" : "No hay solicitudes de compra activas en este momento"}
+            <p className="text-muted-foreground mb-2">
+              {searchTerm ? "No se encontraron solicitudes que coincidan con tu búsqueda" : "No hay solicitudes de compra activas de otros usuarios en este momento"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              💡 Recuerda que solo ves solicitudes de otros usuarios. Las tuyas aparecen en "Mis Solicitudes"
             </p>
           </div>
         ) : (
-          filteredRequests.map((request) => (
+          filteredRequests.map((request) => {
+            const paymentInfo = getPaymentMethodInfo(request)
+            return (
             <Card key={request.id} className="hover:shadow-md transition-shadow">
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <CardTitle className="text-lg flex items-center space-x-2">
                       <DollarSign className="h-5 w-5 text-green-600" />
-                      <span>L.{request.amount.toFixed(2)}</span>
+                      <span>{paymentInfo.currency}{formatAmount(paymentInfo.amount)}</span>
                     </CardTitle>
                     <CardDescription className="flex items-center space-x-1 mt-1">
                       <User className="h-4 w-4" />
                       <span>{request.buyer_name || "Usuario"}</span>
                     </CardDescription>
+                    <div className="mt-2 space-y-1">
+                      <div className="text-xs text-muted-foreground">
+                        <span className="font-medium">{paymentInfo.method}</span>
+                        {paymentInfo.details && (
+                          <span className="ml-1">• {paymentInfo.details}</span>
+                        )}
+                      </div>
+                      {request.unique_code && (
+                        <div>
+                          <span className="text-xs font-mono bg-muted px-2 py-1 rounded">
+                            {request.unique_code}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   {getStatusBadge(request.status)}
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                {request.description && (
-                  <div>
-                    <p className="text-sm text-muted-foreground line-clamp-2">
-                      {request.description}
-                    </p>
-                  </div>
-                )}
-                
                 <div className="flex items-center justify-between text-sm text-muted-foreground">
                   <div className="flex items-center space-x-1">
                     <Clock className="h-4 w-4" />
@@ -327,7 +392,8 @@ export default function SolicitudesPage() {
                 </div>
               </CardContent>
             </Card>
-          ))
+            )
+          })
         )}
       </div>
 
@@ -337,7 +403,7 @@ export default function SolicitudesPage() {
           <DialogHeader>
             <DialogTitle>Hacer Oferta</DialogTitle>
             <DialogDescription>
-              Envía una oferta para la solicitud de compra de L.{selectedRequest?.amount.toFixed(2)} HNLD
+              Envía una oferta para la solicitud de compra de {formatCurrency(selectedRequest?.amount || 0)} HNLD
             </DialogDescription>
           </DialogHeader>
           

@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
+import { formatCurrency, formatAmount } from "@/lib/utils"
 import { 
   createNAVPOID,
   createNAVPPayment,
@@ -210,7 +211,7 @@ export default function PagosPage() {
       if (result.success) {
         toast({
           title: "✅ Pago creado",
-          description: `Pago de ${paymentForm.currency} ${amount.toFixed(2)} creado exitosamente`,
+          description: `Pago de ${paymentForm.currency} ${formatAmount(amount)} creado exitosamente`,
         })
         setPaymentForm({
           oidId: "",
@@ -699,7 +700,7 @@ export default function PagosPage() {
                           </div>
                         </TableCell>
                         <TableCell className="font-semibold">
-                          {payment.currency} {payment.amount.toFixed(2)}
+                          {payment.currency} {formatAmount(payment.amount)}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-2">
@@ -879,7 +880,7 @@ export default function PagosPage() {
                 <div>
                   <Label>Monto</Label>
                   <p className="text-lg font-semibold">
-                    {selectedPayment.currency} {selectedPayment.amount.toFixed(2)}
+                    {selectedPayment.currency} {formatAmount(selectedPayment.amount)}
                   </p>
                 </div>
                 <div>

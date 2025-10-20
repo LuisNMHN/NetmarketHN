@@ -32,8 +32,7 @@ import {
   type EscrowEvent,
   type EscrowMessage
 } from "@/lib/actions/escrow"
-import { getUserHNLDBalance } from "@/lib/actions/hnld"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { formatCurrency as formatCurrencyUtil, formatAmount } from "@/lib/utils"
 import {
   Table,
   TableBody,
@@ -191,7 +190,7 @@ export default function SubastasPage() {
     }
 
     if (hnldBalance && amount > hnldBalance.available_balance) {
-      toast.error(`Balance insuficiente. Disponible: L.${hnldBalance.available_balance.toFixed(2)}`)
+      toast.error(`Balance insuficiente. Disponible: ${formatCurrencyUtil(hnldBalance.available_balance)}`)
       return
     }
 
@@ -208,7 +207,7 @@ export default function SubastasPage() {
       )
       
       if (result.success) {
-        toast.success(`Escrow de L.${amount.toFixed(2)} creado exitosamente`)
+        toast.success(`Escrow de ${formatCurrencyUtil(amount)} creado exitosamente`)
         setEscrowForm({
           payeeEmail: "",
           amount: "",
@@ -400,8 +399,12 @@ export default function SubastasPage() {
   }
 
   const formatCurrency = (amount: number, currency: Currency) => {
-    const symbol = currency === "USD" ? "$" : currency === "EUR" ? "€" : "£"
-    return `${symbol}${amount.toLocaleString()}`
+    const symbol = currency === "USD" ? "$" : currency === "EUR" ? "€" : "L"
+    const formattedAmount = amount.toLocaleString('es-HN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })
+    return `${symbol}.${formattedAmount}`
   }
 
   const formatTimeRemaining = (expiresAt: Date) => {
@@ -512,7 +515,7 @@ export default function SubastasPage() {
                     />
                     {hnldBalance && (
                       <p className="text-xs text-muted-foreground mt-1">
-                        Disponible: L.{hnldBalance.available_balance.toFixed(2)}
+                        Disponible: {formatCurrencyUtil(hnldBalance.available_balance)}
                       </p>
                     )}
                   </div>
@@ -832,7 +835,7 @@ export default function SubastasPage() {
                             <p className="text-sm text-muted-foreground">{escrow.description}</p>
                           </div>
                         </TableCell>
-                        <TableCell className="font-semibold">L.{escrow.amount.toFixed(2)}</TableCell>
+                        <TableCell className="font-semibold">{formatCurrencyUtil(escrow.amount)}</TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-2">
                             {getEscrowStatusIcon(escrow.status)}
@@ -929,7 +932,7 @@ export default function SubastasPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>Monto</Label>
-                    <p className="text-lg font-semibold">L.{selectedEscrow.amount.toFixed(2)}</p>
+                    <p className="text-lg font-semibold">{formatCurrencyUtil(selectedEscrow.amount)}</p>
                   </div>
                   <div>
                     <Label>Estado</Label>
