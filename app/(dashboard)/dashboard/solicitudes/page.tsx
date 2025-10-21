@@ -36,7 +36,6 @@ import {
   Plus, 
   Clock, 
   User, 
-  DollarSign,
   MessageSquare,
   TrendingUp,
   Eye,
@@ -341,7 +340,7 @@ export default function SolicitudesPage() {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <CardTitle className="text-lg flex items-center space-x-2">
-                      <DollarSign className="h-5 w-5 text-green-600" />
+                      <span className="text-lg">💱</span>
                       <span>{paymentInfo.currency}{formatAmount(paymentInfo.amount)}</span>
                     </CardTitle>
                     <CardDescription className="flex items-center space-x-1 mt-1">

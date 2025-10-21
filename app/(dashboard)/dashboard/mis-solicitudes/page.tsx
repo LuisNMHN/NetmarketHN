@@ -28,7 +28,6 @@ import {
   Plus, 
   Clock, 
   User, 
-  DollarSign,
   CheckCircle,
   XCircle,
   Eye,
@@ -297,7 +296,7 @@ export default function MisSolicitudesPage() {
         <Card className="p-3 sm:p-4">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-0">
             <CardTitle className="text-xs sm:text-sm font-medium">Total</CardTitle>
-            <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+            <span className="text-sm">💱</span>
           </CardHeader>
           <CardContent className="p-0 pt-2">
             <div className="text-lg sm:text-2xl font-bold">{requests.length}</div>
@@ -343,7 +342,7 @@ export default function MisSolicitudesPage() {
         {requests.length === 0 ? (
           <Card>
             <CardContent className="text-center py-8 sm:py-12 px-4">
-              <DollarSign className="h-8 w-8 sm:h-12 sm:w-12 text-muted-foreground mx-auto mb-4" />
+              <span className="text-4xl sm:text-6xl mx-auto mb-4">💱</span>
               <h3 className="text-base sm:text-lg font-semibold mb-2">No tienes solicitudes</h3>
               <p className="text-sm sm:text-base text-muted-foreground mb-4">
                 Crea tu primera solicitud de compra de HNLD
@@ -358,7 +357,7 @@ export default function MisSolicitudesPage() {
                 <div className="block sm:hidden space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
-                      <DollarSign className="h-4 w-4 text-green-600" />
+                      <span className="text-lg">💱</span>
                       <span className="text-lg font-bold">{getPaymentMethodInfo(request).currency}{formatAmount(getPaymentMethodInfo(request).amount)}</span>
                     </div>
                     <div className="flex flex-col items-end space-y-1">
@@ -463,7 +462,7 @@ export default function MisSolicitudesPage() {
                   <div className="flex-1">
                     <div className="flex items-center space-x-3 mb-2">
                     <div className="flex items-center space-x-2">
-                      <DollarSign className="h-5 w-5 text-green-600" />
+                      <span className="text-lg">💱</span>
                       <span className="text-xl font-bold">{getPaymentMethodInfo(request).currency}{formatAmount(getPaymentMethodInfo(request).amount)}</span>
                     </div>
                       {getStatusBadge(request.status)}
@@ -566,7 +565,7 @@ export default function MisSolicitudesPage() {
         <DialogContent className="max-w-2xl w-[calc(100vw-2rem)] sm:w-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center space-x-2">
-              <DollarSign className="h-5 w-5 text-green-600" />
+              <span className="text-lg">💱</span>
               <span>Detalles de la Solicitud</span>
             </DialogTitle>
             <DialogDescription>
@@ -651,7 +650,7 @@ export default function MisSolicitudesPage() {
           {selectedRequest && (
             <div className="py-4 space-y-4">
               <div className="flex items-center justify-center space-x-2 p-4 bg-muted/50 rounded-lg">
-                <DollarSign className="h-5 w-5 text-green-600" />
+                <span className="text-lg">💱</span>
                 <span className="text-lg font-bold">{getPaymentMethodInfo(selectedRequest).currency}{formatAmount(getPaymentMethodInfo(selectedRequest).amount)}</span>
               </div>
               
@@ -706,7 +705,7 @@ export default function MisSolicitudesPage() {
           {selectedRequest && (
             <div className="py-4 space-y-4">
               <div className="flex items-center justify-center space-x-2 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
-                <DollarSign className="h-5 w-5 text-green-600" />
+                <span className="text-lg">💱</span>
                 <span className="text-lg font-bold">{getPaymentMethodInfo(selectedRequest).currency}{formatAmount(getPaymentMethodInfo(selectedRequest).amount)}</span>
                 <Badge variant={selectedRequest.status === 'cancelled' ? 'destructive' : 'secondary'}>
                   {selectedRequest.status === 'cancelled' ? 'Cancelada' : 'Expirada'}

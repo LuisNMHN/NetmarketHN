@@ -5,11 +5,10 @@ import type React from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { CreditCard, Gavel, Home, LogOut, Receipt, User, Menu, MoreVertical, Link2, Shield, Bell, Cat, Dog, Fish, Bird, Rabbit, Turtle, Heart, Star, Zap, Circle, AlertTriangle, X, Search, MessageSquare } from "lucide-react"
+import { CreditCard, Gavel, Home, LogOut, Receipt, User, Menu, MoreVertical, Link2, Shield, Bell, Cat, Dog, Fish, Bird, Rabbit, Turtle, Heart, Star, Zap, Circle, AlertTriangle, X, Search, MessageSquare, HelpCircle } from "lucide-react"
 import { useState, useEffect } from "react"
 import { useTheme } from "next-themes"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from "@/components/ui/drawer"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   Dialog,
@@ -51,9 +50,7 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
   const pathname = usePathname()
   const [displayName, setDisplayName] = useState(userName)
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
-  const [hasNotif, setHasNotif] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
-  const [notifOpen, setNotifOpen] = useState(false)
   const [kycStatus, setKycStatus] = useState<string>("none")
   const [kycData, setKycData] = useState<any>(null)
   const [selectedAnimalAvatar, setSelectedAnimalAvatar] = useState<string | null>(null)
@@ -205,7 +202,7 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
 
       // Determinar si mostrar notificación basado en estado KYC real
       const kycNotification = getKycNotification()
-      setHasNotif(kycNotification.show)
+      setShowRejectionBanner(kycNotification.show)
     })
   }, [])
 
@@ -238,12 +235,7 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
               
               // Recalcular notificaciones
               const kycNotification = getKycNotification()
-              setHasNotif(kycNotification.show)
-              
-              // Actualizar banner de rechazo
-              console.log('🔄 Estado KYC actualizado en tiempo real:', kycResult.data.status)
-              console.log('🔄 Admin notes actualizadas:', kycResult.data.admin_notes)
-              setShowRejectionBanner(kycResult.data.status === "rejected")
+              setShowRejectionBanner(kycNotification.show)
               
               console.log('✅ Estado KYC actualizado en tiempo real:', kycResult.data.status)
             }
@@ -259,12 +251,6 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
       supabase.removeChannel(channel)
     }
   }, [userId])
-
-  const markNotifRead = () => {
-    // En producción, las notificaciones se ocultan automáticamente
-    // cuando el usuario interactúa con ellas o cuando el estado cambia
-    setHasNotif(false)
-  }
 
   // Función para obtener el mensaje de notificación según el estado KYC real
   const getKycNotification = () => {
@@ -504,8 +490,9 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
 
 		{/* Main Content Area */}
 		<div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-			<header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 md:px-6 py-4">
-            <div className="flex items-center justify-between">
+			<header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 md:px-6 py-3 md:py-4">
+            {/* Header Desktop */}
+            <div className="hidden md:flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 <Button
                   variant="ghost"
@@ -519,18 +506,18 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
                       setSidebarCollapsed(!sidebarCollapsed)
                     }
                   }}
-                  className="flex rounded-full h-10 w-10 bg-muted hover:bg-muted/80 transition-all duration-200 lg:hidden xl:flex"
+                  className="flex rounded-full h-10 w-10 bg-muted hover:bg-muted/80 transition-all duration-200"
                 >
                   <Menu className="h-5 w-5" />
                   <span className="sr-only">Toggle sidebar</span>
                 </Button>
 
-                <h1 className="text-xl md:text-2xl font-semibold text-card-foreground">{getSectionTitle(pathname)}</h1>
+                <h1 className="text-xl lg:text-2xl font-semibold text-card-foreground">{getSectionTitle(pathname)}</h1>
               </div>
 
-              <div className="flex items-center space-x-2 md:space-x-4 ml-auto justify-end">
-                <div className="hidden sm:flex items-center space-x-4">
-                  <span className="text-sm md:text-base font-bold text-right">Hola, {displayName}!</span>
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-4">
+                  <span className="text-sm lg:text-base font-bold text-right">Hola, {displayName}!</span>
 
                   {/* Campana de notificaciones */}
                   <NotificationBell />
@@ -634,19 +621,116 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
+              </div>
+            </div>
 
-                {/* Botón de notificaciones dedicado en móvil */}
-                <div className="sm:hidden">
+            {/* Header Móvil */}
+            <div className="md:hidden">
+              <div className="flex items-center justify-between">
+                {/* Lado izquierdo: Menú + Título */}
+                <div className="flex items-center space-x-3 min-w-0 flex-1">
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="rounded-full h-11 w-11 bg-muted hover:bg-muted/80 transition-all duration-200 border border-border relative"
-                    onClick={() => setNotifOpen(true)}
-                    aria-label="Abrir notificaciones"
+                    onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                    className="flex rounded-full h-9 w-9 bg-muted hover:bg-muted/80 transition-all duration-200 flex-shrink-0"
                   >
-                    <Bell className="h-5 w-5" />
-                    {hasNotif && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-destructive rounded-full" />}
+                    <Menu className="h-4 w-4" />
+                    <span className="sr-only">Toggle sidebar</span>
                   </Button>
+
+                  <h1 className="text-lg font-semibold text-card-foreground truncate">{getSectionTitle(pathname)}</h1>
+                </div>
+
+                {/* Lado derecho: Notificaciones + Avatar + Menú */}
+                <div className="flex items-center space-x-2 flex-shrink-0">
+                  {/* Campana de notificaciones */}
+                  <NotificationBell />
+                  
+                  {/* Avatar del usuario */}
+                  <Avatar className="h-8 w-8 border-2 border-primary/20">
+                    {userAvatar && userAvatar.startsWith('animal_') ? (
+                      <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: selectedAnimalAvatar ? animalAvatars[selectedAnimalAvatar as keyof typeof animalAvatars]?.color : '#6b7280' }}>
+                        {selectedAnimalAvatar && (() => {
+                          const IconComponent = animalAvatars[selectedAnimalAvatar as keyof typeof animalAvatars]?.icon
+                          return IconComponent ? <IconComponent className="w-4 h-4 text-white" /> : null
+                        })()}
+                      </div>
+                    ) : (
+                      <>
+                        <AvatarImage src={userAvatar || "/placeholder.svg"} alt={displayName} />
+                        <AvatarFallback className="bg-primary text-primary-foreground font-semibold text-xs">
+                          {displayName.charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </>
+                    )}
+                  </Avatar>
+                  
+                  {/* Menú de tres puntos */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="rounded-full h-9 w-9 bg-muted hover:bg-muted/80 transition-all duration-200"
+                      >
+                        <MoreVertical className="h-4 w-4" />
+                        <span className="sr-only">Menú de opciones</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <div className="px-2 py-1.5 text-sm font-medium text-muted-foreground">
+                        Hola, {displayName}!
+                      </div>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem asChild>
+                        <Link href="/dashboard/perfil" className="flex items-center">
+                          <User className="mr-2 h-4 w-4" />
+                          <span>Perfil</span>
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <Link href="/dashboard/verificacion" className="flex items-center">
+                          <Shield className="mr-2 h-4 w-4" />
+                          <span>Verificación</span>
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <Link href="/extras/support" className="flex items-center">
+                          <HelpCircle className="mr-2 h-4 w-4" />
+                          <span>Soporte</span>
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={toggleTheme} className="flex items-center">
+                        {isDark ? (
+                          <svg className="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+                            />
+                          </svg>
+                        ) : (
+                          <svg className="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+                            />
+                          </svg>
+                        )}
+                        <span>{isDark ? "Modo claro" : "Modo oscuro"}</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => setShowLogoutModal(true)} className="text-red-600">
+                        <LogOut className="mr-2 h-4 w-4" />
+                        <span>Cerrar sesión</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </div>
             </div>
@@ -808,46 +892,6 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Drawer de notificaciones móvil */}
-      <Drawer open={notifOpen} onOpenChange={setNotifOpen}>
-        <DrawerContent>
-          <DrawerHeader>
-            <DrawerTitle>Notificaciones</DrawerTitle>
-            <DrawerDescription>
-              {(() => {
-                const kycNotification = getKycNotification()
-                return kycNotification.show ? kycNotification.message : "Sin notificaciones"
-              })()}
-            </DrawerDescription>
-          </DrawerHeader>
-          <div className="px-4 pb-4 flex gap-2">
-            {(() => {
-              const kycNotification = getKycNotification()
-              if (kycNotification.show && hasNotif) {
-                return (
-                  <>
-                    {kycNotification.action && (
-                      <Button 
-                        asChild
-                        className="flex-1"
-                        onClick={() => setNotifOpen(false)}
-                      >
-                        <Link href="/dashboard/verificacion">{kycNotification.action}</Link>
-                      </Button>
-                    )}
-                    <Button onClick={() => { markNotifRead(); setNotifOpen(false); }} className="flex-1">Marcar como leída</Button>
-                  </>
-                )
-              } else {
-                return (
-                  <Button variant="outline" className="bg-transparent" onClick={() => setNotifOpen(false)}>Cerrar</Button>
-                )
-              }
-            })()}
-          </div>
-        </DrawerContent>
-      </Drawer>
 
 
     </>

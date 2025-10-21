@@ -130,10 +130,18 @@ export class NotificationCenter {
   } = {}): Promise<Notification[]> {
     const { limit = 20, offset = 0, status, topic } = options
 
+    const { data: { user } } = await this.supabase.auth.getUser()
+    if (!user) {
+      console.log('❌ NotificationCenter - Usuario no autenticado en getNotifications')
+      return []
+    }
+
+    console.log('📥 NotificationCenter - Obteniendo notificaciones para usuario:', user.id)
+
     let query = this.supabase
       .from('notifications')
       .select('*')
-      .eq('user_id', (await this.supabase.auth.getUser()).data.user?.id)
+      .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1)
 
@@ -148,9 +156,12 @@ export class NotificationCenter {
     const { data, error } = await query
 
     if (error) {
-      console.error('Error obteniendo notificaciones:', error)
+      console.error('❌ NotificationCenter - Error obteniendo notificaciones:', error)
       return []
     }
+
+    console.log('📥 NotificationCenter - Notificaciones obtenidas:', data?.length || 0)
+    console.log('📥 NotificationCenter - IDs obtenidos:', data?.map(n => n.id) || [])
 
     return data || []
   }
@@ -308,15 +319,212 @@ export class NotificationCenter {
   }
 
   /**
-   * Limpiar recursos
+   * Limpiar notificaciones expiradas
    */
-  async cleanup() {
-    if (this.realtimeChannel) {
-      await this.realtimeChannel.unsubscribe()
-      this.realtimeChannel = null
+  async cleanupExpiredNotifications(): Promise<{ success: boolean; deletedCount?: number; error?: string }> {
+    try {
+      const { data, error } = await this.supabase.rpc('cleanup_expired_notifications')
+      
+      if (error) {
+        console.error('Error limpiando notificaciones expiradas:', error)
+        return { success: false, error: error.message }
+      }
+      
+      return { success: true, deletedCount: data }
+    } catch (error) {
+      console.error('Error limpiando notificaciones expiradas:', error)
+      return { success: false, error: 'Error inesperado' }
     }
-    this.listeners.clear()
-    this.statsListeners.clear()
+  }
+
+  /**
+   * Limpiar notificaciones duplicadas
+   */
+  async cleanupDuplicateNotifications(): Promise<{ success: boolean; deletedCount?: number; error?: string }> {
+    try {
+      const { data, error } = await this.supabase.rpc('cleanup_duplicate_notifications')
+      
+      if (error) {
+        console.error('Error limpiando notificaciones duplicadas:', error)
+        return { success: false, error: error.message }
+      }
+      
+      return { success: true, deletedCount: data }
+    } catch (error) {
+      console.error('Error limpiando notificaciones duplicadas:', error)
+      return { success: false, error: 'Error inesperado' }
+    }
+  }
+
+  /**
+   * Ejecutar limpieza automática completa
+   */
+  async performAutomaticCleanup(): Promise<{ success: boolean; result?: any; error?: string }> {
+    try {
+      const { data, error } = await this.supabase.rpc('perform_automatic_cleanup')
+      
+      if (error) {
+        console.error('Error ejecutando limpieza automática:', error)
+        return { success: false, error: error.message }
+      }
+      
+      return { success: true, result: data }
+    } catch (error) {
+      console.error('Error ejecutando limpieza automática:', error)
+      return { success: false, error: 'Error inesperado' }
+    }
+  }
+
+  /**
+   * Obtener estadísticas de limpieza
+   */
+  async getCleanupStats(): Promise<{ success: boolean; stats?: any; error?: string }> {
+    try {
+      const { data, error } = await this.supabase.rpc('get_cleanup_stats')
+      
+      if (error) {
+        console.error('Error obteniendo estadísticas de limpieza:', error)
+        return { success: false, error: error.message }
+      }
+      
+      return { success: true, stats: data }
+    } catch (error) {
+      console.error('Error obteniendo estadísticas de limpieza:', error)
+      return { success: false, error: 'Error inesperado' }
+    }
+  }
+
+  /**
+   * Eliminar notificación individual del usuario actual
+   */
+  async deleteNotification(notificationId: string): Promise<{ success: boolean; error?: string }> {
+    const { data: { user } } = await this.supabase.auth.getUser()
+    
+    if (!user) {
+      console.log('❌ NotificationCenter - Usuario no autenticado')
+      return { success: false, error: 'Usuario no autenticado' }
+    }
+
+    console.log('🗑️ NotificationCenter - Eliminando notificación:', notificationId, 'para usuario:', user.id)
+
+    try {
+      const { error, count } = await this.supabase
+        .from('notifications')
+        .delete({ count: 'exact' })
+        .eq('id', notificationId)
+        .eq('user_id', user.id) // Asegurar que solo puede eliminar sus propias notificaciones
+      
+      console.log('🗑️ NotificationCenter - Resultado delete:', { error, count })
+      
+      if (error) {
+        console.error('Error eliminando notificación:', error)
+        return { success: false, error: error.message }
+      }
+      
+      if (count === 0) {
+        console.log('⚠️ NotificationCenter - No se eliminó ninguna notificación (count=0)')
+        return { success: false, error: 'Notificación no encontrada o no pertenece al usuario' }
+      }
+      
+      console.log('✅ NotificationCenter - Notificación eliminada exitosamente')
+      this.refreshStats()
+      return { success: true }
+    } catch (error) {
+      console.error('Error eliminando notificación:', error)
+      return { success: false, error: 'Error inesperado' }
+    }
+  }
+
+  /**
+   * Eliminar múltiples notificaciones del usuario actual
+   */
+  async deleteMultipleNotifications(notificationIds: string[]): Promise<{ success: boolean; deletedCount?: number; error?: string }> {
+    const { data: { user } } = await this.supabase.auth.getUser()
+    
+    if (!user) {
+      return { success: false, error: 'Usuario no autenticado' }
+    }
+
+    if (notificationIds.length === 0) {
+      return { success: true, deletedCount: 0 }
+    }
+
+    try {
+      const { error, count } = await this.supabase
+        .from('notifications')
+        .delete({ count: 'exact' })
+        .in('id', notificationIds)
+        .eq('user_id', user.id) // Asegurar que solo puede eliminar sus propias notificaciones
+      
+      if (error) {
+        console.error('Error eliminando notificaciones:', error)
+        return { success: false, error: error.message }
+      }
+      
+      this.refreshStats()
+      return { success: true, deletedCount: count || 0 }
+    } catch (error) {
+      console.error('Error eliminando notificaciones:', error)
+      return { success: false, error: 'Error inesperado' }
+    }
+  }
+
+  /**
+   * Eliminar todas las notificaciones leídas del usuario actual
+   */
+  async deleteAllReadNotifications(): Promise<{ success: boolean; deletedCount?: number; error?: string }> {
+    const { data: { user } } = await this.supabase.auth.getUser()
+    
+    if (!user) {
+      return { success: false, error: 'Usuario no autenticado' }
+    }
+
+    try {
+      const { error, count } = await this.supabase
+        .from('notifications')
+        .delete({ count: 'exact' })
+        .eq('user_id', user.id)
+        .eq('status', 'read')
+      
+      if (error) {
+        console.error('Error eliminando notificaciones leídas:', error)
+        return { success: false, error: error.message }
+      }
+      
+      this.refreshStats()
+      return { success: true, deletedCount: count || 0 }
+    } catch (error) {
+      console.error('Error eliminando notificaciones leídas:', error)
+      return { success: false, error: 'Error inesperado' }
+    }
+  }
+
+  /**
+   * Limpiar notificaciones del usuario actual (función administrativa)
+   */
+  async cleanupUserNotifications(keepDays: number = 7): Promise<{ success: boolean; deletedCount?: number; error?: string }> {
+    const { data: { user } } = await this.supabase.auth.getUser()
+    
+    if (!user) {
+      return { success: false, error: 'Usuario no autenticado' }
+    }
+
+    try {
+      const { data, error } = await this.supabase.rpc('admin_cleanup_user_notifications', {
+        p_user_id: user.id,
+        p_keep_days: keepDays
+      })
+      
+      if (error) {
+        console.error('Error limpiando notificaciones del usuario:', error)
+        return { success: false, error: error.message }
+      }
+      
+      return { success: true, deletedCount: data.deleted_count }
+    } catch (error) {
+      console.error('Error limpiando notificaciones del usuario:', error)
+      return { success: false, error: 'Error inesperado' }
+    }
   }
 }
 

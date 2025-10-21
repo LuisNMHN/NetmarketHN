@@ -94,32 +94,6 @@ export function useNotifications() {
     return success
   }, [])
 
-  const markAsUnread = useCallback(async (notificationId: string) => {
-    const success = await notificationCenter.markAsUnread(notificationId)
-    if (success) {
-      setNotifications(prev => 
-        prev.map(n => n.id === notificationId ? { ...n, status: 'unread' as const } : n)
-      )
-    }
-    return success
-  }, [])
-
-  const archive = useCallback(async (notificationId: string) => {
-    const success = await notificationCenter.archive(notificationId)
-    if (success) {
-      setNotifications(prev => prev.filter(n => n.id !== notificationId))
-    }
-    return success
-  }, [])
-
-  const markAllAsRead = useCallback(async () => {
-    const success = await notificationCenter.markAllAsRead()
-    if (success) {
-      setNotifications(prev => prev.map(n => ({ ...n, status: 'read' as const })))
-    }
-    return success
-  }, [])
-
   const getPreferences = useCallback(async () => {
     return await notificationCenter.getPreferences()
   }, [])
@@ -134,9 +108,6 @@ export function useNotifications() {
     isLoading,
     loadNotifications,
     markAsRead,
-    markAsUnread,
-    archive,
-    markAllAsRead,
     getPreferences,
     updatePreferences,
     refreshStats: () => notificationCenter.refreshStats()
