@@ -1,173 +1,222 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
-import { X, Send, MoreVertical, CheckCircle, AlertCircle, Clock, User, Shield } from "lucide-react"
+import { X, Send, Cat, Dog, Fish, Bird, Rabbit, Turtle, Heart, Star, Zap, Circle, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Separator } from "@/components/ui/separator"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { useTransactionalChat, UseTransactionalChatParams } from "@/hooks/useTransactionalChat"
-import { ChatMessage, ChatMessageKind, ChatThreadStatus } from "@/lib/chat/service"
 import { cn } from "@/lib/utils"
 import { formatDistanceToNow } from "date-fns"
 import { es } from "date-fns/locale"
+import { supabaseBrowser } from "@/lib/supabase/client"
 
 interface ChatPanelProps {
   isOpen: boolean
   onClose: () => void
   chatParams: UseTransactionalChatParams
   className?: string
-}
-
-interface NegotiationAction {
-  id: string
-  label: string
-  icon: React.ReactNode
-  variant: "default" | "destructive" | "outline"
-  disabled?: boolean
-  action: string
-}
-
-const getStatusIcon = (status: ChatThreadStatus) => {
-  switch (status) {
-    case 'active':
-      return <CheckCircle className="h-4 w-4 text-green-500" />
-    case 'closed':
-      return <X className="h-4 w-4 text-gray-500" />
-    case 'cancelled':
-      return <AlertCircle className="h-4 w-4 text-red-500" />
-    case 'disputed':
-      return <AlertCircle className="h-4 w-4 text-orange-500" />
-    default:
-      return <Clock className="h-4 w-4 text-gray-500" />
+  requestInfo?: {
+    amount: number
+    paymentMethod: string
+    uniqueCode?: string
+    currency?: string
   }
 }
 
-const getStatusLabel = (status: ChatThreadStatus) => {
-  switch (status) {
-    case 'active':
-      return 'Activo'
-    case 'closed':
-      return 'Cerrado'
-    case 'cancelled':
-      return 'Cancelado'
-    case 'disputed':
-      return 'En disputa'
-    default:
-      return 'Desconocido'
+export function ChatPanel({ isOpen, onClose, chatParams, className, requestInfo }: ChatPanelProps) {
+  // Avatares de animales disponibles
+  const animalAvatars = {
+    cat: { name: 'Gato', icon: Cat, color: '#f59e0b' },
+    dog: { name: 'Perro', icon: Dog, color: '#ef4444' },
+    bird: { name: 'Pájaro', icon: Bird, color: '#8b5cf6' },
+    fish: { name: 'Pez', icon: Fish, color: '#06b6d4' },
+    rabbit: { name: 'Conejo', icon: Rabbit, color: '#ec4899' },
+    turtle: { name: 'Tortuga', icon: Turtle, color: '#10b981' },
+    heart: { name: 'Corazón', icon: Heart, color: '#ec4899' },
+    star: { name: 'Estrella', icon: Star, color: '#fbbf24' },
+    zap: { name: 'Rayo', icon: Zap, color: '#f59e0b' },
+    circle: { name: 'Círculo', icon: Circle, color: '#6b7280' },
+    alert: { name: 'Alerta', icon: AlertTriangle, color: '#ef4444' }
   }
-}
-
-const getMessageKindIcon = (kind: ChatMessageKind) => {
-  switch (kind) {
-    case 'user':
-      return <User className="h-3 w-3" />
-    case 'system':
-      return <CheckCircle className="h-3 w-3" />
-    case 'support':
-      return <Shield className="h-3 w-3" />
-    default:
-      return <User className="h-3 w-3" />
-  }
-}
-
-const getMessageKindColor = (kind: ChatMessageKind) => {
-  switch (kind) {
-    case 'user':
-      return 'bg-primary text-primary-foreground'
-    case 'system':
-      return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-    case 'support':
-      return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-    default:
-      return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
-  }
-}
-
-export function ChatPanel({ isOpen, onClose, chatParams, className }: ChatPanelProps) {
-  const [message, setMessage] = useState("")
-  const [isTyping, setIsTyping] = useState(false)
-  const [showOlderMessages, setShowOlderMessages] = useState(false)
   
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const getPaymentMethodLabel = (method: string) => {
+    switch (method) {
+      case 'local_transfer':
+        return 'Transferencia Local'
+      case 'international_transfer':
+        return 'Transferencia Internacional'
+      case 'card':
+        return 'Tarjeta de Crédito/Débito'
+      case 'digital_balance':
+        return 'Saldo Digital'
+      default:
+        return method
+    }
+  }
+
+  const formatAmount = (amount: number) => {
+    return new Intl.NumberFormat('es-HN').format(amount)
+  }
+
+  const getCurrencySymbol = (currency?: string) => {
+    switch (currency) {
+      case 'USD':
+        return 'USD'
+      case 'EUR':
+        return 'EUR'
+      default:
+        return 'L.'
+    }
+  }
+  
+  const [message, setMessage] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [userProfiles, setUserProfiles] = useState<Record<string, { avatar_url: string | null, full_name: string | null }>>({})
+  const userProfilesRef = useRef<Record<string, { avatar_url: string | null, full_name: string | null }>>({})
+
+  const scrollToBottomLocal = useCallback(() => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+    }
+  }, [])
 
   const {
     thread,
     messages,
     isLoading,
-    isConnected,
     isSending,
-    unreadCount,
     send,
-    emitAction,
-    loadOlder,
     markAsRead,
     close,
-    setTyping,
-    typingUsers,
-    refresh,
-    scrollToBottom
+    refresh
   } = useTransactionalChat(chatParams)
 
-  // Scroll automático al recibir nuevos mensajes
+  // Obtener userId del usuario actual
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabaseBrowser().auth.getUser()
+      if (user) {
+        setCurrentUserId(user.id)
+      }
+    }
+    getUser()
+  }, [])
+
+  // Cargar perfiles de usuarios cuando cambian los mensajes
+  useEffect(() => {
+    const loadUserProfiles = async () => {
+      if (messages.length === 0) return
+      
+      const userIds = [...new Set(messages.map(msg => msg.sender_id))]
+      
+      // Filtrar IDs que ya tenemos usando el ref
+      const missingIds = userIds.filter(id => !userProfilesRef.current[id])
+      
+      if (missingIds.length === 0) return
+      
+      console.log('🔍 Cargando perfiles de usuarios:', missingIds)
+      console.log('📊 Total de mensajes:', messages.length)
+      console.log('👥 IDs únicos de usuarios:', userIds)
+      
+      try {
+        const { data: profiles, error } = await supabaseBrowser()
+          .from('user_profiles')
+          .select('user_id, avatar_url, display_name')
+          .in('user_id', missingIds)
+        
+        if (error) {
+          console.error('❌ Error cargando perfiles:', error)
+          return
+        }
+        
+        console.log('✅ Perfiles cargados:', profiles)
+        
+        if (profiles) {
+          const newProfiles: Record<string, { avatar_url: string | null, full_name: string | null }> = {}
+          profiles.forEach(profile => {
+            console.log('📝 Perfil:', {
+              user_id: profile.user_id,
+              avatar_url: profile.avatar_url,
+              display_name: profile.display_name
+            })
+            newProfiles[profile.user_id] = {
+              avatar_url: profile.avatar_url,
+              full_name: profile.display_name
+            }
+          })
+          
+          console.log('📦 Nuevos perfiles procesados:', newProfiles)
+          
+          // Actualizar tanto el estado como el ref
+          setUserProfiles(prev => {
+            const updated = { ...prev, ...newProfiles }
+            userProfilesRef.current = updated
+            console.log('✅ Estado actualizado:', updated)
+            return updated
+          })
+        }
+      } catch (error) {
+        console.error('❌ Error cargando perfiles de usuarios:', error)
+      }
+    }
+    
+    loadUserProfiles()
+  }, [messages])
+
+  // Limpiar input al cerrar
+  useEffect(() => {
+    if (!isOpen) {
+      setMessage("")
+    }
+  }, [isOpen])
+
+  // Scroll al recibir mensajes
   useEffect(() => {
     if (messages.length > 0) {
-      scrollToBottom()
+      setTimeout(() => {
+        scrollToBottomLocal()
+      }, 100)
     }
-  }, [messages.length, scrollToBottom])
+  }, [messages.length, scrollToBottomLocal])
 
-  // Focus en input cuando se abre
+  // Scroll al abrir el chat
+  useEffect(() => {
+    if (isOpen && messages.length > 0) {
+      setTimeout(() => {
+        scrollToBottomLocal()
+      }, 500)
+    }
+  }, [isOpen, messages.length, scrollToBottomLocal])
+
+  // Focus en input
   useEffect(() => {
     if (isOpen && inputRef.current) {
       setTimeout(() => inputRef.current?.focus(), 100)
     }
   }, [isOpen])
 
-  // Marcar como leído cuando se abre
+  // Marcar como leído
   useEffect(() => {
     if (isOpen && thread) {
       markAsRead()
     }
   }, [isOpen, thread, markAsRead])
 
-  // Manejar typing
-  const handleTyping = useCallback((value: string) => {
-    setMessage(value)
-    
-    if (value.length > 0 && !isTyping) {
-      setIsTyping(true)
-      setTyping(true)
-    } else if (value.length === 0 && isTyping) {
-      setIsTyping(false)
-      setTyping(false)
-    }
-
-    // Limpiar timeout anterior
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current)
-    }
-
-    // Auto-detener typing después de 2 segundos
-    typingTimeoutRef.current = setTimeout(() => {
-      setIsTyping(false)
-      setTyping(false)
-    }, 2000)
-  }, [isTyping, setTyping])
-
   const handleSend = async () => {
     if (!message.trim() || isSending) return
 
     const messageText = message.trim()
     setMessage("")
-    setIsTyping(false)
-    setTyping(false)
-
     await send(messageText)
+    
+    // Scroll al enviar mensaje
+    setTimeout(() => {
+      scrollToBottomLocal()
+    }, 300)
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -175,10 +224,6 @@ export function ChatPanel({ isOpen, onClose, chatParams, className }: ChatPanelP
       e.preventDefault()
       handleSend()
     }
-  }
-
-  const handleAction = async (action: string) => {
-    await emitAction(action)
   }
 
   const formatTimeAgo = (dateString: string) => {
@@ -192,149 +237,59 @@ export function ChatPanel({ isOpen, onClose, chatParams, className }: ChatPanelP
     }
   }
 
-  // Acciones de negociación según el contexto
-  const getNegotiationActions = (): NegotiationAction[] => {
-    if (!thread || thread.status !== 'active') return []
-
-    const baseActions: NegotiationAction[] = [
-      {
-        id: 'mark_paid',
-        label: 'Marcar pagado',
-        icon: <CheckCircle className="h-4 w-4" />,
-        variant: 'default',
-        action: 'mark_paid'
-      },
-      {
-        id: 'confirm_received',
-        label: 'Confirmar recibido',
-        icon: <CheckCircle className="h-4 w-4" />,
-        variant: 'default',
-        action: 'confirm_received'
-      }
-    ]
-
-    if (thread.context_type === 'order') {
-      baseActions.push(
-        {
-          id: 'request_support',
-          label: 'Solicitar soporte',
-          icon: <Shield className="h-4 w-4" />,
-          variant: 'outline',
-          action: 'request_support'
-        },
-        {
-          id: 'open_dispute',
-          label: 'Abrir disputa',
-          icon: <AlertCircle className="h-4 w-4" />,
-          variant: 'destructive',
-          action: 'open_dispute'
-        },
-        {
-          id: 'cancel_order',
-          label: 'Cancelar orden',
-          icon: <X className="h-4 w-4" />,
-          variant: 'destructive',
-          action: 'cancel_order'
-        }
-      )
-    }
-
-    return baseActions
-  }
-
-  const negotiationActions = getNegotiationActions()
-
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent 
+        showCloseButton={false}
         className={cn(
           "p-0 max-w-4xl h-[90vh] md:h-[80vh] flex flex-col",
-          "backdrop-blur-md bg-background/95",
           className
         )}
-        aria-describedby="chat-description"
       >
         {/* Header */}
         <DialogHeader className="p-4 border-b flex-shrink-0">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <DialogTitle className="text-lg font-semibold">
+            <div className="flex-1">
+              <DialogTitle className="text-lg font-semibold mb-1">
                 {thread?.context_title || 'Chat'}
               </DialogTitle>
-              {thread && (
-                <div className="flex items-center gap-2">
-                  {getStatusIcon(thread.status)}
-                  <Badge variant="outline" className="text-xs">
-                    {getStatusLabel(thread.status)}
-                  </Badge>
-                  {isConnected && (
-                    <Badge variant="outline" className="text-xs text-green-600">
-                      En línea
-                    </Badge>
+              {requestInfo && (
+                <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <span className="font-semibold text-foreground">
+                      {getCurrencySymbol(requestInfo.currency)}{formatAmount(requestInfo.amount)}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="text-muted-foreground">•</span>
+                    <span>{getPaymentMethodLabel(requestInfo.paymentMethod)}</span>
+                  </span>
+                  {requestInfo.uniqueCode && (
+                    <span className="flex items-center gap-1">
+                      <span className="text-muted-foreground">•</span>
+                      <span className="font-semibold text-foreground">{requestInfo.uniqueCode}</span>
+                    </span>
                   )}
                 </div>
               )}
             </div>
             
-            <div className="flex items-center gap-2">
-              {unreadCount > 0 && (
-                <Badge variant="destructive" className="text-xs">
-                  {unreadCount} no leídos
-                </Badge>
-              )}
-              
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={refresh}>
-                    Actualizar
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={markAsRead}>
-                    Marcar como leído
-                  </DropdownMenuItem>
-                  {thread?.status === 'active' && (
-                    <DropdownMenuItem onClick={() => close()} className="text-red-600">
-                      Cerrar chat
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              
-              <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 p-0">
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
+            <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 p-0 ml-4">
+              <X className="h-4 w-4" />
+            </Button>
           </div>
         </DialogHeader>
 
-        {/* Acciones de negociación */}
-        {negotiationActions.length > 0 && (
-          <div className="p-3 border-b bg-muted/30 flex-shrink-0">
-            <div className="flex flex-wrap gap-2">
-              {negotiationActions.map((action) => (
-                <Button
-                  key={action.id}
-                  variant={action.variant}
-                  size="sm"
-                  onClick={() => handleAction(action.action)}
-                  disabled={action.disabled || isSending}
-                  className="text-xs h-8"
-                >
-                  {action.icon}
-                  <span className="ml-1">{action.label}</span>
-                </Button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Área de mensajes */}
-        <div className="flex-1 flex flex-col min-h-0">
-          <ScrollArea className="flex-1 p-4">
+        {/* Mensajes - Área con scroll */}
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div 
+            ref={messagesContainerRef}
+            className="flex-1 overflow-y-auto p-4 chat-scroll"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'rgba(0, 0, 0, 0.2) transparent'
+            }}
+          >
             {isLoading ? (
               <div className="flex items-center justify-center h-32">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -345,101 +300,112 @@ export function ChatPanel({ isOpen, onClose, chatParams, className }: ChatPanelP
               </div>
             ) : (
               <div className="space-y-4">
-                {/* Botón para cargar mensajes más antiguos */}
-                {messages.length >= 50 && (
-                  <div className="text-center">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={loadOlder}
-                      disabled={isLoading}
-                    >
-                      Cargar mensajes anteriores
-                    </Button>
-                  </div>
-                )}
-
-                {messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={cn(
+                {messages.map((msg) => {
+                  const isOwnMessage = msg.sender_id === currentUserId
+                  const userProfile = userProfiles[msg.sender_id]
+                  const userName = userProfile?.full_name || 'Usuario'
+                  const userAvatar = userProfile?.avatar_url
+                  
+                  // Construir URL del avatar usando Supabase Storage
+                  let avatarUrl: string | null = null
+                  let selectedAnimalAvatar: string | null = null
+                  
+                  if (userAvatar) {
+                    if (userAvatar.startsWith('http')) {
+                      // Ya es una URL completa
+                      avatarUrl = userAvatar
+                    } else if (userAvatar.startsWith('animal_')) {
+                      // Es un avatar de animal, extraer el tipo de animal
+                      const animalMatch = userAvatar.match(/animal_(\w+)_/)
+                      if (animalMatch) {
+                        selectedAnimalAvatar = animalMatch[1]
+                      }
+                    } else {
+                      // Es un nombre de archivo, construir URL usando Supabase Storage
+                      const supabase = supabaseBrowser()
+                      const { data } = supabase.storage
+                        .from('profiles')
+                        .getPublicUrl(`avatars/${userAvatar}.svg`)
+                      avatarUrl = data.publicUrl
+                    }
+                  }
+                  
+                  return (
+                    <div key={msg.id} className={cn(
                       "flex gap-3",
-                      msg.kind === 'system' && "justify-center"
-                    )}
-                  >
-                    {msg.kind !== 'system' && (
-                      <div className="flex-shrink-0">
+                      isOwnMessage && "flex-row-reverse"
+                    )}>
+                      {/* Avatar */}
+                      <Avatar className="h-8 w-8 flex-shrink-0 border border-border">
+                        {selectedAnimalAvatar ? (
+                          // Mostrar icono de animal
+                          <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: animalAvatars[selectedAnimalAvatar as keyof typeof animalAvatars]?.color || '#6b7280' }}>
+                            {(() => {
+                              const IconComponent = animalAvatars[selectedAnimalAvatar as keyof typeof animalAvatars]?.icon
+                              return IconComponent ? <IconComponent className="w-5 h-5 text-white" /> : null
+                            })()}
+                          </div>
+                        ) : (
+                          // Mostrar imagen normal o fallback
+                          <>
+                            {avatarUrl && (
+                              <AvatarImage 
+                                src={avatarUrl} 
+                                alt={userName}
+                                className="rounded-full"
+                              />
+                            )}
+                            <AvatarFallback className="bg-primary text-primary-foreground text-xs font-semibold">
+                              {userName.charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </>
+                        )}
+                      </Avatar>
+                      
+                      {/* Mensaje */}
+                      <div className={cn(
+                        "flex flex-col max-w-[80%]",
+                        isOwnMessage && "items-end"
+                      )}>
                         <div className={cn(
-                          "w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold",
-                          getMessageKindColor(msg.kind)
+                          "inline-block p-3 rounded-lg",
+                          msg.kind === 'system' 
+                            ? "bg-muted text-muted-foreground text-sm"
+                            : isOwnMessage
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted text-foreground"
                         )}>
-                          {getMessageKindIcon(msg.kind)}
+                          <p className="text-sm">{msg.body}</p>
+                        </div>
+                        <div className={cn(
+                          "text-xs text-muted-foreground mt-1",
+                          isOwnMessage && "text-right"
+                        )}>
+                          {formatTimeAgo(msg.created_at)}
                         </div>
                       </div>
-                    )}
-                    
-                    <div className={cn(
-                      "flex-1 min-w-0",
-                      msg.kind === 'system' && "text-center"
-                    )}>
-                      <div className={cn(
-                        "inline-block max-w-[80%] p-3 rounded-lg",
-                        msg.kind === 'system' 
-                          ? "bg-muted text-muted-foreground text-sm"
-                          : msg.kind === 'user'
-                          ? "bg-primary text-primary-foreground ml-auto"
-                          : "bg-muted"
-                      )}>
-                        <p className="text-sm">{msg.body}</p>
-                        {msg.metadata && Object.keys(msg.metadata).length > 0 && (
-                          <div className="mt-2 text-xs opacity-75">
-                            {JSON.stringify(msg.metadata, null, 2)}
-                          </div>
-                        )}
-                      </div>
-                      
-                      <div className={cn(
-                        "text-xs text-muted-foreground mt-1",
-                        msg.kind === 'user' && "text-right"
-                      )}>
-                        {formatTimeAgo(msg.created_at)}
-                      </div>
                     </div>
-                  </div>
-                ))}
-
-                {/* Indicador de typing */}
-                {typingUsers.length > 0 && (
-                  <div className="flex gap-3">
-                    <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
-                      <div className="animate-pulse">...</div>
-                    </div>
-                    <div className="bg-muted p-3 rounded-lg">
-                      <p className="text-sm text-muted-foreground">
-                        {typingUsers.length === 1 ? 'Escribiendo...' : 'Varios usuarios escribiendo...'}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
+                  )
+                })}
                 <div ref={messagesEndRef} />
               </div>
             )}
-          </ScrollArea>
+          </div>
         </div>
 
-        {/* Input de mensaje */}
+        {/* Input - Siempre visible */}
         {thread?.status === 'active' && (
-          <div className="p-4 border-t flex-shrink-0">
+          <div className="p-4 border-t flex-shrink-0 bg-background">
             <div className="flex gap-2">
-              <Input
+              <input
                 ref={inputRef}
+                type="text"
                 value={message}
-                onChange={(e) => handleTyping(e.target.value)}
+                onChange={(e) => setMessage(e.target.value)}
                 onKeyPress={handleKeyPress}
                 placeholder="Escribe tu mensaje..."
                 disabled={isSending}
-                className="flex-1"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 maxLength={4000}
               />
               <Button
@@ -451,36 +417,9 @@ export function ChatPanel({ isOpen, onClose, chatParams, className }: ChatPanelP
                 <Send className="h-4 w-4" />
               </Button>
             </div>
-            
-            {message.length > 3500 && (
-              <p className="text-xs text-muted-foreground mt-1">
-                {message.length}/4000 caracteres
-              </p>
-            )}
           </div>
         )}
-
-        {/* Footer con estado */}
-        <div className="px-4 py-2 border-t bg-muted/30 flex-shrink-0">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <div className={cn(
-                "w-2 h-2 rounded-full",
-                isConnected ? "bg-green-500" : "bg-red-500"
-              )} />
-              {isConnected ? 'Conectado' : 'Desconectado'}
-            </div>
-            
-            {thread && (
-              <div>
-                Contexto: {thread.context_type} - {thread.context_id}
-              </div>
-            )}
-          </div>
-        </div>
       </DialogContent>
     </Dialog>
   )
 }
-
-
