@@ -10,7 +10,7 @@ import { toast } from "sonner"
  */
 export function useNotificationEmitter() {
   const emitNotification = useCallback(async (payload: {
-    topic: 'order' | 'kyc' | 'wallet' | 'chat' | 'system'
+    topic: 'order' | 'kyc' | 'wallet' | 'system' // DESACTIVADO: 'chat' removido
     event: string
     title: string
     body: string

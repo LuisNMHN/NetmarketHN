@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
+import { ReputationSection } from "@/components/reputation/ReputationSection"
 import { getUserProfileData, updateProfilePreferences, uploadUserAvatar, type UserProfileData } from "@/lib/actions/user_profile"
 import { 
   Camera, 
@@ -210,7 +211,7 @@ export default function PerfilPage() {
       setIsLoadingProfile(true)
       try {
         const result = await getUserProfileData()
-        if (result.ok && result.data) {
+        if (result.success && result.data) {
           setProfileData(result.data)
           // Si ya hay un teléfono guardado, marcar como guardado
           if (result.data.phone) {
@@ -219,11 +220,12 @@ export default function PerfilPage() {
           console.log('✅ Datos del perfil cargados:')
           console.log(result.data)
         } else {
-          console.error('❌ Error cargando perfil:', result.message)
-          toast.error(result.message)
+          console.error('❌ Error cargando perfil:', result.error || 'Error desconocido')
+          toast.error(result.error || 'Error al cargar el perfil')
         }
       } catch (error) {
         console.error('❌ Error cargando perfil:', error)
+        toast.error('Error inesperado al cargar el perfil')
       } finally {
         setIsLoadingProfile(false)
       }
@@ -313,7 +315,7 @@ export default function PerfilPage() {
         notification_push: profileData.notification_push,
       })
       
-      if (result.ok) {
+      if (result.success) {
         setSaveStatus('success')
         setPhoneSaved(true) // Marcar teléfono como guardado
         toast.success("Preferencias guardadas", {
@@ -328,7 +330,7 @@ export default function PerfilPage() {
       } else {
         setSaveStatus('error')
         toast.error("Error al guardar", {
-          description: result.message,
+          description: result.error || 'Error desconocido',
           duration: 4000,
         })
         
@@ -363,15 +365,15 @@ export default function PerfilPage() {
     try {
       const result = await uploadUserAvatar(file)
       
-      if (result.ok && result.data) {
-        setProfileData({ ...profileData, avatar_url: result.data.avatar_url })
+      if (result.success && result.url) {
+        setProfileData({ ...profileData, avatar_url: result.url })
         toast.success("Avatar actualizado", {
           description: "Tu foto de perfil se ha actualizado correctamente",
           duration: 3000,
         })
       } else {
         toast.error("Error al actualizar avatar", {
-          description: result.message,
+          description: result.error || 'Error desconocido',
           duration: 4000,
         })
       }
@@ -405,7 +407,7 @@ export default function PerfilPage() {
       // Actualizar el perfil con el identificador del avatar
       const result = await updateProfilePreferences({ avatar_url: avatarIdentifier })
       
-      if (result.ok) {
+      if (result.success) {
         setProfileData({ ...profileData, avatar_url: avatarIdentifier })
         setSelectedAnimalAvatar(animalKey)
         setShowAvatarSelector(false)
@@ -415,7 +417,7 @@ export default function PerfilPage() {
         })
       } else {
         toast.error("Error al actualizar avatar", {
-          description: result.message,
+          description: result.error || 'Error desconocido',
           duration: 4000,
         })
       }
@@ -454,7 +456,7 @@ export default function PerfilPage() {
     )
   }
 
-  const verificationInfo = getVerificationInfo(profileData.kyc_status)
+  const verificationInfo = getVerificationInfo(profileData.kyc_status || '')
 
   return (
     <section className="profile-page min-h-screen bg-gradient">
@@ -567,7 +569,7 @@ export default function PerfilPage() {
                 <div className="space-y-3">
                   <div className="flex justify-between">
                     <span className="text-caption">Miembro desde:</span>
-                    <span className="text-label text-primary">{new Date(profileData.member_since).toLocaleDateString()}</span>
+                    <span className="text-label text-primary">{profileData.member_since ? new Date(profileData.member_since).toLocaleDateString() : 'N/A'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-caption">Estado:</span>
@@ -959,33 +961,16 @@ export default function PerfilPage() {
           </Card>
             </div>
 
-            {/* Reputación - Placeholder */}
+            {/* Sistema de Reputación */}
             <div id="reputation" className="space-y-6">
               <h2 className="text-h2">Reputación</h2>
               
-              <Card className="profile-card p-8 text-center">
-                <div className="icon-container rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-                  <CreditCard className="icon h-8 w-8" />
-                </div>
-                <h3 className="text-h3 mb-2 text-primary">Sistema de Reputación</h3>
-                <p className="text-body-sm text-muted mb-4">
-                  Próximamente podrás ver tu calificación promedio, número de transacciones completadas, y reseñas de otros usuarios.
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-caption">
-                  <div className="flex items-center justify-center gap-2">
-                    <span>📊</span>
-                    <span>Calificación promedio</span>
-                  </div>
-                  <div className="flex items-center justify-center gap-2">
-                    <span>💬</span>
-                    <span>Reseñas recibidas</span>
-                  </div>
-                  <div className="flex items-center justify-center gap-2">
-                    <span>✨</span>
-                    <span>Perfil destacado</span>
-                  </div>
-                </div>
-              </Card>
+              {profileData && (
+                <ReputationSection 
+                  userId={profileData.id} 
+                  className="w-full"
+                />
+              )}
             </div>
                 </div>
               </div>

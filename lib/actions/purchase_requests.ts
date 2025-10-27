@@ -35,6 +35,10 @@ export interface PurchaseRequest {
   final_amount_hnld?: number
   payment_reference?: string
   payment_status?: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
+  // Campos de negociación (DESACTIVADOS - ya no se usan)
+  negotiating_with?: string
+  negotiation_started_at?: string
+  negotiation_timeout_at?: string
 }
 
 export interface PurchaseOffer {
@@ -524,9 +528,13 @@ export async function cancelPurchaseRequest(
       return { success: false, error: 'No tienes permisos para cancelar esta solicitud' }
     }
 
-    // Solo permitir cancelar solicitudes activas
-    if (requestData.status !== 'active') {
-      return { success: false, error: 'Solo se pueden cancelar solicitudes activas' }
+    // Permitir cancelar solicitudes activas, aceptadas o en negociación (pero no completadas ni ya canceladas)
+    if (requestData.status === 'completed') {
+      return { success: false, error: 'No se pueden cancelar solicitudes completadas' }
+    }
+    
+    if (requestData.status === 'cancelled') {
+      return { success: false, error: 'Esta solicitud ya está cancelada' }
     }
 
     // Actualizar el estado de la solicitud a 'cancelled'
@@ -673,6 +681,125 @@ export async function getPurchaseRequestByCode(
     return { success: true, data: data[0] }
   } catch (error) {
     console.error('❌ Error en getPurchaseRequestByCode:', error)
+    return { success: false, error: 'Error interno del servidor' }
+  }
+}
+
+// =========================================================
+// FUNCIONES DE NEGOCIACIÓN DESACTIVADAS
+// =========================================================
+// DESACTIVADO: Ya no se cambia el estado de las solicitudes durante la negociación
+
+// Iniciar negociación (DESACTIVADO - ya no bloquea la solicitud)
+export async function startNegotiation(
+  requestId: string
+): Promise<{ success: boolean; error?: string }> {
+  // DESACTIVADO: Esta función ya no cambia el estado de la solicitud
+  console.log('⚠️ startNegotiation llamada pero DESACTIVADA - no se cambia el estado')
+  return { success: true, error: 'Función desactivada - no se cambia el estado' }
+}
+
+// Finalizar negociación sin acuerdo (DESACTIVADO - ya no libera la solicitud)
+export async function endNegotiationNoDeal(
+  requestId: string
+): Promise<{ success: boolean; error?: string }> {
+  // DESACTIVADO: Esta función ya no cambia el estado de la solicitud
+  console.log('⚠️ endNegotiationNoDeal llamada pero DESACTIVADA - no se cambia el estado')
+  return { success: true, error: 'Función desactivada - no se cambia el estado' }
+}
+
+// Aceptar oferta durante negociación
+export async function acceptOfferDuringNegotiation(
+  requestId: string,
+  negotiatedAmount: number,
+  negotiatedTerms?: string
+): Promise<{ success: boolean; transactionId?: string; error?: string }> {
+  try {
+    const supabase = await supabaseServer()
+    
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user) {
+      return { success: false, error: 'Usuario no autenticado' }
+    }
+
+    console.log('✅ Aceptando oferta negociada para solicitud:', requestId)
+    console.log('💰 Monto negociado:', negotiatedAmount)
+    console.log('👤 Usuario:', user.id)
+
+    const { data, error } = await supabase
+      .rpc('accept_offer_during_negotiation', {
+        p_request_id: requestId,
+        p_buyer_id: user.id,
+        p_negotiated_amount: negotiatedAmount,
+        p_negotiated_terms: negotiatedTerms
+      })
+
+    if (error) {
+      console.error('❌ Error aceptando oferta negociada:', error)
+      return { success: false, error: error.message || 'Error aceptando oferta' }
+    }
+
+    console.log('✅ Oferta aceptada exitosamente, transacción:', data)
+    
+    revalidatePath('/dashboard/solicitudes')
+    revalidatePath('/dashboard/mis-solicitudes')
+    revalidatePath('/dashboard/transacciones')
+    return { success: true, transactionId: data }
+  } catch (error) {
+    console.error('❌ Error en acceptOfferDuringNegotiation:', error)
+    return { success: false, error: 'Error interno del servidor' }
+  }
+}
+
+// Obtener solicitudes disponibles (excluyendo las en negociación)
+export async function getAvailablePurchaseRequests(
+  limit: number = 50,
+  offset: number = 0
+): Promise<{ success: boolean; data?: PurchaseRequest[]; error?: string }> {
+  try {
+    const supabase = await supabaseServer()
+    
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user) {
+      return { success: false, error: 'Usuario no autenticado' }
+    }
+
+    const { data, error } = await supabase
+      .rpc('get_available_purchase_requests', {
+        p_user_id: user.id,
+        p_limit: limit,
+        p_offset: offset
+      })
+
+    if (error) {
+      console.error('❌ Error obteniendo solicitudes disponibles:', error)
+      return { success: false, error: 'Error obteniendo solicitudes disponibles' }
+    }
+
+    return { success: true, data: data || [] }
+  } catch (error) {
+    console.error('❌ Error en getAvailablePurchaseRequests:', error)
+    return { success: false, error: 'Error interno del servidor' }
+  }
+}
+
+// Limpiar negociaciones expiradas (función administrativa)
+export async function cleanupExpiredNegotiations(): Promise<{ success: boolean; count?: number; error?: string }> {
+  try {
+    const supabase = await supabaseServer()
+    
+    const { data, error } = await supabase
+      .rpc('cleanup_expired_negotiations')
+
+    if (error) {
+      console.error('❌ Error limpiando negociaciones expiradas:', error)
+      return { success: false, error: 'Error limpiando negociaciones expiradas' }
+    }
+
+    console.log('🧹 Negociaciones expiradas limpiadas:', data)
+    return { success: true, count: data }
+  } catch (error) {
+    console.error('❌ Error en cleanupExpiredNegotiations:', error)
     return { success: false, error: 'Error interno del servidor' }
   }
 }

@@ -258,46 +258,9 @@ export function NotificationBell({ className }: NotificationBellProps) {
 
   // Agrupar notificaciones de chat por context_id
   const getGroupedNotifications = () => {
-    const chatGroups = new Map<string, Notification[]>()
-    const otherNotifications: Notification[] = []
-
-    notifications.forEach(notification => {
-      // Si es una notificación de chat con context_id en el payload
-      if (notification.topic === 'chat' && notification.payload?.contextId) {
-        const contextId = notification.payload.contextId
-        if (!chatGroups.has(contextId)) {
-          chatGroups.set(contextId, [])
-        }
-        chatGroups.get(contextId)!.push(notification)
-      } else {
-        otherNotifications.push(notification)
-      }
-    })
-
-    // Crear notificaciones agrupadas para chat
-    const groupedChatNotifications: Notification[] = []
-    chatGroups.forEach((group, contextId) => {
-      // Ordenar por fecha más reciente
-      group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      
-      // Usar la más reciente como notificación principal
-      const mainNotification = group[0]
-      
-      // Contar solo las notificaciones no leídas en este grupo
-      const unreadCount = group.filter(n => n.status === 'unread').length
-      
-      // Crear una notificación agrupada
-      groupedChatNotifications.push({
-        ...mainNotification,
-        // Modificar el body si hay más de un mensaje NO LEÍDO
-        body: unreadCount > 1 
-          ? `Tienes ${unreadCount} mensajes nuevos en ${mainNotification.payload?.contextTitle || 'el chat'}`
-          : mainNotification.body
-      })
-    })
-
-    // Combinar y ordenar
-    return [...groupedChatNotifications, ...otherNotifications].sort(
+    // DESACTIVADO: Lógica de agrupación de chat removida
+    // Ahora solo retornamos las notificaciones sin agrupación especial
+    return notifications.sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )
   }
@@ -349,14 +312,7 @@ export function NotificationBell({ className }: NotificationBellProps) {
               {groupedNotifications.map((notification) => {
                 const isDeleting = deletingIds.has(notification.id)
                 
-                // Contar cuántas notificaciones de chat NO LEÍDAS hay para este context_id
-                const chatCount = notification.topic === 'chat' && notification.payload?.contextId
-                  ? notifications.filter(n => 
-                      n.topic === 'chat' && 
-                      n.payload?.contextId === notification.payload.contextId &&
-                      n.status === 'unread'
-                    ).length
-                  : 0
+                // DESACTIVADO: Lógica de conteo de chat removida
                 
                 return (
                   <div
@@ -372,25 +328,9 @@ export function NotificationBell({ className }: NotificationBellProps) {
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation()
-                      // Marcar todas las notificaciones de chat como leídas si es un grupo
-                      if (notification.topic === 'chat' && chatCount > 1) {
-                        const chatNotifications = notifications.filter(n => 
-                          n.topic === 'chat' && n.payload?.contextId === notification.payload.contextId
-                        )
-                        chatNotifications.forEach(n => notificationCenter.markAsRead(n.id))
-                        // Actualizar estado local
-                        setNotifications(prev => prev.map(n => 
-                          chatNotifications.some(cn => cn.id === n.id) 
-                            ? { ...n, status: 'read' as const }
-                            : n
-                        ))
-                        // Actualizar estadísticas
-                        setStats(prev => ({
-                          ...prev,
-                          unread: Math.max(0, prev.unread - chatNotifications.filter(n => n.status === 'unread').length),
-                          read: prev.read + chatNotifications.filter(n => n.status === 'unread').length
-                        }))
-                      } else {
+                      // DESACTIVADO: Lógica de marcado masivo de chat removida
+                      // Solo marcar la notificación individual como leída
+                      if (notification.status === 'unread') {
                         notificationCenter.markAsRead(notification.id)
                         // Actualizar estado local
                         setNotifications(prev => prev.map(n => 
@@ -398,14 +338,12 @@ export function NotificationBell({ className }: NotificationBellProps) {
                             ? { ...n, status: 'read' as const }
                             : n
                         ))
-                        // Actualizar estadísticas solo si la notificación estaba no leída
-                        if (notification.status === 'unread') {
-                          setStats(prev => ({
-                            ...prev,
-                            unread: Math.max(0, prev.unread - 1),
-                            read: prev.read + 1
-                          }))
-                        }
+                        // Actualizar estadísticas
+                        setStats(prev => ({
+                          ...prev,
+                          unread: Math.max(0, prev.unread - 1),
+                          read: prev.read + 1
+                        }))
                       }
                       
                       // Cerrar el panel
@@ -432,11 +370,6 @@ export function NotificationBell({ className }: NotificationBellProps) {
                             <h4 className="font-medium text-sm truncate">
                               {notification.title}
                             </h4>
-                            {chatCount > 1 && (
-                              <Badge variant="secondary" className="text-xs h-5 px-1.5 flex-shrink-0">
-                                {chatCount}
-                              </Badge>
-                            )}
                           </div>
                           <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
                             {notification.body}
@@ -468,15 +401,9 @@ export function NotificationBell({ className }: NotificationBellProps) {
                             e.preventDefault()
                             e.stopPropagation()
                             
-                            // Si es un grupo de chat, eliminar todas las notificaciones del grupo
-                            if (notification.topic === 'chat' && chatCount > 1) {
-                              const chatNotifications = notifications.filter(n => 
-                                n.topic === 'chat' && n.payload?.contextId === notification.payload.contextId
-                              )
-                              chatNotifications.forEach(n => handleDeleteNotification(n.id))
-                            } else {
-                              handleDeleteNotification(notification.id)
-                            }
+                            // DESACTIVADO: Lógica de eliminación masiva de chat removida
+                            // Solo eliminar la notificación individual
+                            handleDeleteNotification(notification.id)
                           }}
                           onTouchStart={(e) => {
                             e.preventDefault()

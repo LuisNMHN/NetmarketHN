@@ -1,72 +1,74 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { useToast } from "@/hooks/use-toast"
 import Link from "next/link"
 import { supabaseBrowser } from "@/lib/supabase/client"
 import { 
   getActivePurchaseRequests,
-  createPurchaseOffer,
+  // DESACTIVADO: startNegotiation, endNegotiationNoDeal ya no se usan
   type PurchaseRequest
 } from "@/lib/actions/purchase_requests"
 import { formatCurrency, formatAmount } from "@/lib/utils"
 import { 
   Search, 
-  Plus, 
   Clock, 
   User, 
   MessageSquare,
-  TrendingUp,
   Eye,
-  Send,
-  RefreshCw
+  RefreshCw,
+  ShoppingCart,
+  X
 } from "lucide-react"
+import LoadingSpinner from "@/components/ui/loading-spinner"
+import { PurchaseCompletionPanel } from "@/components/PurchaseCompletionPanel"
 
 export default function SolicitudesPage() {
+  const searchParams = useSearchParams()
   const [requests, setRequests] = useState<PurchaseRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedRequest, setSelectedRequest] = useState<PurchaseRequest | null>(null)
-  const [offerOpen, setOfferOpen] = useState(false)
-  const [processing, setProcessing] = useState(false)
+  const [completionPanelOpen, setCompletionPanelOpen] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
   const { toast } = useToast()
 
-  // Form state para oferta
-  const [offerForm, setOfferForm] = useState({
-    amount: "",
-    exchangeRate: "1.0000",
-    terms: "",
-    message: ""
-  })
-
   const loadRequests = async () => {
     try {
+      // Cargar solicitudes activas
       const result = await getActivePurchaseRequests(50, 0)
       if (result && result.success && result.data) {
-        setRequests(result.data)
+        let requestsToShow = result.data
+        
+        // Si hay usuario autenticado, también cargar solicitudes "accepted" (las negotiating ya no existen)
+        if (userId) {
+          const supabase = supabaseBrowser()
+          
+          // Cargar solicitudes aceptadas (donde el vendedor puede estar involucrado)
+          const { data: acceptedRequests } = await supabase
+            .from('purchase_requests')
+            .select('*')
+            .eq('status', 'accepted')
+          
+          // Combinar todas las solicitudes
+          const allRequests = [...requestsToShow]
+          if (acceptedRequests) allRequests.push(...acceptedRequests as PurchaseRequest[])
+          
+          // Eliminar duplicados por ID
+          const uniqueRequests = Array.from(
+            new Map(allRequests.map(req => [req.id, req])).values()
+          )
+          
+          requestsToShow = uniqueRequests
+        }
+        
+        setRequests(requestsToShow)
       } else {
         toast({
           title: "Error",
@@ -92,82 +94,67 @@ export default function SolicitudesPage() {
     await loadRequests()
   }
 
-  const handleMakeOffer = (request: PurchaseRequest) => {
-    setSelectedRequest(request)
-    setOfferForm({
-      amount: request.amount.toString(),
-      exchangeRate: "1.0000",
-      terms: "",
-      message: ""
-    })
-    setOfferOpen(true)
-  }
-
-  const handleSubmitOffer = async () => {
-    if (!selectedRequest || !offerForm.amount) {
+  const handleNegotiate = async (request: PurchaseRequest) => {
+    console.log('🖱️ Vendedor haciendo clic en "Negociar" para solicitud:', request.id)
+    
+    if (!userId) {
+      console.error('❌ No hay userId')
       toast({
         title: "Error",
-        description: "Todos los campos son requeridos",
+        description: "No se pudo obtener tu información de usuario",
         variant: "destructive",
       })
       return
     }
 
-    const amount = parseFloat(offerForm.amount)
-    const exchangeRate = parseFloat(offerForm.exchangeRate)
-
-    if (amount <= 0) {
-      toast({
-        title: "Error",
-        description: "El monto debe ser mayor a 0",
-        variant: "destructive",
-      })
-      return
-    }
-
-    setProcessing(true)
     try {
-      const result = await createPurchaseOffer(
-        selectedRequest.id,
-        amount,
-        exchangeRate,
-        offerForm.terms || undefined,
-        offerForm.message || undefined
-      )
-
-      if (result.success) {
-        toast({
-          title: "✅ Oferta enviada",
-          description: "Tu oferta ha sido enviada al comprador",
-        })
-        setOfferOpen(false)
-        setSelectedRequest(null)
-        setOfferForm({ amount: "", exchangeRate: "1.0000", terms: "", message: "" })
-        await loadRequests()
-      } else {
-        toast({
-          title: "❌ Error al enviar oferta",
-          description: result.error || "No se pudo enviar la oferta",
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
+      // No necesitamos actualizar el estado a 'negotiating' ya que esa columna fue eliminada
+      // Simplemente abrimos el panel directamente
+      console.log('📝 Abriendo panel de transacción para negociar...')
+      
+      console.log('📋 Abriendo panel de completar compra para el vendedor')
+      console.log('📋 Datos de la solicitud:', {
+        requestId: request.id,
+        buyer_id: request.buyer_id,
+        amount: request.amount,
+        currency: request.currency_type,
+        payment_method: request.payment_method,
+        userId: userId
+      })
+      
+      // Abrir directamente el panel de completar compra
+      setSelectedRequest(request)
+      setCompletionPanelOpen(true)
+      console.log('✅ Panel abierto')
+      
       toast({
-        title: "❌ Error",
-        description: "Error inesperado al enviar oferta",
+        title: "Negociación iniciada",
+        description: "Puedes completar la transacción de forma segura.",
+      })
+    } catch (error) {
+      console.error('❌ Error abriendo panel de compra:', error)
+      toast({
+        title: "Error",
+        description: "Error inesperado al abrir panel de compra",
         variant: "destructive",
       })
-    } finally {
-      setProcessing(false)
     }
   }
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (request: PurchaseRequest) => {
+    const { status } = request
+    
     switch (status) {
       case 'active':
         return <Badge variant="default" className="bg-green-100 text-green-800">Activa</Badge>
       case 'negotiating':
-        return <Badge variant="default" className="bg-blue-100 text-blue-800">Negociando</Badge>
+        return <Badge variant="default" className="bg-orange-100 text-orange-800">Negociando</Badge>
+      case 'accepted':
+        return <Badge variant="default" className="bg-purple-100 text-purple-800">Aceptada</Badge>
+      case 'completed':
+        return <Badge variant="default" className="bg-emerald-100 text-emerald-800">Completada</Badge>
+      case 'cancelled':
+        return <Badge variant="secondary">Cancelada</Badge>
       case 'expired':
         return <Badge variant="secondary">Expirada</Badge>
       default:
@@ -257,19 +244,101 @@ export default function SolicitudesPage() {
     getCurrentUser()
   }, [])
 
+  // Manejar apertura automática del chat desde URL
   useEffect(() => {
-    loadRequests()
-  }, [])
+    const openChatId = searchParams.get('openChat')
+    console.log('🔗 Parámetro openChat recibido:', openChatId)
+    console.log('📋 Solicitudes cargadas:', requests.length)
+    console.log('👤 Usuario ID:', userId)
+    
+    if (openChatId && requests.length > 0 && userId) {
+      // Buscar la solicitud correspondiente al ID
+      const request = requests.find(r => r.id === openChatId)
+      console.log('🔍 Solicitud encontrada:', request ? 'Sí' : 'No')
+      
+      if (request) {
+        console.log('✅ Abriendo chat para solicitud:', request.id)
+        setSelectedRequest(request)
+        setChatOpen(true)
+        // Limpiar el parámetro de la URL
+        window.history.replaceState({}, '', '/dashboard/solicitudes')
+      } else {
+        console.log('❌ No se encontró la solicitud con ID:', openChatId)
+        console.log('📋 IDs disponibles:', requests.map(r => r.id))
+      }
+    }
+  }, [searchParams, requests, userId])
+
+  useEffect(() => {
+    if (userId) {
+      loadRequests()
+    }
+    
+    // Configurar suscripción realtime para purchase_requests
+    const supabase = supabaseBrowser()
+    
+    console.log('🔌 Configurando suscripción realtime para purchase_requests...')
+    
+    const channel = supabase
+      .channel('purchase_requests_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'purchase_requests',
+        filter: 'status=eq.active'
+      }, (payload) => {
+        console.log('🔄 Cambio detectado en purchase_requests:', {
+          eventType: payload.eventType,
+          new: payload.new,
+          old: payload.old,
+          full_payload: payload
+        })
+        
+        // Si es una nueva solicitud (INSERT)
+        if (payload.eventType === 'INSERT' && payload.new) {
+          const newRequest = payload.new as PurchaseRequest
+          console.log('✅ Nueva solicitud detectada:', newRequest)
+          setRequests(prev => [newRequest, ...prev])
+          toast({
+            title: "Nueva solicitud disponible",
+            description: `Se ha publicado una nueva solicitud de compra`,
+          })
+        }
+        // Si se actualiza una solicitud (UPDATE)
+        else if (payload.eventType === 'UPDATE') {
+          const updatedRequest = payload.new as PurchaseRequest
+          console.log('🔄 Solicitud actualizada:', updatedRequest)
+          setRequests(prev => prev.map(req => req.id === updatedRequest.id ? updatedRequest : req))
+        }
+        // Si se elimina una solicitud (DELETE)
+        else if (payload.eventType === 'DELETE') {
+          const deletedId = payload.old?.id
+          console.log('🗑️ Solicitud eliminada:', deletedId)
+          if (deletedId) {
+            setRequests(prev => prev.filter(req => req.id !== deletedId))
+          }
+        }
+      })
+      .subscribe((status, error) => {
+        console.log('📡 Estado de suscripción realtime:', status)
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Suscripción realtime activa')
+        } else if (status === 'CHANNEL_ERROR') {
+          console.warn('⚠️ Error en la suscripción realtime:', error)
+          // No es crítico, la app continuará funcionando sin realtime
+        }
+      })
+    
+    return () => {
+      console.log('🧹 Limpiando suscripción realtime...')
+      supabase.removeChannel(channel)
+    }
+  }, [userId, toast])
 
   if (loading) {
     return (
       <div className="max-w-6xl mx-auto p-4 md:p-6">
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-center">
-            <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
-            <p className="text-muted-foreground">Cargando solicitudes...</p>
-          </div>
-        </div>
+        <LoadingSpinner message="Cargando solicitudes..." />
       </div>
     )
   }
@@ -322,7 +391,7 @@ export default function SolicitudesPage() {
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {filteredRequests.length === 0 ? (
           <div className="col-span-full text-center py-12">
-            <DollarSign className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <ShoppingCart className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">No hay solicitudes disponibles</h3>
             <p className="text-muted-foreground mb-2">
               {searchTerm ? "No se encontraron solicitudes que coincidan con tu búsqueda" : "No hay solicitudes de compra activas de otros usuarios en este momento"}
@@ -363,7 +432,7 @@ export default function SolicitudesPage() {
                       )}
                     </div>
                   </div>
-                  {getStatusBadge(request.status)}
+                  {getStatusBadge(request)}
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -378,16 +447,33 @@ export default function SolicitudesPage() {
                   </div>
                 </div>
 
+                {/* DESACTIVADO: Información de timeout de negociación ya no es necesaria */}
+
                 <div className="flex space-x-2">
-                  <Button 
-                    onClick={() => handleMakeOffer(request)}
-                    className="flex-1"
-                    size="sm"
-                  >
-                    <Send className="mr-2 h-4 w-4" />
-                    Hacer Oferta
-                  </Button>
+                  {request.status === 'active' && (
+                    <Button 
+                      onClick={() => handleNegotiate(request)}
+                      className="flex-1"
+                      size="sm"
+                    >
+                      <MessageSquare className="mr-2 h-4 w-4" />
+                      Negociar
+                    </Button>
+                  )}
                   
+                  {request.status === 'accepted' && (
+                    <Button 
+                      onClick={() => {
+                        setSelectedRequest(request)
+                        setCompletionPanelOpen(true)
+                      }}
+                      className="flex-1 bg-purple-600 hover:bg-purple-700"
+                      size="sm"
+                    >
+                      <MessageSquare className="mr-2 h-4 w-4" />
+                      Continúa Negociación
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -396,71 +482,28 @@ export default function SolicitudesPage() {
         )}
       </div>
 
-      {/* Offer Dialog */}
-      <Dialog open={offerOpen} onOpenChange={setOfferOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Hacer Oferta</DialogTitle>
-            <DialogDescription>
-              Envía una oferta para la solicitud de compra de {formatCurrency(selectedRequest?.amount || 0)} HNLD
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="offer-amount">Monto a ofrecer (HNLD)</Label>
-              <Input
-                id="offer-amount"
-                type="number"
-                placeholder="0.00"
-                value={offerForm.amount}
-                onChange={(e) => setOfferForm(prev => ({ ...prev, amount: e.target.value }))}
-              />
-            </div>
-            
-            <div>
-              <Label htmlFor="offer-rate">Tasa de cambio (opcional)</Label>
-              <Input
-                id="offer-rate"
-                type="number"
-                step="0.0001"
-                placeholder="1.0000"
-                value={offerForm.exchangeRate}
-                onChange={(e) => setOfferForm(prev => ({ ...prev, exchangeRate: e.target.value }))}
-              />
-            </div>
-            
-            <div>
-              <Label htmlFor="offer-terms">Términos (opcional)</Label>
-              <Textarea
-                id="offer-terms"
-                placeholder="Describe los términos de tu oferta..."
-                value={offerForm.terms}
-                onChange={(e) => setOfferForm(prev => ({ ...prev, terms: e.target.value }))}
-              />
-            </div>
-            
-            <div>
-              <Label htmlFor="offer-message">Mensaje al comprador (opcional)</Label>
-              <Textarea
-                id="offer-message"
-                placeholder="Escribe un mensaje personalizado..."
-                value={offerForm.message}
-                onChange={(e) => setOfferForm(prev => ({ ...prev, message: e.target.value }))}
-              />
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOfferOpen(false)} disabled={processing}>
-              Cancelar
-            </Button>
-            <Button onClick={handleSubmitOffer} disabled={processing}>
-              {processing ? "Enviando..." : "Enviar Oferta"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Purchase Completion Panel */}
+      {selectedRequest && userId && (
+        <PurchaseCompletionPanel
+          requestId={selectedRequest.id}
+          sellerId={userId}
+          buyerId={selectedRequest.buyer_id || selectedRequest.user_id}
+          amount={selectedRequest.amount}
+          currency={selectedRequest.currency_type || 'L.'}
+          paymentMethod={selectedRequest.payment_method}
+          isOpen={completionPanelOpen}
+          onClose={() => {
+            setCompletionPanelOpen(false)
+            setSelectedRequest(null)
+            loadRequests()
+          }}
+          onTransactionCreated={(transactionId) => {
+            console.log('✅ Transacción creada:', transactionId)
+            // Actualizar la lista de solicitudes
+            loadRequests()
+          }}
+        />
+      )}
     </div>
   )
 }

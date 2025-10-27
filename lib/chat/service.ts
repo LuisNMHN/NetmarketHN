@@ -83,40 +83,65 @@ export interface GetUserThreadsParams {
  * Servicios del servidor para el sistema de chat transaccional
  */
 export class ChatService {
-  private supabase = supabaseAdmin()
-
   /**
    * Abrir o obtener un hilo de chat existente
    */
   async openOrGetThread(params: OpenThreadParams): Promise<ChatThread> {
     try {
-      const { data, error } = await this.supabase.rpc('open_or_get_thread', {
-        p_context_type: params.contextType,
-        p_context_id: params.contextId,
-        p_party_a: params.partyA,
-        p_party_b: params.partyB,
-        p_context_title: params.contextTitle || null,
-        p_context_data: params.contextData || {}
+      console.log('🔍 ChatService - openOrGetThread - Parámetros:', {
+        contextType: params.contextType,
+        contextId: params.contextId,
+        partyA: params.partyA,
+        partyB: params.partyB
       })
+      
+      const supabase = await supabaseAdmin()
+      
+      const callParams = {
+        p_context_data: params.contextData || {},
+        p_context_id: params.contextId,
+        p_context_title: params.contextTitle || null,
+        p_context_type: params.contextType,
+        p_party_a: params.partyA,
+        p_party_b: params.partyB
+      }
+      
+      console.log('📞 ChatService - openOrGetThread - Parámetros a enviar:', callParams)
+      
+      // Llamar a la función con parámetros en el orden correcto
+      const { data, error } = await supabase.rpc('open_or_get_thread', callParams)
 
       if (error) {
+        console.error('❌ ChatService - openOrGetThread - Error en RPC:', error)
+        console.error('📋 Parámetros enviados:', callParams)
         throw new Error(`Error abriendo hilo: ${error.message}`)
       }
 
+      console.log('✅ ChatService - openOrGetThread - Thread ID:', data)
+
       // Obtener el hilo completo
-      const { data: thread, error: threadError } = await this.supabase
+      const { data: thread, error: threadError } = await supabase
         .from('chat_threads')
         .select('*')
         .eq('id', data)
         .single()
 
       if (threadError) {
+        console.error('❌ ChatService - openOrGetThread - Error obteniendo thread:', threadError)
         throw new Error(`Error obteniendo hilo: ${threadError.message}`)
       }
 
+      console.log('✅ ChatService - openOrGetThread - Thread obtenido:', {
+        id: thread.id,
+        party_a: thread.party_a,
+        party_b: thread.party_b,
+        context_type: thread.context_type,
+        context_id: thread.context_id
+      })
+
       return thread as ChatThread
     } catch (error) {
-      console.error('Error en openOrGetThread:', error)
+      console.error('❌ ChatService - openOrGetThread - Error:', error)
       throw error
     }
   }
@@ -126,7 +151,8 @@ export class ChatService {
    */
   async sendMessage(params: SendMessageParams): Promise<ChatMessage> {
     try {
-      const { data, error } = await this.supabase.rpc('send_chat_message', {
+      const supabase = await supabaseAdmin()
+      const { data, error } = await supabase.rpc('send_chat_message', {
         p_thread_id: params.threadId,
         p_sender_id: params.senderId,
         p_body: params.body,
@@ -139,7 +165,7 @@ export class ChatService {
       }
 
       // Obtener el mensaje completo
-      const { data: message, error: messageError } = await this.supabase
+      const { data: message, error: messageError } = await supabase
         .from('chat_messages')
         .select('*')
         .eq('id', data)
@@ -151,7 +177,21 @@ export class ChatService {
 
       // Emitir notificación si es un mensaje de usuario
       if (params.kind === 'user' || !params.kind) {
-        await this.emitMessageNotification(params.threadId, params.senderId, params.body)
+        console.log('📨 ChatService - sendMessage - Emitiendo notificación para mensaje de usuario')
+        console.log('📨 ChatService - sendMessage - Parámetros:', {
+          threadId: params.threadId,
+          senderId: params.senderId,
+          bodyLength: params.body.length,
+          kind: params.kind
+        })
+        try {
+          await this.emitMessageNotification(params.threadId, params.senderId, params.body)
+          console.log('✅ ChatService - sendMessage - Notificación emitida exitosamente')
+        } catch (error) {
+          console.error('❌ ChatService - sendMessage - Error emitiendo notificación:', error)
+        }
+      } else {
+        console.log('⚠️ ChatService - sendMessage - Omitiendo notificación (no es mensaje de usuario)')
       }
 
       return message as ChatMessage
@@ -170,8 +210,9 @@ export class ChatService {
     metadata: Record<string, any> = {}
   ): Promise<ChatMessage> {
     try {
+      const supabase = await supabaseAdmin()
       // Obtener información del hilo para determinar el emisor del sistema
-      const { data: thread, error: threadError } = await this.supabase
+      const { data: thread, error: threadError } = await supabase
         .from('chat_threads')
         .select('party_a, party_b, support_user_id')
         .eq('id', threadId)
@@ -222,7 +263,8 @@ export class ChatService {
    */
   async getMessages(params: GetMessagesParams): Promise<ChatMessage[]> {
     try {
-      const { data, error } = await this.supabase.rpc('get_thread_messages', {
+      const supabase = await supabaseAdmin()
+      const { data, error } = await supabase.rpc('get_thread_messages', {
         p_thread_id: params.threadId,
         p_user_id: params.userId,
         p_limit: params.limit || 50,
@@ -245,7 +287,8 @@ export class ChatService {
    */
   async markAsRead(threadId: string, userId: string, lastMessageId?: string): Promise<boolean> {
     try {
-      const { error } = await this.supabase.rpc('mark_thread_as_read', {
+      const supabase = await supabaseAdmin()
+      const { error } = await supabase.rpc('mark_thread_as_read', {
         p_thread_id: threadId,
         p_user_id: userId,
         p_last_message_id: lastMessageId || null
@@ -267,7 +310,8 @@ export class ChatService {
    */
   async getUserThreads(params: GetUserThreadsParams): Promise<any[]> {
     try {
-      const { data, error } = await this.supabase.rpc('get_user_threads', {
+      const supabase = await supabaseAdmin()
+      const { data, error } = await supabase.rpc('get_user_threads', {
         p_user_id: params.userId,
         p_limit: params.limit || 20,
         p_offset: params.offset || 0
@@ -289,8 +333,9 @@ export class ChatService {
    */
   async closeThread(threadId: string, userId: string): Promise<boolean> {
     try {
+      const supabase = await supabaseAdmin()
       // Verificar permisos
-      const { data: thread, error: threadError } = await this.supabase
+      const { data: thread, error: threadError } = await supabase
         .from('chat_threads')
         .select('party_a, party_b, support_user_id, status')
         .eq('id', threadId)
@@ -309,7 +354,7 @@ export class ChatService {
       }
 
       // Cerrar el hilo
-      const { error } = await this.supabase
+      const { error } = await supabase
         .from('chat_threads')
         .update({ 
           status: 'closed',
@@ -336,7 +381,8 @@ export class ChatService {
    */
   async addSupport(threadId: string, supportUserId: string): Promise<boolean> {
     try {
-      const { error } = await this.supabase
+      const supabase = await supabaseAdmin()
+      const { error } = await supabase
         .from('chat_threads')
         .update({ 
           support_user_id: supportUserId,
@@ -349,7 +395,7 @@ export class ChatService {
       }
 
       // Crear estado de lectura para el soporte
-      await this.supabase
+      await supabase
         .from('chat_read_status')
         .upsert({
           thread_id: threadId,
@@ -366,6 +412,8 @@ export class ChatService {
 
   /**
    * Emitir notificación de nuevo mensaje
+   * Solo emite notificaciones cuando el vendedor envía mensajes al comprador
+   * NO emite notificaciones si el chat está abierto para el receptor
    */
   private async emitMessageNotification(
     threadId: string,
@@ -373,41 +421,157 @@ export class ChatService {
     messageBody: string
   ): Promise<void> {
     try {
+      console.log('🔔 emitMessageNotification - Iniciando con:', { threadId, senderId })
+      
+      const supabase = await supabaseAdmin()
       // Obtener información del hilo
-      const { data: thread, error: threadError } = await this.supabase
+      const { data: thread, error: threadError } = await supabase
         .from('chat_threads')
-        .select('party_a, party_b, support_user_id, context_type, context_title')
+        .select('party_a, party_b, support_user_id, context_type, context_title, context_id')
         .eq('id', threadId)
         .single()
 
       if (threadError) {
-        console.error('Error obteniendo hilo para notificación:', threadError)
+        console.error('❌ Error obteniendo hilo para notificación:', threadError)
         return
       }
 
-      // Determinar el receptor
-      const receiverId = senderId === thread.party_a ? thread.party_b : thread.party_a
-
-      // Emitir notificación
-      await emitNotification({
-        user_id: receiverId,
-        topic: 'chat',
-        event: 'NEW_MESSAGE',
-        title: 'Nuevo mensaje recibido',
-        body: `Tienes un nuevo mensaje en ${thread.context_title || 'el chat'}`,
-        priority: 'normal',
-        cta_label: 'Abrir chat',
-        cta_href: `/chat/${threadId}`,
-        payload: {
-          threadId,
-          senderId,
-          contextType: thread.context_type,
-          messagePreview: messageBody.substring(0, 100)
-        },
-        dedupe_key: `new_message_${threadId}_${Date.now()}`
+      console.log('📊 Thread obtenido:', {
+        party_a: thread.party_a,
+        party_b: thread.party_b,
+        context_type: thread.context_type,
+        context_id: thread.context_id
       })
+
+      // Obtener buyer_id de la solicitud de compra
+      let buyerId: string | null = null
+      if (thread.context_type === 'order' && thread.context_id) {
+        try {
+          const { data: request } = await supabase
+            .from('purchase_requests')
+            .select('buyer_id')
+            .eq('id', thread.context_id)
+            .single()
+          
+          if (request) {
+            buyerId = request.buyer_id
+            console.log('✅ buyer_id obtenido:', buyerId)
+          }
+        } catch (error) {
+          console.error('❌ Error obteniendo buyer_id de purchase_request:', error)
+        }
+      }
+
+      // Determinar el receptor: si sender no es buyer, entonces el receptor es buyer
+      if (buyerId && senderId !== buyerId) {
+        const receiverId = buyerId
+        
+        // Verificar si el receptor tiene el chat activo (revisado recientemente)
+        // Si el último acceso fue hace menos de 5 segundos, asumimos que el chat está abierto
+        try {
+          const { data: readStatus } = await supabase
+            .from('chat_read_status')
+            .select('last_read_at')
+            .eq('thread_id', threadId)
+            .eq('user_id', receiverId)
+            .single()
+          
+          if (readStatus?.last_read_at) {
+            const lastReadTime = new Date(readStatus.last_read_at)
+            const now = new Date()
+            const secondsSinceLastRead = (now.getTime() - lastReadTime.getTime()) / 1000
+            
+            if (secondsSinceLastRead < 5) {
+              console.log('⚠️ Notificación omitida: el receptor tiene el chat abierto (última lectura hace', Math.round(secondsSinceLastRead), 'segundos)')
+              return
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error verificando estado de lectura:', error)
+          // Continuar con la emisión si hay error en la verificación
+        }
+        
+        console.log('✅ Emitiendo notificación a comprador:', receiverId)
+        
+        // Obtener detalles de la solicitud para incluir en la notificación
+        let requestDetails = ''
+        let requestCode = ''
+        try {
+          const { data: purchaseRequest } = await supabase
+            .from('purchase_requests')
+            .select('amount, payment_method, unique_code, currency_type')
+            .eq('id', thread.context_id)
+            .single()
+          
+          if (purchaseRequest) {
+            const currencySymbol = purchaseRequest.currency_type === 'USD' ? 'USD' : 
+                                   purchaseRequest.currency_type === 'EUR' ? 'EUR' : 'L.'
+            const formattedAmount = new Intl.NumberFormat('es-HN').format(purchaseRequest.amount)
+            
+            const paymentMethodLabel = purchaseRequest.payment_method === 'local_transfer' ? 'Transferencia Local' :
+                                     purchaseRequest.payment_method === 'international_transfer' ? 'Transferencia Internacional' :
+                                     purchaseRequest.payment_method === 'card' ? 'Tarjeta' :
+                                     purchaseRequest.payment_method === 'digital_balance' ? 'Saldo Digital' :
+                                     purchaseRequest.payment_method
+            
+            requestDetails = `${currencySymbol}${formattedAmount} • ${paymentMethodLabel}`
+            
+            if (purchaseRequest.unique_code) {
+              requestCode = purchaseRequest.unique_code
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error obteniendo detalles de la solicitud:', error)
+        }
+        
+        // Generar dedupe_key único para cada mensaje nuevo
+        const uniqueDedupeKey = `chat_${thread.context_id}_${receiverId}_${Date.now()}`
+        
+        // Construir el body de la notificación de forma compacta
+        let notificationBody = ''
+        if (requestDetails) {
+          notificationBody = requestDetails
+        }
+        
+        // Construir el título con el código
+        let notificationTitle = 'Nuevo mensaje'
+        if (requestCode) {
+          notificationTitle += ` - ${requestCode}`
+        }
+        
+        const notificationResult = await emitNotification({
+          user_id: receiverId,
+          topic: 'chat',
+          event: 'NEW_MESSAGE',
+          title: notificationTitle,
+          body: notificationBody,
+          priority: 'normal',
+          cta_label: 'Abrir chat',
+          cta_href: `/dashboard/mis-solicitudes?openChat=${thread.context_id}`,
+          payload: {
+            threadId,
+            senderId,
+            contextType: thread.context_type,
+            contextId: thread.context_id,
+            contextTitle: thread.context_title,
+            messagePreview: messageBody.substring(0, 100)
+          },
+          dedupe_key: uniqueDedupeKey
+        })
+        
+        console.log('✅ Resultado de notificación:', notificationResult)
+        if (!notificationResult.success) {
+          console.error('❌ Error emitiendo notificación:', notificationResult.error)
+        }
+      } else {
+        console.log('⚠️ Notificación omitida:', {
+          buyerId,
+          senderId,
+          'senderId === buyerId': buyerId ? senderId === buyerId : 'N/A'
+        })
+      }
     } catch (error) {
-      console.error('Error emitiendo notificación de mensaje:', error)
+      console.error('❌ Error emitiendo notificación de mensaje:', error)
     }
   }
 
@@ -420,8 +584,9 @@ export class ChatService {
     metadata: Record<string, any>
   ): Promise<void> {
     try {
+      const supabase = await supabaseAdmin()
       // Obtener información del hilo
-      const { data: thread, error: threadError } = await this.supabase
+      const { data: thread, error: threadError } = await supabase
         .from('chat_threads')
         .select('party_a, party_b, support_user_id, context_type, context_title')
         .eq('id', threadId)

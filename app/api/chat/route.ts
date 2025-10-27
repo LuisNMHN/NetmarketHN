@@ -33,6 +33,12 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, data: thread })
 
       case 'send_message':
+        console.log('📨 API Chat - send_message recibido:', {
+          threadId: params.threadId,
+          senderId: user.id,
+          bodyLength: params.body?.length,
+          kind: params.kind
+        })
         const message = await chatService.sendMessage({
           threadId: params.threadId,
           senderId: user.id,
@@ -40,6 +46,7 @@ export async function POST(request: NextRequest) {
           kind: params.kind,
           metadata: params.metadata
         })
+        console.log('✅ API Chat - Mensaje enviado exitosamente')
         return NextResponse.json({ success: true, data: message })
 
       case 'get_messages':

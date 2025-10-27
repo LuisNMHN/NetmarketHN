@@ -27,10 +27,18 @@ export interface NotificationResponse {
  */
 export async function emitNotification(payload: NotificationPayload): Promise<NotificationResponse> {
   try {
+    console.log('🔔 emitNotification - Iniciando emisión de notificación:', {
+      user_id: payload.user_id,
+      topic: payload.topic,
+      event: payload.event,
+      dedupe_key: payload.dedupe_key
+    })
+    
     const supabase = await supabaseAdmin()
     
     // Validar parámetros requeridos
     if (!payload.user_id || !payload.topic || !payload.event || !payload.title || !payload.body) {
+      console.error('❌ emitNotification - Parámetros requeridos faltantes')
       return {
         success: false,
         error: 'Parámetros requeridos: user_id, topic, event, title, body'
@@ -45,11 +53,14 @@ export async function emitNotification(payload: NotificationPayload): Promise<No
       .single()
 
     if (userError || !user) {
+      console.error('❌ emitNotification - Usuario no encontrado:', userError)
       return {
         success: false,
         error: 'Usuario no encontrado'
       }
     }
+
+    console.log('✅ emitNotification - Usuario validado:', user.id)
 
     // Llamar a la función de base de datos para emitir la notificación
     const { data, error } = await supabase.rpc('emit_notification', {
@@ -67,20 +78,21 @@ export async function emitNotification(payload: NotificationPayload): Promise<No
     })
 
     if (error) {
-      console.error('Error emitiendo notificación:', error)
+      console.error('❌ emitNotification - Error en RPC:', error)
       return {
         success: false,
         error: error.message
       }
     }
 
+    console.log('✅ emitNotification - Notificación emitida exitosamente:', data)
     return {
       success: true,
       notification_id: data
     }
 
   } catch (error) {
-    console.error('Error en emitNotification:', error)
+    console.error('❌ emitNotification - Error inesperado:', error)
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Error desconocido'
@@ -160,14 +172,14 @@ export const NotificationEvents = {
     cta_href: '/dashboard/kyc'
   },
 
-  // Eventos de chat/mensajes
-  NEW_MESSAGE: {
-    topic: 'chat' as const,
-    event: 'NEW_MESSAGE',
-    priority: 'normal' as const,
-    cta_label: 'Abrir conversación',
-    cta_href: '/dashboard/chat'
-  },
+  // Eventos de chat/mensajes (DESACTIVADO - eliminado del sistema)
+  // NEW_MESSAGE: {
+  //   topic: 'chat' as const,
+  //   event: 'NEW_MESSAGE',
+  //   priority: 'normal' as const,
+  //   cta_label: 'Abrir conversación',
+  //   cta_href: '/dashboard/chat'
+  // },
 
   // Eventos del sistema
   SYSTEM_MAINTENANCE: {

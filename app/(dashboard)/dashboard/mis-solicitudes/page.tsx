@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import {
   getUserPurchaseRequests,
   acceptPurchaseOffer,
@@ -35,10 +36,16 @@ import {
   MessageSquare,
   TrendingUp,
   Trash2,
-  X
+  X,
+  ShoppingCart
 } from "lucide-react"
+import LoadingSpinner from "@/components/ui/loading-spinner"
+import { ChatPanel } from "@/components/chat/ChatPanel"
+import { supabaseBrowser } from "@/lib/supabase/client"
+import { PurchaseCompletionPanel } from "@/components/PurchaseCompletionPanel"
 
 export default function MisSolicitudesPage() {
+  const searchParams = useSearchParams()
   const [requests, setRequests] = useState<PurchaseRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -47,6 +54,10 @@ export default function MisSolicitudesPage() {
   const [cancelOpen, setCancelOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [processing, setProcessing] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [completionPanelOpen, setCompletionPanelOpen] = useState(false)
+  const [selectedTransaction, setSelectedTransaction] = useState<any>(null)
   const { toast } = useToast()
 
   const loadRequests = async () => {
@@ -75,10 +86,15 @@ export default function MisSolicitudesPage() {
   }
 
   const canDeleteRequest = (request: PurchaseRequest): boolean => {
-    const isExpired = new Date(request.expires_at) < new Date()
+    // Se puede eliminar si la solicitud está cancelada, completada o expirada
     return request.status === 'cancelled' || 
-           (request.status === 'active' && isExpired) ||
+           request.status === 'completed' ||
            request.status === 'expired'
+  }
+
+  const canCancelRequest = (request: PurchaseRequest): boolean => {
+    // Puede cancelar SIEMPRE, sin importar el estado (incluso si está aceptada)
+    return true
   }
 
   const handleDeleteRequest = (request: PurchaseRequest) => {
@@ -176,6 +192,68 @@ export default function MisSolicitudesPage() {
     setDetailsOpen(true)
   }
 
+  const handleCompletePurchase = async (request: PurchaseRequest) => {
+    console.log('🖱️ handleCompletePurchase llamado para solicitud:', request.id)
+    
+    try {
+      // Buscar la transacción relacionada con esta solicitud
+      const supabase = supabaseBrowser()
+      
+      console.log('🔍 Buscando transacción para request_id:', request.id)
+      
+      const { data: transaction, error } = await supabase
+        .from('purchase_transactions')
+        .select(`
+          *,
+          transaction_steps (*)
+        `)
+        .eq('request_id', request.id)
+        .single()
+
+      console.log('🔍 Transacción encontrada:', transaction)
+      console.log('🔍 Error (si existe):', error)
+      console.log('🔍 Pasos de la transacción:', transaction?.transaction_steps)
+
+      if (error || !transaction) {
+        console.error('❌ Error o transacción no encontrada:', error)
+        console.log('ℹ️ Esta solicitud aún no tiene una transacción activa. El vendedor debe aceptar el trato primero.')
+        toast({
+          title: "Información",
+          description: "Esta solicitud aún no tiene una transacción activa. Espera a que el vendedor acepte el trato.",
+          variant: "default",
+        })
+        return
+      }
+
+      // Abrir el panel de completar compra con la transacción existente
+      const transactionData = {
+        request_id: request.id,
+        seller_id: transaction.seller_id,
+        buyer_id: transaction.buyer_id,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        payment_method: transaction.payment_method,
+        transaction_id: transaction.id,  // IMPORTANTE: incluir el ID de la transacción
+        transaction_steps: transaction.transaction_steps || []
+      }
+      
+      console.log('✅ Datos de transacción preparados:', transactionData)
+      
+      setSelectedTransaction(transactionData)
+      console.log('✅ setSelectedTransaction llamado')
+      
+      setCompletionPanelOpen(true)
+      console.log('✅ Panel de completar compra abierto para el comprador')
+    } catch (error) {
+      console.error('❌ Error al abrir el panel:', error)
+      toast({
+        title: "Error",
+        description: "Error al abrir el panel de completar compra",
+        variant: "destructive",
+      })
+    }
+  }
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'active':
@@ -183,7 +261,7 @@ export default function MisSolicitudesPage() {
       case 'negotiating':
         return <Badge variant="default" className="bg-blue-100 text-blue-800">Negociando</Badge>
       case 'accepted':
-        return <Badge variant="default" className="bg-purple-100 text-purple-800">Aceptada</Badge>
+        return <Badge variant="default" className="bg-orange-100 text-orange-800">Aceptada</Badge>
       case 'completed':
         return <Badge variant="default" className="bg-gray-100 text-gray-800">Completada</Badge>
       case 'cancelled':
@@ -253,19 +331,142 @@ export default function MisSolicitudesPage() {
     return new Date(expiresAt) < new Date()
   }
 
+  // Obtener userId al montar el componente
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabaseBrowser().auth.getUser()
+      if (user) {
+        setUserId(user.id)
+      }
+    }
+    getUser()
+  }, [])
+
+  // Manejar parámetro openChat de la URL
+  useEffect(() => {
+    const openChatParam = searchParams.get('openChat')
+    if (openChatParam && requests.length > 0 && userId) {
+      console.log('🔍 openChat param:', openChatParam)
+      console.log('🔍 Loaded requests:', requests.map(r => ({ id: r.id, unique_code: r.unique_code })))
+      console.log('🔍 userId:', userId)
+      
+      const matchingRequest = requests.find(r => r.id === openChatParam)
+      console.log('🔍 Matching request:', matchingRequest)
+      
+      if (matchingRequest) {
+        setSelectedRequest(matchingRequest)
+        setChatOpen(true)
+        
+        // Limpiar el parámetro de la URL
+        window.history.replaceState({}, '', '/dashboard/mis-solicitudes')
+      }
+    }
+  }, [searchParams, requests, userId])
+
   useEffect(() => {
     loadRequests()
-  }, [])
+    
+    // Escuchar cuando cambia el estado de una solicitud
+    const handleRequestStatusChange = () => {
+      console.log('🔄 Estado de solicitud cambiado, recargando...')
+      loadRequests()
+    }
+    
+    window.addEventListener('request-status-changed', handleRequestStatusChange)
+    
+    // Configurar suscripción en tiempo real para purchase_requests (solo si userId está disponible)
+    let channel: any = null
+    if (userId) {
+      try {
+        const supabase = supabaseBrowser()
+        
+        console.log('🔧 Configurando suscripción Realtime para userId:', userId)
+        
+        channel = supabase
+          .channel('mis_solicitudes_changes')
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'purchase_requests',
+              filter: `buyer_id=eq.${userId}` // Solo escuchar actualizaciones a las solicitudes del comprador actual
+            },
+            (payload) => {
+              try {
+                console.log('🔄 Cambio en tiempo real recibido:', payload)
+                console.log('📊 Datos de la solicitud:', payload.new)
+                console.log('🎯 Estado anterior:', payload.old)
+                
+                // Actualizar la solicitud específica en el estado
+                setRequests((prevRequests) => {
+                  console.log('📝 Solicitudes antes de actualizar:', prevRequests.length)
+                  
+                  const updatedRequests = prevRequests.map((req) => {
+                    if (req.id === payload.new.id) {
+                      console.log('✅ Actualizando solicitud:', req.id, 'Estado:', req.status, '->', payload.new.status)
+                      return {
+                        ...req,
+                        status: payload.new.status,
+                        seller_id: payload.new.seller_id,
+                        accepted_at: payload.new.accepted_at
+                      }
+                    }
+                    return req
+                  })
+                  
+                  console.log('📝 Solicitudes después de actualizar:', updatedRequests.length)
+                  
+                  // Si la solicitud no está en el estado actual (p. ej., fue creada), recargar todas
+                  const found = prevRequests.find(r => r.id === payload.new.id)
+                  if (!found) {
+                    console.log('🔄 Solicitud nueva detectada, recargando todas...')
+                    loadRequests()
+                    return prevRequests
+                  }
+                  
+                  return updatedRequests
+                })
+              } catch (error) {
+                console.error('❌ Error procesando actualización Realtime:', error)
+              }
+            }
+          )
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              console.log('✅ Suscripción Realtime activa para mis_solicitudes_changes')
+            }
+            if (status === 'CHANNEL_ERROR') {
+              console.warn('⚠️ Error en el canal Realtime, se reintentará automáticamente')
+            }
+            if (status === 'CLOSED') {
+              console.log('ℹ️ Canal Realtime cerrado')
+            }
+            if (status === 'TIMED_OUT') {
+              console.warn('⚠️ Timeout en Realtime, reintentando...')
+            }
+          })
+      } catch (error) {
+        console.error('❌ Error configurando suscripción Realtime:', error)
+        // No lanzar el error, simplemente continuar sin Realtime
+      }
+    } else {
+      console.log('⚠️ userId no está disponible, no se puede configurar Realtime')
+    }
+    
+    return () => {
+      window.removeEventListener('request-status-changed', handleRequestStatusChange)
+      if (channel) {
+        const supabase = supabaseBrowser()
+        supabase.removeChannel(channel)
+      }
+    }
+  }, [userId, toast])
 
   if (loading) {
     return (
       <div className="max-w-6xl mx-auto p-4 md:p-6">
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-center">
-            <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
-            <p className="text-muted-foreground">Cargando tus solicitudes...</p>
-          </div>
-        </div>
+        <LoadingSpinner message="Cargando tus solicitudes..." />
       </div>
     )
   }
@@ -342,7 +543,7 @@ export default function MisSolicitudesPage() {
         {requests.length === 0 ? (
           <Card>
             <CardContent className="text-center py-8 sm:py-12 px-4">
-              <span className="text-4xl sm:text-6xl mx-auto mb-4">💱</span>
+              <ShoppingCart className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-base sm:text-lg font-semibold mb-2">No tienes solicitudes</h3>
               <p className="text-sm sm:text-base text-muted-foreground mb-4">
                 Crea tu primera solicitud de compra de HNLD
@@ -410,20 +611,37 @@ export default function MisSolicitudesPage() {
                       <Eye className="mr-2 h-4 w-4" />
                       Ver Detalles
                     </Button>
+                    {request.status === 'accepted' && (
+                      <Button
+                        variant="default" 
+                        size="sm"
+                        onClick={async () => {
+                          // Verificar primero si existe una transacción
+                          const supabase = supabaseBrowser()
+                          const { data: checkTransaction } = await supabase
+                            .from('purchase_transactions')
+                            .select('id')
+                            .eq('request_id', request.id)
+                            .single()
+                          
+                          if (checkTransaction) {
+                            await handleCompletePurchase(request)
+                          } else {
+                            toast({
+                              title: "Esperando transacción",
+                              description: "La transacción aún no está disponible. Espera a que el vendedor complete el proceso de aceptación.",
+                              variant: "default",
+                            })
+                          }
+                        }}
+                        className="w-full bg-green-600 hover:bg-green-700 text-white"
+                      >
+                        <ShoppingCart className="mr-2 h-4 w-4" />
+                        Completar Compra
+                      </Button>
+                    )}
                     <div className="flex space-x-2">
-                      {request.status === 'active' && (
-                        <Button
-                          variant="destructive" 
-                          size="sm"
-                          onClick={() => handleCancelRequest(request)}
-                          disabled={processing}
-                          className="flex-1"
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Cancelar
-                        </Button>
-                      )}
-                      {canDeleteRequest(request) && (
+                      {canDeleteRequest(request) ? (
                         <Button
                           variant="ghost" 
                           size="sm"
@@ -451,6 +669,17 @@ export default function MisSolicitudesPage() {
                         >
                           <X className="mr-2 h-4 w-4" />
                           Eliminar
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="destructive" 
+                          size="sm"
+                          onClick={() => handleCancelRequest(request)}
+                          disabled={processing}
+                          className="flex-1"
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Cancelar
                         </Button>
                       )}
                     </div>
@@ -511,18 +740,36 @@ export default function MisSolicitudesPage() {
                       <Eye className="mr-2 h-4 w-4" />
                       Ver Detalles
                     </Button>
-                    {request.status === 'active' && (
+                    {request.status === 'accepted' && (
                       <Button
-                        variant="destructive" 
+                        variant="default" 
                         size="sm"
-                        onClick={() => handleCancelRequest(request)}
-                        disabled={processing}
+                        onClick={async () => {
+                          // Verificar primero si existe una transacción
+                          const supabase = supabaseBrowser()
+                          const { data: checkTransaction } = await supabase
+                            .from('purchase_transactions')
+                            .select('id')
+                            .eq('request_id', request.id)
+                            .single()
+                          
+                          if (checkTransaction) {
+                            await handleCompletePurchase(request)
+                          } else {
+                            toast({
+                              title: "Esperando transacción",
+                              description: "La transacción aún no está disponible. Espera a que el vendedor complete el proceso de aceptación.",
+                              variant: "default",
+                            })
+                          }
+                        }}
+                        className="bg-green-600 hover:bg-green-700 text-white"
                       >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Cancelar
+                        <ShoppingCart className="mr-2 h-4 w-4" />
+                        Completar Compra
                       </Button>
                     )}
-                    {canDeleteRequest(request) && (
+                    {canDeleteRequest(request) ? (
                       <Button
                         variant="ghost" 
                         size="sm"
@@ -550,6 +797,16 @@ export default function MisSolicitudesPage() {
                       >
                         <X className="mr-2 h-4 w-4" />
                         Eliminar
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="destructive" 
+                        size="sm"
+                        onClick={() => handleCancelRequest(request)}
+                        disabled={processing}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Cancelar
                       </Button>
                     )}
                   </div>
@@ -643,7 +900,7 @@ export default function MisSolicitudesPage() {
               <span>Cancelar Solicitud</span>
             </DialogTitle>
             <DialogDescription>
-              ¿Cancelar esta solicitud de compra?
+              ¿Estás seguro de que deseas cancelar esta solicitud? Podrás crear una nueva solicitud más adelante.
             </DialogDescription>
           </DialogHeader>
           
@@ -698,7 +955,7 @@ export default function MisSolicitudesPage() {
               <span>Eliminar Permanentemente</span>
             </DialogTitle>
             <DialogDescription>
-              ⚠️ Esta acción no se puede deshacer
+              ¿Estás seguro de que deseas eliminar esta solicitud permanentemente? Esta acción no se puede deshacer y se perderá toda la información relacionada.
             </DialogDescription>
           </DialogHeader>
           
@@ -750,6 +1007,55 @@ export default function MisSolicitudesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Chat Panel */}
+      {selectedRequest && userId && selectedRequest.buyer_id !== userId && (
+        <ChatPanel
+          isOpen={chatOpen}
+          onClose={() => setChatOpen(false)}
+          chatParams={{
+            contextType: 'order',
+            contextId: selectedRequest.id,
+            partyA: selectedRequest.buyer_id,
+            partyB: userId,
+            contextTitle: 'Negociación de Solicitud',
+            contextData: {
+              requestId: selectedRequest.id,
+              amount: selectedRequest.amount,
+              paymentMethod: selectedRequest.payment_method,
+              status: selectedRequest.status
+            }
+          }}
+          requestInfo={{
+            amount: selectedRequest.amount,
+            paymentMethod: selectedRequest.payment_method || '',
+            uniqueCode: selectedRequest.unique_code,
+            currency: selectedRequest.currency_type
+          }}
+        />
+      )}
+
+      {/* Purchase Completion Panel */}
+      {selectedTransaction && (
+        <PurchaseCompletionPanel
+          requestId={selectedTransaction.request_id}
+          transactionId={selectedTransaction.transaction_id}
+          sellerId={selectedTransaction.seller_id}
+          buyerId={selectedTransaction.buyer_id}
+          amount={selectedTransaction.amount}
+          currency={selectedTransaction.currency}
+          paymentMethod={selectedTransaction.payment_method}
+          isOpen={completionPanelOpen}
+          onClose={() => {
+            setCompletionPanelOpen(false)
+            setSelectedTransaction(null)
+            loadRequests()
+          }}
+          onTransactionCreated={(transactionId) => {
+            console.log('Transacción creada:', transactionId)
+          }}
+        />
+      )}
     </div>
   )
 }

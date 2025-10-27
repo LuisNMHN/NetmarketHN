@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import KycUploader from './KycUploader';
+import LoadingSpinner from '@/components/ui/loading-spinner';
 
 export default function EjemploKycPage() {
   const [userId, setUserId] = useState<string | null>(null);
@@ -32,7 +33,7 @@ export default function EjemploKycPage() {
   if (loading) {
     return (
       <div className="container mx-auto py-8">
-        <div className="text-center">Cargando...</div>
+        <LoadingSpinner message="Cargando..." />
       </div>
     );
   }

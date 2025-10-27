@@ -4,7 +4,7 @@ import { RealtimeChannel } from "@supabase/supabase-js"
 export interface Notification {
   id: string
   user_id: string
-  topic: 'order' | 'kyc' | 'wallet' | 'chat' | 'system'
+  topic: 'order' | 'kyc' | 'wallet' | 'system' // DESACTIVADO: 'chat' removido
   event: string
   title: string
   body: string
@@ -56,10 +56,16 @@ export class NotificationCenter {
   private async setupRealtimeSubscription() {
     const { data: { user } } = await this.supabase.auth.getUser()
     
-    if (!user) return
+    if (!user) {
+      console.log('⚠️ NotificationCenter - Usuario no autenticado, saltando suscripción')
+      return
+    }
+
+    console.log('🔌 NotificationCenter - Configurando suscripción realtime para usuario:', user.id)
 
     // Cancelar suscripción anterior si existe
     if (this.realtimeChannel) {
+      console.log('🧹 NotificationCenter - Limpiando suscripción anterior')
       await this.realtimeChannel.unsubscribe()
     }
 
@@ -75,6 +81,7 @@ export class NotificationCenter {
           filter: `user_id=eq.${user.id}`
         },
         (payload) => {
+          console.log('📨 NotificationCenter - Nueva notificación recibida via realtime:', payload.new)
           const notification = payload.new as Notification
           this.notifyListeners(notification)
         }
@@ -88,11 +95,14 @@ export class NotificationCenter {
           filter: `user_id=eq.${user.id}`
         },
         (payload) => {
+          console.log('📨 NotificationCenter - Notificación actualizada via realtime:', payload.new)
           const notification = payload.new as Notification
           this.notifyListeners(notification)
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('🔌 NotificationCenter - Estado de suscripción:', status)
+      })
   }
 
   /**
@@ -115,8 +125,10 @@ export class NotificationCenter {
    * Notificar a todos los listeners
    */
   private notifyListeners(notification: Notification) {
+    console.log('📢 NotificationCenter - Notificando listeners:', this.listeners.size, 'listeners')
     this.listeners.forEach(callback => callback(notification))
-    this.refreshStats() // Actualizar estadísticas cuando hay cambios
+    // NO llamar refreshStats aquí para evitar bucles infinitos
+    // Las estadísticas se actualizarán automáticamente cuando se actualice el estado en el componente
   }
 
   /**

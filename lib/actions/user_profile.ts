@@ -17,6 +17,17 @@ export interface UserProfileData {
   github?: string
   created_at: string
   updated_at: string
+  // Campos adicionales que pueden estar en la BD
+  kyc_status?: string
+  kyc_submitted_at?: string
+  member_since?: string
+  birth_date?: string
+  country?: string
+  doc_type?: string
+  doc_number?: string
+  notification_email?: boolean
+  notification_push?: boolean
+  theme?: 'light' | 'dark' | 'system'
   preferences?: {
     theme?: 'light' | 'dark' | 'system'
     language?: string
@@ -65,6 +76,17 @@ export async function getUserProfileData(): Promise<{ success: boolean; data?: U
       github: profile?.github || '',
       created_at: profile?.created_at || user.created_at,
       updated_at: profile?.updated_at || new Date().toISOString(),
+      // Campos adicionales
+      kyc_status: profile?.kyc_status,
+      kyc_submitted_at: profile?.kyc_submitted_at,
+      member_since: profile?.member_since,
+      birth_date: profile?.birth_date,
+      country: profile?.country,
+      doc_type: profile?.doc_type,
+      doc_number: profile?.doc_number,
+      notification_email: profile?.notification_email,
+      notification_push: profile?.notification_push,
+      theme: profile?.theme,
       preferences: profile?.preferences || {
         theme: 'system',
         language: 'es',
@@ -85,7 +107,7 @@ export async function getUserProfileData(): Promise<{ success: boolean; data?: U
 
 // Actualizar preferencias del perfil
 export async function updateProfilePreferences(
-  preferences: Partial<UserProfileData['preferences']>
+  data: Partial<UserProfileData>
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const supabase = await supabaseServer()
@@ -95,13 +117,24 @@ export async function updateProfilePreferences(
       return { success: false, error: 'Usuario no autenticado' }
     }
 
-    // Actualizar preferencias en el perfil
+    // Separar preferences de otros campos
+    const { preferences, ...otherData } = data
+    
+    // Construir el objeto de actualización
+    const updateData: any = {
+      ...otherData,
+      updated_at: new Date().toISOString()
+    }
+    
+    // Si hay preferences, agregarlas
+    if (preferences) {
+      updateData.preferences = preferences
+    }
+
+    // Actualizar el perfil
     const { error: updateError } = await supabase
       .from('profiles')
-      .update({ 
-        preferences: preferences,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', user.id)
 
     if (updateError) {

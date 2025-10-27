@@ -17,6 +17,7 @@ import { ArrowLeft, Clock, DollarSign, Users, Edit, X, Gavel, User } from "lucid
 import Link from "next/link"
 import type { AuctionDTO, AuctionStatus, Currency, BidDTO } from "@/lib/contracts/types"
 import { onLoadAuction, onEditAuction, onCloseAuction, onBidAuction, onLoadBids } from "@/lib/contracts/events"
+import LoadingSpinner from "@/components/ui/loading-spinner"
 
 export default function AuctionDetailPage() {
   const params = useParams()
@@ -193,43 +194,7 @@ export default function AuctionDetailPage() {
   }
 
   if (loading) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center gap-4">
-          <div className="w-8 h-8 bg-gray-200 rounded animate-pulse"></div>
-          <div className="h-8 bg-gray-200 rounded w-48 animate-pulse"></div>
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-6">
-            <Card className="animate-pulse">
-              <CardHeader>
-                <div className="h-6 bg-gray-200 rounded w-3/4"></div>
-                <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="h-4 bg-gray-200 rounded"></div>
-                  <div className="h-4 bg-gray-200 rounded w-2/3"></div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-          <div className="space-y-6">
-            <Card className="animate-pulse">
-              <CardHeader>
-                <div className="h-5 bg-gray-200 rounded w-1/2"></div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="h-4 bg-gray-200 rounded"></div>
-                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </div>
-    )
+    return <LoadingSpinner message="Cargando subasta..." />
   }
 
   if (!auction) {

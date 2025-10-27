@@ -137,12 +137,39 @@ BEGIN
             SELECT id INTO notification_id FROM notifications 
             WHERE dedupe_key = p_dedupe_key AND user_id = p_user_id;
             
-            IF FOUND THEN
-                RETURN notification_id;
+            IF notification_id IS NOT NULL THEN
+                -- Si existe y está en estado "read" o "archived", crear una nueva notificación
+                -- Esto permite que las notificaciones de chat lleguen incluso si ya fueron leídas
+                IF EXISTS (
+                    SELECT 1 FROM notifications 
+                    WHERE id = notification_id 
+                    AND status IN ('read', 'archived')
+                ) THEN
+                    -- Crear nueva notificación
+                    INSERT INTO notifications (
+                        user_id, topic, event, title, body, cta_label, cta_href,
+                        priority, payload, dedupe_key, expires_at
+                    ) VALUES (
+                        p_user_id, p_topic, p_event, p_title, p_body, p_cta_label, p_cta_href,
+                        p_priority, p_payload, p_dedupe_key, p_expires_at
+                    ) RETURNING id INTO notification_id;
+                    
+                    RETURN notification_id;
+                ELSE
+                    -- Si existe y está en estado "unread", actualizar la notificación existente
+                    UPDATE notifications SET
+                        title = p_title,
+                        body = p_body,
+                        updated_at = NOW(),
+                        created_at = NOW() -- Actualizar created_at para que aparezca como nueva
+                    WHERE id = notification_id;
+                    
+                    RETURN notification_id;
+                END IF;
             END IF;
         END IF;
 
-        -- Insertar la notificación
+        -- Insertar la notificación (si no existe una con dedupe_key)
         INSERT INTO notifications (
             user_id, topic, event, title, body, cta_label, cta_href,
             priority, payload, dedupe_key, expires_at
