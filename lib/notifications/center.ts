@@ -83,6 +83,23 @@ export class NotificationCenter {
         (payload) => {
           console.log('📨 NotificationCenter - Nueva notificación recibida via realtime:', payload.new)
           const notification = payload.new as Notification
+          
+          // Log del status si está disponible en el payload
+          if (notification.payload && notification.payload.request_status) {
+            console.log('📊 NotificationCenter - Status del request:', notification.payload.request_status)
+            console.log('📊 NotificationCenter - Request ID:', notification.payload.request_id)
+          }
+          
+          // Log específico para cancelaciones, eliminaciones y expiraciones
+          if (notification.event === 'REQUEST_CANCELLED' || notification.event === 'REQUEST_DELETED' || notification.event === 'REQUEST_EXPIRED') {
+            console.log('🚨 NotificationCenter - Notificación de solicitud:', {
+              event: notification.event,
+              title: notification.title,
+              request_status: notification.payload?.request_status,
+              request_id: notification.payload?.request_id
+            })
+          }
+          
           this.notifyListeners(notification)
         }
       )

@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -32,7 +33,9 @@ import {
   Circle,
   HelpCircle,
   Send,
-  Plus
+  Plus,
+  Paperclip,
+  File
 } from 'lucide-react'
 // import { toast } from 'sonner' // No se usa en este componente
 import { ReputationSection } from '@/components/reputation/ReputationSection'
@@ -122,81 +125,318 @@ export function PurchaseCompletionPanel({
   const [chatSending, setChatSending] = useState(false)
   const [chatEnabled, setChatEnabled] = useState(false)
   const [initialized, setInitialized] = useState(false)
+  const [chatThreadId, setChatThreadId] = useState<string | null>(null)
+  const chatRealtimeChannelRef = React.useRef<any>(null)
+  const currentSubscribedThreadIdRef = React.useRef<string | null>(null)
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const [uploadingFile, setUploadingFile] = useState(false)
   
   // Cargar mensajes del chat
   const loadChatMessages = async () => {
-    if (!transaction?.id || !chatEnabled) return
+    if (!chatEnabled || !requestId) return
     
     try {
       setChatLoading(true)
       const supabase = supabaseBrowser()
       
-      // Intentar obtener o crear un thread simple
+      // Usar requestId como context_id en lugar de transaction.id
+      console.log('🔍 Buscando thread con requestId:', requestId)
+      
+      // Intentar obtener thread existente
       const { data: threads } = await supabase
         .from('chat_threads')
         .select('*')
-        .eq('context_id', transaction.id)
+        .eq('context_id', requestId)  // ⭐ USAR REQUESTID EN LUGAR DE TRANSACTION.ID
         .eq('context_type', 'order')
         .limit(1)
+      
+      console.log('📋 Threads encontrados:', threads)
+      
+      let threadId: string | null = null
       
       if (threads && threads.length > 0) {
+        // Thread existente encontrado
         const thread = threads[0]
+        threadId = thread.id
+        console.log('✅ Thread encontrado:', threadId)
+      } else {
+        // Crear thread inmediatamente si no existe
+        console.log('🆕 Creando thread inmediatamente...')
+        const actualBuyerId = buyerId
+        const actualSellerId = sellerId
         
-        // Cargar mensajes del thread
-        const { data: messages } = await supabase
-          .from('chat_messages')
-          .select('*')
-          .eq('thread_id', thread.id)
-          .order('created_at', { ascending: true })
+        if (!actualBuyerId || !actualSellerId) {
+          console.warn('⚠️ No se pueden obtener buyer_id o seller_id para crear thread')
+          return
+        }
         
-        setChatMessages(messages || [])
-      }
-    } catch (error) {
-      console.error('Error cargando mensajes:', error)
-    } finally {
-      setChatLoading(false)
-    }
-  }
-  
-  // Enviar mensaje
-  const sendChatMessage = async (message: string) => {
-    if (!transaction?.id || chatSending || !message.trim() || !chatEnabled) return
-    
-    try {
-      setChatSending(true)
-      const supabase = supabaseBrowser()
-      
-      // Obtener o crear thread
-      let { data: threads } = await supabase
-        .from('chat_threads')
-        .select('*')
-        .eq('context_id', transaction.id)
-        .eq('context_type', 'order')
-        .limit(1)
-      
-      let threadId = threads?.[0]?.id
-      
-      if (!threadId) {
-        // Crear thread simple
         const { data: newThread, error: threadError } = await supabase
           .from('chat_threads')
           .insert({
             context_type: 'order',
-            context_id: transaction.id,
-            party_a: transaction.buyer_id,
-            party_b: transaction.seller_id,
+            context_id: requestId,
+            party_a: actualBuyerId,
+            party_b: actualSellerId,
             context_title: 'Chat de Negociación'
           })
           .select()
           .single()
         
-        if (threadError) throw threadError
+        if (threadError) {
+          console.error('❌ Error creando thread:', threadError)
+          throw threadError
+        }
+        
         threadId = newThread.id
+        console.log('✅ Thread creado:', threadId)
+      }
+      
+      // Establecer el threadId en el estado
+      if (threadId) {
+        setChatThreadId(threadId)
+        
+        // Cargar mensajes del thread
+        const { data: messages, error: messagesError } = await supabase
+          .from('chat_messages')
+          .select('*')
+          .eq('thread_id', threadId)
+          .order('created_at', { ascending: true })
+        
+        console.log('📨 Mensajes encontrados:', messages)
+        if (messagesError) console.error('❌ Error cargando mensajes:', messagesError)
+        
+        setChatMessages(messages || [])
+        
+        // Configurar suscripción realtime para nuevos mensajes
+        // Usar setTimeout para asegurar que la suscripción se configure completamente
+        setTimeout(() => {
+          setupRealtimeSubscription(threadId!)
+        }, 100)
+      }
+    } catch (error) {
+      console.error('❌ Error cargando mensajes:', error)
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
+  // Subir documento al chat
+  const handleFileUpload = async (file: File) => {
+    if (!chatEnabled || !chatThreadId || uploadingFile) return
+
+    setUploadingFile(true)
+    try {
+      const supabase = supabaseBrowser()
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        toast({
+          title: "Error",
+          description: "Debes estar autenticado para subir documentos",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Validar tamaño del archivo (máximo 10MB)
+      const maxSize = 10 * 1024 * 1024 // 10MB
+      if (file.size > maxSize) {
+        toast({
+          title: "Error",
+          description: "El archivo es demasiado grande. Máximo 10MB",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Validar tipo de archivo (imágenes y PDFs)
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/gif', 'image/webp', 'application/pdf']
+      if (!allowedTypes.includes(file.type)) {
+        toast({
+          title: "Error",
+          description: "Solo se permiten imágenes (JPG, PNG, GIF, WEBP) y PDFs",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Generar nombre único para el archivo
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${user.id}-${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
+      
+      // Crear bucket si no existe (usaremos 'transaction-documents')
+      const bucket = 'transaction-documents'
+      
+      // Subir archivo a Supabase Storage
+      const filePath = `${requestId}/${fileName}`
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from(bucket)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: file.type
+        })
+
+      if (uploadError) {
+        console.error('Error subiendo archivo:', uploadError)
+        toast({
+          title: "Error",
+          description: "No se pudo subir el documento. Inténtalo de nuevo.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Obtener URL pública del archivo
+      const { data: { publicUrl } } = supabase.storage
+        .from(bucket)
+        .getPublicUrl(filePath)
+
+      // Crear mensaje en el chat con el documento adjunto
+      const messageBody = `📎 Documento: ${file.name}`
+      
+      const { data: messageData, error: messageError } = await supabase
+        .from('chat_messages')
+        .insert({
+          thread_id: chatThreadId,
+          sender_id: user.id,
+          body: messageBody,
+          message_type: 'document',
+          attachments: [{
+            type: file.type,
+            name: file.name,
+            url: publicUrl,
+            size: file.size
+          }]
+        })
+        .select()
+        .single()
+
+      if (messageError) {
+        console.error('Error creando mensaje con documento:', messageError)
+        toast({
+          title: "Error",
+          description: "Documento subido pero error al crear el mensaje",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Agregar el mensaje al estado local inmediatamente
+      setChatMessages(prev => [...prev, messageData])
+
+      // Guardar también en transaction_documents si hay una transacción
+      if (transaction?.id) {
+        await supabase
+          .from('transaction_documents')
+          .insert({
+            transaction_id: transaction.id,
+            document_type: 'payment_proof',
+            document_name: file.name,
+            document_url: publicUrl,
+            file_size: file.size,
+            mime_type: file.type,
+            uploaded_by: user.id
+          })
+      }
+
+      toast({
+        title: "Documento enviado",
+        description: "El documento se ha enviado correctamente",
+      })
+
+      // Limpiar el input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    } catch (error) {
+      console.error('Error en handleFileUpload:', error)
+      toast({
+        title: "Error",
+        description: "Error inesperado al subir el documento",
+        variant: "destructive",
+      })
+    } finally {
+      setUploadingFile(false)
+    }
+  }
+  
+  // Enviar mensaje
+  const sendChatMessage = async (message: string) => {
+    if (chatSending || !message.trim() || !chatEnabled) return
+    
+    try {
+      setChatSending(true)
+      const supabase = supabaseBrowser()
+      
+      console.log('📤 Enviando mensaje con requestId:', requestId)
+      
+      // Obtener o crear thread usando requestId
+      let { data: threads, error: threadsError } = await supabase
+        .from('chat_threads')
+        .select('*')
+        .eq('context_id', requestId)  // ⭐ USAR REQUESTID EN LUGAR DE TRANSACTION.ID
+        .eq('context_type', 'order')
+        .limit(1)
+      
+      if (threadsError) console.error('❌ Error buscando threads:', threadsError)
+      console.log('📋 Threads encontrados:', threads)
+      
+      let threadId = threads?.[0]?.id || chatThreadId
+      
+      if (!threadId) {
+        console.log('🆕 Creando nuevo thread...')
+        // Determinar buyer y seller correctamente
+        const actualBuyerId = buyerId
+        const actualSellerId = sellerId
+        
+        if (!actualBuyerId || !actualSellerId) {
+          console.error('❌ No se pueden obtener buyer_id o seller_id')
+          throw new Error('No se pueden obtener los IDs de comprador o vendedor')
+        }
+        
+        // Crear thread simple usando requestId como context_id
+        const { data: newThread, error: threadError } = await supabase
+          .from('chat_threads')
+          .insert({
+            context_type: 'order',
+            context_id: requestId,  // ⭐ USAR REQUESTID
+            party_a: actualBuyerId,
+            party_b: actualSellerId,
+            context_title: 'Chat de Negociación'
+          })
+          .select()
+          .single()
+        
+        if (threadError) {
+          console.error('❌ Error creando thread:', threadError)
+          throw threadError
+        }
+        threadId = newThread.id
+        console.log('✅ Thread creado:', threadId)
+        setChatThreadId(threadId)
+        
+        // Configurar suscripción realtime para el nuevo thread
+        // Esperar un momento para asegurar que la suscripción esté lista
+        await new Promise(resolve => setTimeout(resolve, 150))
+        setupRealtimeSubscription(threadId)
+        
+        // Esperar un poco más para que la suscripción se active completamente
+        await new Promise(resolve => setTimeout(resolve, 100))
+      } else {
+        // Si el thread ya existe, asegurarse de que la suscripción esté activa
+        if (threadId !== chatThreadId) {
+          setChatThreadId(threadId)
+          setupRealtimeSubscription(threadId)
+        }
       }
       
       // Obtener usuario actual
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('No autenticado')
+      
+      console.log('📤 Enviando mensaje al thread:', threadId)
       
       // Insertar mensaje
       const { data: newMessage, error: msgError } = await supabase
@@ -210,24 +450,118 @@ export function PurchaseCompletionPanel({
         .select()
         .single()
       
-      if (msgError) throw msgError
+      if (msgError) {
+        console.error('❌ Error insertando mensaje:', msgError)
+        throw msgError
+      }
       
-      // Agregar mensaje a la lista
+      console.log('✅ Mensaje enviado:', newMessage)
+      
+      // Agregar mensaje localmente para feedback inmediato
+      // realtime lo recibirá también pero verificará duplicados
       setChatMessages(prev => [...prev, newMessage])
       
     } catch (error) {
       console.error('❌ Error enviando mensaje:', error)
+      toast({
+        title: "Error",
+        description: "No se pudo enviar el mensaje. Verifica tu conexión.",
+        variant: "destructive",
+      })
     } finally {
       setChatSending(false)
     }
   }
   
+  // Configurar suscripción realtime para el chat (memoizada)
+  const setupRealtimeSubscription = useCallback((threadId: string) => {
+    // Verificar si ya tenemos una suscripción activa para este thread
+    if (chatRealtimeChannelRef.current && currentSubscribedThreadIdRef.current === threadId) {
+      console.log('✅ Suscripción ya existe para este thread, reutilizando')
+      return // Ya tenemos una suscripción activa para este thread
+    }
+    
+    // Limpiar suscripción anterior si es para un thread diferente
+    if (chatRealtimeChannelRef.current) {
+      console.log('🧹 Limpiando suscripción realtime anterior (thread diferente)')
+      chatRealtimeChannelRef.current.unsubscribe()
+      chatRealtimeChannelRef.current = null
+      currentSubscribedThreadIdRef.current = null
+    }
+    
+    const supabase = supabaseBrowser()
+    console.log('🔌 Configurando suscripción realtime para thread:', threadId)
+    
+    // Obtener el usuario actual
+    const getUserId = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      return user?.id
+    }
+    
+    // Crear nueva suscripción
+    const channel = supabase
+      .channel(`chat:${threadId}`, {
+        config: {
+          broadcast: { self: false }
+        }
+      })
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'chat_messages',
+        filter: `thread_id=eq.${threadId}`
+      }, async (payload) => {
+        console.log('📨 Nuevo mensaje recibido via realtime:', payload.new)
+        const newMessage = payload.new as any
+        
+        // Obtener el usuario actual para verificar si es nuestro propio mensaje
+        const userId = await getUserId()
+        
+        // Verificar que no esté duplicado y que no sea nuestro propio mensaje
+        setChatMessages(prev => {
+          const alreadyExists = prev.some(m => m.id === newMessage.id)
+          if (alreadyExists) {
+            console.log('⚠️ Mensaje duplicado ignorado:', newMessage.id)
+            return prev
+          }
+          
+          // Solo agregar si no es nuestro propio mensaje
+          const isOwnMessage = newMessage.sender_id === userId
+          if (isOwnMessage) {
+            console.log('⚠️ Mensaje propio del emisor, ya existe localmente')
+            return prev
+          }
+          
+          console.log('✅ Mensaje agregado (de otro usuario):', newMessage.id)
+          return [...prev, newMessage]
+        })
+      })
+      .subscribe((status) => {
+        console.log('🔌 Estado de suscripción chat realtime:', status)
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Suscripción realtime activa para thread:', threadId)
+          currentSubscribedThreadIdRef.current = threadId
+        }
+      })
+    
+    chatRealtimeChannelRef.current = channel
+  }, [])
+  
+  // Limpiar suscripción al desmontar o cuando cambia el thread
+  useEffect(() => {
+    return () => {
+      if (chatRealtimeChannelRef.current) {
+        chatRealtimeChannelRef.current.unsubscribe()
+      }
+    }
+  }, [])
+  
   // Cargar mensajes cuando se abre el panel y el chat está habilitado
   useEffect(() => {
-    if (isOpen && transaction?.id && chatEnabled) {
+    if (isOpen && chatEnabled && requestId) {
       loadChatMessages()
     }
-  }, [isOpen, transaction?.id, chatEnabled])
+  }, [isOpen, chatEnabled, requestId])
   
   // Mock del chat hook para compatibilidad
   const chatHook = {
@@ -254,8 +588,12 @@ export function PurchaseCompletionPanel({
   // =========================================================
 
   useEffect(() => {
+    console.log('🔍 useEffect loadRequestData:', { isOpen, requestId })
     if (isOpen) {
+      console.log('📞 Llamando loadRequestData...')
       loadRequestData()
+    } else {
+      console.log('⚠️ Panel cerrado, no se carga requestData')
     }
   }, [isOpen, requestId])
 
@@ -272,14 +610,135 @@ export function PurchaseCompletionPanel({
   }, [])
 
   useEffect(() => {
-    if (isOpen && requestData && !initialized) {
-      loadExistingTransaction()
-      setInitialized(true)
+    console.log('🔍 useEffect del panel:', { isOpen, hasRequestData: !!requestData, initialized, requestId })
+    
+    // Resetear initialized cuando el panel se cierra
+    if (!isOpen) {
+      console.log('🔄 Panel cerrado, reseteando estado')
+      setInitialized(false)
+      setTransaction(null)
+      setRequestData(null)
+      
+      // Limpiar estado del chat
+      setChatMessages([])
+      setChatEnabled(false)
+      setChatThreadId(null)
+      
+      // Limpiar suscripción realtime
+      if (chatRealtimeChannelRef.current) {
+        console.log('🧹 Limpiando suscripción realtime')
+        chatRealtimeChannelRef.current.unsubscribe()
+        chatRealtimeChannelRef.current = null
+        currentSubscribedThreadIdRef.current = null
+      }
+      return
     }
     
-    // NO resetear cuando el panel se cierra - mantener el estado de la transacción
-    // Esto permite que al reabrir el panel, se mantenga el progreso
-  }, [isOpen, requestData, initialized])
+    // Cuando el panel se abre, cargar datos
+    if (isOpen && requestData && !initialized) {
+      console.log('🔄 Panel abierto - cargando transacción')
+      loadExistingTransaction()
+      setInitialized(true)
+    } else if (isOpen) {
+      console.log('⚠️ Panel abierto pero no se carga transacción:', { hasRequestData: !!requestData, initialized })
+    }
+  }, [isOpen, requestData, initialized, requestId])
+
+  // Estado para saber si el portal está montado
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+    return () => setMounted(false)
+  }, [])
+
+  // 🌫️ Efecto para DESENFOCAR SOLO EL CONTENIDO DE FONDO (no el panel)
+  // El panel se renderiza en un Portal fuera del DOM principal, así que NO se ve afectado
+  useEffect(() => {
+    if (isOpen && mounted) {
+      // Aplicar desenfoque solo al contenido de fondo
+      // Como el panel está en un Portal fuera del DOM principal, no se ve afectado
+      const pageContent = document.querySelector('main') || document.querySelector('#__next') || document.querySelector('.min-h-screen')
+      if (pageContent) {
+        pageContent.style.filter = 'blur(20px)'
+        pageContent.style.transition = 'filter 0.3s ease-out'
+        console.log('🌫️ Desenfoque aplicado al contenido de fondo:', pageContent)
+      }
+    } else {
+      // Remover desenfoque cuando se cierra el panel
+      const pageContent = document.querySelector('main') || document.querySelector('#__next') || document.querySelector('.min-h-screen')
+      if (pageContent) {
+        pageContent.style.filter = 'none'
+        pageContent.style.transition = 'filter 0.3s ease-out'
+      }
+      
+      if (!isOpen) {
+        console.log('🌫️ Desenfoque removido del contenido de la página')
+      }
+    }
+    
+    // Cleanup: remover blur cuando el componente se desmonte
+    return () => {
+      const pageContent = document.querySelector('main') || document.querySelector('#__next') || document.querySelector('.min-h-screen')
+      if (pageContent) {
+        pageContent.style.filter = 'none'
+      }
+    }
+  }, [isOpen, mounted])
+
+  // Escuchar cambios en el status de la solicitud para cerrar el panel si se cancela
+  useEffect(() => {
+    if (!isOpen || !requestId) return
+
+    const supabase = supabaseBrowser()
+    
+    console.log('🔔 Configurando listener para cambios de status de solicitud:', requestId)
+    
+    const channel = supabase
+      .channel(`request_status_${requestId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'purchase_requests',
+        filter: `id=eq.${requestId}`
+      }, (payload) => {
+        const updatedRequest = payload.new as any
+        const oldRequest = payload.old as any
+        
+        console.log('🔔 Cambio de status detectado en solicitud:', {
+          requestId,
+          oldStatus: oldRequest?.status,
+          newStatus: updatedRequest.status
+        })
+        
+        // Si la solicitud fue cancelada, cerrar el panel y detener el temporizador
+        if (updatedRequest.status === 'cancelled' && oldRequest?.status !== 'cancelled') {
+          console.log('🚫 Solicitud cancelada detectada, cerrando panel y deteniendo temporizador')
+          
+          // Detener el temporizador limpiando el estado
+          setTimeRemaining(null)
+          
+          // Cerrar el panel
+          onClose()
+          
+          // Mostrar toast informativo
+          toast({
+            title: "Solicitud Cancelada",
+            description: "El comprador ha cancelado esta solicitud de compra. El panel se ha cerrado.",
+            variant: "destructive",
+            duration: 5000,
+          })
+        }
+      })
+      .subscribe((status) => {
+        console.log('🔔 Estado de suscripción para cambios de status:', status)
+      })
+
+    return () => {
+      console.log('🧹 Limpiando suscripción de cambios de status')
+      channel.unsubscribe()
+    }
+  }, [isOpen, requestId, onClose, toast])
 
   const loadExistingTransaction = async () => {
     if (!requestData) return
@@ -396,26 +855,162 @@ export function PurchaseCompletionPanel({
 
   // Función para manejar la expiración del tiempo (memoizada)
   const handleTimeoutExpiration = useCallback(async () => {
-    console.log('⏰ Tiempo agotado - cerrando panel y reactivando solicitud')
+    console.log('⏰ Tiempo agotado - marcando solicitud como expirada')
     console.log('📋 Request ID:', requestId)
     console.log('📋 Transaction ID:', transaction?.id)
     
     try {
       const supabase = supabaseBrowser()
       
-      // Llamar a la función RPC para reactivar la solicitud específica
-      console.log('🔄 Llamando a función RPC para reactivar solicitud...')
-      const { data: rpcResult, error: rpcError } = await supabase
-        .rpc('reactivate_expired_request', { p_request_id: requestId })
+      // Marcar la solicitud como "expired" en lugar de reactivarla
+      console.log('🔄 Actualizando estado de solicitud a expired...')
+      console.log('📋 Request ID a actualizar:', requestId)
       
-      if (rpcError) {
-        console.error('❌ Error en función RPC:', rpcError)
-        console.error('📋 Detalles del error:', JSON.stringify(rpcError, null, 2))
-        console.error('📋 Código del error:', rpcError.code)
-        console.error('📋 Mensaje del error:', rpcError.message)
-        console.error('📋 Hint del error:', rpcError.hint)
-      } else {
-        console.log('✅ Solicitud reactivada exitosamente vía RPC:', rpcResult)
+      // Intentar usar función RPC primero (más confiable, evita problemas de RLS)
+      let updateSuccess = false
+      try {
+        console.log('🔄 Intentando actualizar vía RPC...')
+        console.log('📋 Parámetros RPC:', { p_request_id: requestId })
+        
+        let rpcData, rpcError
+        try {
+          const rpcResponse = await supabase.rpc('mark_request_expired', {
+            p_request_id: requestId
+          })
+          
+          rpcData = rpcResponse.data
+          rpcError = rpcResponse.error
+          
+          console.log('📋 Respuesta RPC completa:', rpcResponse)
+          console.log('📋 Respuesta RPC - data:', rpcData)
+          console.log('📋 Respuesta RPC - data type:', typeof rpcData)
+          console.log('📋 Respuesta RPC - error:', rpcError)
+          console.log('📋 Respuesta RPC - error type:', typeof rpcError)
+          console.log('📋 Respuesta RPC - error keys:', rpcError ? Object.keys(rpcError) : 'null')
+        } catch (rpcCallError) {
+          console.error('❌ Excepción al llamar RPC:', rpcCallError)
+          rpcError = rpcCallError
+        }
+        
+        // Verificar si hay error (incluyendo error vacío {})
+        const hasError = rpcError !== null && rpcError !== undefined
+        
+        if (hasError) {
+          // Log detallado del error
+          const errorDetails: any = {
+            code: rpcError.code,
+            message: rpcError.message,
+            details: rpcError.details,
+            hint: rpcError.hint,
+            raw: rpcError
+          }
+          console.error('❌ Error en RPC:', errorDetails)
+          console.error('📋 Error completo stringified:', JSON.stringify(rpcError, Object.getOwnPropertyNames(rpcError), 2))
+          
+          // Si la función RPC no existe (código 42883), error vacío {}, o hay otro error, intentar actualización directa
+          const errorKeys = rpcError ? Object.keys(rpcError) : []
+          const isEmptyError = errorKeys.length === 0
+          const isFunctionNotFound = rpcError?.code === '42883' || 
+                                    rpcError?.message?.includes('does not exist') || 
+                                    rpcError?.message?.includes('function') ||
+                                    isEmptyError
+          
+          if (isFunctionNotFound || isEmptyError) {
+            console.log('⚠️ Función RPC no disponible o error vacío, intentando actualización directa...')
+            console.log('📋 Razón del fallback - isEmptyError:', isEmptyError, 'isFunctionNotFound:', isFunctionNotFound)
+            
+            // Obtener el usuario actual para verificar permisos
+            const { data: { user } } = await supabase.auth.getUser()
+            if (!user) {
+              console.error('❌ Usuario no autenticado')
+            } else {
+              console.log('👤 Usuario autenticado:', user.id)
+              
+              const { data: updateData, error: updateError } = await supabase
+                .from('purchase_requests')
+                .update({
+                  status: 'expired',
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', requestId)
+                .select()
+              
+              if (updateError) {
+                console.error('❌ Error actualizando estado de solicitud directamente:', updateError)
+                console.error('📋 Detalles del error:', JSON.stringify(updateError, Object.getOwnPropertyNames(updateError), 2))
+              } else {
+                console.log('✅ Solicitud marcada como expirada exitosamente (actualización directa):', updateData)
+                updateSuccess = true
+              }
+            }
+          }
+        } else {
+          // Verificar el resultado de la función RPC
+          if (rpcData) {
+            const result = typeof rpcData === 'string' ? JSON.parse(rpcData) : rpcData
+            if (result.success) {
+              console.log('✅ Solicitud marcada como expirada vía RPC:', result)
+              updateSuccess = true
+            } else {
+              console.warn('⚠️ RPC retornó success=false:', result)
+              // Intentar actualización directa como fallback
+              const { data: updateData, error: updateError } = await supabase
+                .from('purchase_requests')
+                .update({
+                  status: 'expired',
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', requestId)
+                .select()
+              
+              if (!updateError && updateData) {
+                console.log('✅ Actualización directa exitosa después de RPC fallido:', updateData)
+                updateSuccess = true
+              }
+            }
+          } else {
+            console.warn('⚠️ RPC retornó null/undefined, intentando actualización directa...')
+            const { data: updateData, error: updateError } = await supabase
+              .from('purchase_requests')
+              .update({
+                status: 'expired',
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', requestId)
+              .select()
+            
+            if (!updateError && updateData) {
+              console.log('✅ Actualización directa exitosa:', updateData)
+              updateSuccess = true
+            }
+          }
+        }
+      } catch (rpcException) {
+        console.error('❌ Excepción en RPC:', rpcException)
+        // Intentar actualización directa como último recurso
+        try {
+          const { data: updateData, error: updateError } = await supabase
+            .from('purchase_requests')
+            .update({
+              status: 'expired',
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', requestId)
+            .select()
+          
+          if (updateError) {
+            console.error('❌ Error en actualización directa (último intento):', updateError)
+          } else {
+            console.log('✅ Solicitud marcada como expirada (actualización directa):', updateData)
+            updateSuccess = true
+          }
+        } catch (directError) {
+          console.error('❌ Error crítico en actualización directa:', directError)
+        }
+      }
+      
+      if (!updateSuccess) {
+        console.warn('⚠️ No se pudo actualizar el estado de la solicitud, pero se continuará con el flujo')
       }
       
       // Si hay una transacción, también actualizarla a 'cancelled'
@@ -430,26 +1025,62 @@ export function PurchaseCompletionPanel({
           .eq('id', transaction.id)
       }
       
+      // Notificar a vendedores sobre la expiración (si la actualización fue exitosa)
+      if (updateSuccess) {
+        try {
+          const { data: { user } } = await supabase.auth.getUser()
+          if (user) {
+            console.log('📬 Enviando notificación de expiración vía RPC...')
+            const { error: notifyError } = await supabase.rpc('notify_request_expired', {
+              p_request_id: requestId,
+              p_buyer_id: user.id
+            })
+            
+            if (notifyError) {
+              console.error('❌ Error enviando notificación de expiración:', notifyError)
+            } else {
+              console.log('✅ Notificación de expiración enviada')
+            }
+          }
+        } catch (notifyErr) {
+          console.error('❌ Error en notificación de expiración:', notifyErr)
+        }
+      }
+      
       // Notificar para que se recargue la lista de solicitudes
-      const reactivateNotification = new CustomEvent('request-status-changed', {
-        detail: { requestId, newStatus: 'active' }
+      const expirationNotification = new CustomEvent('request-status-changed', {
+        detail: { requestId, newStatus: 'expired' }
       })
-      window.dispatchEvent(reactivateNotification)
+      window.dispatchEvent(expirationNotification)
       
     } catch (error) {
       console.error('❌ Error manejando expiración:', error)
-      // Continuar con el cierre del panel
+      console.error('📋 Tipo de error:', typeof error)
+      console.error('📋 Error completo:', error)
+      if (error instanceof Error) {
+        console.error('📋 Mensaje de error:', error.message)
+        console.error('📋 Stack trace:', error.stack)
+      }
+      // Continuar con el cierre del panel aunque haya errores
     }
     
-    // Cerrar el panel y mostrar toast
+    // Cerrar el panel
     onClose()
     
+    // Mostrar toast informativo
     toast({
       title: "Tiempo agotado",
-      description: "El tiempo para completar la transacción ha expirado. La solicitud está disponible nuevamente para negociación.",
+      description: "El tiempo para completar la transacción ha expirado. La solicitud ha sido marcada como expirada. Recargando la página...",
       variant: "destructive",
-      duration: 10000,
+      duration: 3000,
     })
+    
+    // Recargar la página automáticamente después de un breve delay
+    // para evitar errores y asegurar que el estado esté sincronizado
+    setTimeout(() => {
+      console.log('🔄 Recargando página después de expiración...')
+      window.location.reload()
+    }, 1500) // Esperar 1.5 segundos para que el toast se vea y la actualización se complete
   }, [requestId, transaction?.id, onClose, toast])
   
   useEffect(() => {
@@ -617,6 +1248,7 @@ export function PurchaseCompletionPanel({
   }
 
   const loadRequestData = async () => {
+    console.log('🚀 loadRequestData llamado con requestId:', requestId)
     try {
       const supabase = supabaseBrowser()
       
@@ -628,12 +1260,17 @@ export function PurchaseCompletionPanel({
         .select('*')
         .eq('id', requestId)
         .single()
+      
+      console.log('📥 Respuesta de BD:', { request, error: requestError })
 
       // Si hay error o no hay datos, lanzar error
       if (requestError || !request) {
         console.error('❌ No se encontró la solicitud en BD:', requestError)
+        console.error('📋 Detalles del error:', JSON.stringify(requestError, null, 2))
         throw new Error(`No se pudo cargar la solicitud: ${requestError?.message || 'Solicitud no encontrada'}`)
       }
+      
+      console.log('✅ Solicitud cargada:', request.id)
 
       // Intentar obtener información de usuarios
       let buyerInfo = { id: request.buyer_id, full_name: 'Comprador', avatar_url: null, verification_status: 'unverified' }
@@ -734,7 +1371,9 @@ export function PurchaseCompletionPanel({
       }
 
       console.log('✅ Solicitud cargada con usuarios:', requestWithUsers)
+      console.log('📝 Estableciendo requestData...')
       setRequestData(requestWithUsers)
+      console.log('✅ requestData establecido')
 
     } catch (error) {
       console.error('❌ Error inesperado cargando solicitud:', error)
@@ -926,11 +1565,26 @@ export function PurchaseCompletionPanel({
   }
 
 
-  if (!isOpen) return null
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-2xl w-full max-w-7xl max-h-[90vh] overflow-hidden relative">
+  // Renderizar el panel usando Portal directamente en el body
+  // Esto asegura que esté completamente fuera del DOM principal y no se vea afectado por el blur
+  const panelContent = (
+    <div 
+      className={`fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 ${!isOpen ? 'hidden' : ''}`} 
+      data-panel-overlay="true"
+      style={{ 
+        filter: 'none', 
+        backdropFilter: 'none'
+      }}
+    >
+      <div 
+        className="bg-white rounded-lg shadow-2xl w-full max-w-7xl max-h-[90vh] overflow-hidden relative"
+        data-panel-content="true"
+        style={{
+          filter: 'none !important',
+          backdropFilter: 'none !important',
+          isolation: 'isolate' // Crear nuevo contexto de apilamiento
+        }}
+      >
         {/* Botón de cerrar */}
         <Button
           variant="ghost"
@@ -947,11 +1601,22 @@ export function PurchaseCompletionPanel({
               {/* Resumen de Compra */}
               <div>
                 <h2 className="text-lg font-semibold text-gray-900 mb-3">
-                  Compra {requestData?.amount?.toLocaleString() || amount.toLocaleString()} HNLD @ 1.00
+                  Compra de HNLD
                 </h2>
                 <div className="text-2xl font-bold text-gray-900 mb-2">
                   Total: {requestData?.currency_type || currency} {requestData?.amount?.toLocaleString() || amount.toLocaleString()}
                 </div>
+                {/* Aviso sobre cambio de divisa para USD y EUR */}
+                {(requestData?.currency_type === 'USD' || requestData?.currency_type === 'EUR' || currency === 'USD' || currency === 'EUR') && (
+                  <div className="mb-2">
+                    <Alert className="bg-blue-50 border-blue-200 py-2 px-3">
+                      <AlertCircle className="h-3 w-3 text-blue-600 mr-1.5" />
+                      <AlertDescription className="text-xs text-blue-800 leading-tight">
+                        La cantidad de HNLD es equivalente al cambio de divisa actual.
+                      </AlertDescription>
+                    </Alert>
+                  </div>
+                )}
                 <div className="text-xs text-gray-500">
                   Código: {requestData?.unique_code || `NMHN-${new Date().toISOString().split('T')[0].replace(/-/g, '')}-${String(requestId.slice(-6)).toUpperCase()}`}
                 </div>
@@ -1095,18 +1760,7 @@ export function PurchaseCompletionPanel({
                   const step1 = allSteps.find(s => s.step_order === 1)
                   const step2 = allSteps.find(s => s.step_order === 2)
                   
-                  console.log('🔍 DEBUG DETALLADO - Panel renderizando:', {
-                    userRole,
-                    transaction_id: transaction?.id,
-                    transaction_buyer_id: transaction?.buyer_id,
-                    transaction_seller_id: transaction?.seller_id,
-                    all_steps: allSteps,
-                    step1_full: step1,
-                    step2_full: step2,
-                    buyerId,
-                    sellerId,
-                    steps_count: allSteps.length
-                  })
+                  // DEBUG removido para evitar re-renders infinitos
                   
                   return userRole && (
                     <div className="bg-blue-50 p-2 rounded text-xs">
@@ -1317,10 +1971,18 @@ export function PurchaseCompletionPanel({
                             .update({
                               status: 'accepted',
                               seller_id: sellerId,
-                              accepted_at: now.toISOString()
+                              accepted_at: now.toISOString(),
+                              updated_at: now.toISOString()
                             })
                             .eq('id', requestId)
                             .select()
+                            
+                          console.log('📊 Intentando actualizar solicitud:', {
+                            requestId,
+                            sellerId,
+                            updateData,
+                            error: requestUpdateError
+                          })
                           
                           if (requestUpdateError) {
                             console.error('❌ No se pudo actualizar el estado en la BD:', requestUpdateError)
@@ -1355,20 +2017,43 @@ export function PurchaseCompletionPanel({
                           
                           console.log('📬 Intentando enviar notificación al comprador:', buyerId)
                           
-                          if (buyerId) {
+                          if (buyerId && requestData) {
+                            // Obtener información del vendedor y formatear datos
+                            const sellerName = requestData.seller?.full_name || 
+                                             (requestData.seller_id ? 'Vendedor' : 'Un vendedor')
+                            
+                            // Formatear monto según moneda
+                            const currencySymbol = requestData.currency_type === 'USD' ? '$' : 
+                                                 requestData.currency_type === 'EUR' ? '€' : 'L.'
+                            const formattedAmount = currencySymbol + 
+                              new Intl.NumberFormat('es-HN').format(requestData.amount || amount || 0)
+                            
+                            // Construir el título con el código (si existe)
+                            let notificationTitle = 'Solicitud aceptada'
+                            if (requestData.unique_code) {
+                              notificationTitle = notificationTitle + '\n' + requestData.unique_code
+                            }
+                            
+                            // Construir el cuerpo con formato: (nombre) aceptó tu solicitud por (cantidad).
+                            let notificationBody = sellerName + ' aceptó tu solicitud por ' + formattedAmount + '.'
+                            
                             // Llamar a la función emit_notification en la BD
                             const { data: notificationData, error: notificationError } = await supabase.rpc('emit_notification', {
                               p_user_id: buyerId,
                               p_topic: 'order',
                               p_event: 'ORDER_ACCEPTED',
-                              p_title: 'Solicitud aceptada',
-                              p_body: 'El vendedor ha aceptado tu solicitud. Inicia el proceso de pago.',
+                              p_title: notificationTitle,
+                              p_body: notificationBody,
                               p_priority: 'high',
                               p_cta_label: 'Ver transacción',
                               p_cta_href: `/dashboard/mis-solicitudes`,
                               p_payload: {
                                 transaction_id: transaction?.id,
-                                request_id: requestId
+                                request_id: requestId,
+                                amount: requestData.amount || amount,
+                                currency_type: requestData.currency_type || currency,
+                                unique_code: requestData.unique_code,
+                                formatted_amount: formattedAmount
                               }
                             })
                             
@@ -1379,7 +2064,7 @@ export function PurchaseCompletionPanel({
                               console.log('✅ Notificación enviada al comprador:', notificationData)
                             }
                           } else {
-                            console.warn('⚠️ No se encontró buyer_id en la transacción')
+                            console.warn('⚠️ No se encontró buyer_id en la transacción o requestData no está disponible')
                           }
                         } catch (notificationErr) {
                           console.error('❌ Error en envío de notificación:', notificationErr)
@@ -1586,6 +2271,49 @@ export function PurchaseCompletionPanel({
                           : 'bg-white border border-gray-200 text-gray-900'
                       }`}>
                         <p className="text-sm">{msg.body}</p>
+                        
+                        {/* Mostrar adjuntos/documentos si existen */}
+                        {msg.attachments && Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
+                          <div className="mt-2 space-y-2">
+                            {msg.attachments.map((attachment: any, idx: number) => (
+                              <a
+                                key={idx}
+                                href={attachment.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`flex items-center space-x-2 p-2 rounded ${
+                                  msg.sender_id === currentUserId 
+                                    ? 'bg-blue-700 hover:bg-blue-800' 
+                                    : 'bg-gray-100 hover:bg-gray-200'
+                                } transition-colors`}
+                              >
+                                <File className={`h-4 w-4 ${
+                                  msg.sender_id === currentUserId ? 'text-white' : 'text-gray-600'
+                                }`} />
+                                <span className={`text-xs truncate ${
+                                  msg.sender_id === currentUserId ? 'text-white' : 'text-gray-700'
+                                }`}>
+                                  {attachment.name || 'Documento'}
+                                </span>
+                              </a>
+                            ))}
+                            {msg.attachments.some((att: any) => att.type?.startsWith('image/')) && (
+                              <div className="mt-2">
+                                {msg.attachments
+                                  .filter((att: any) => att.type?.startsWith('image/'))
+                                  .map((attachment: any, idx: number) => (
+                                    <img 
+                                      key={idx}
+                                      src={attachment.url} 
+                                      alt={attachment.name || 'Imagen'}
+                                      className="max-w-full max-h-32 rounded"
+                                    />
+                                  ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        
                         <p className={`text-xs mt-1 ${
                           msg.sender_id === currentUserId 
                             ? 'text-blue-100' 
@@ -1609,7 +2337,33 @@ export function PurchaseCompletionPanel({
 
             {/* Input del Chat */}
             <div className="p-4 border-t border-gray-200 bg-white">
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept="image/*,application/pdf"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) {
+                    handleFileUpload(file)
+                  }
+                }}
+                disabled={!chatEnabled || uploadingFile}
+              />
               <div className="flex space-x-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={!chatEnabled || uploadingFile}
+                  title="Adjuntar documento"
+                >
+                  {uploadingFile ? (
+                    <Clock className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Paperclip className="h-4 w-4" />
+                  )}
+                </Button>
                 <Input
                   placeholder={chatEnabled ? "Escribe tu mensaje..." : "El chat se habilitará al aceptar el trato"}
                   className="flex-1"
@@ -1642,4 +2396,15 @@ export function PurchaseCompletionPanel({
       </div>
     </div>
   )
+
+  // NO retornar null - el componente debe montarse para que los useEffect funcionen
+  // Solo renderizar el panel si está montado (SSR-safe)
+  if (!mounted) {
+    return null
+  }
+
+  // Renderizar el panel usando Portal directamente en document.body
+  // Esto asegura que esté completamente fuera del DOM principal y NO se vea afectado por el blur
+  // El panel está en position: fixed y se renderiza fuera del árbol DOM principal
+  return isOpen ? createPortal(panelContent, document.body) : null
 } 

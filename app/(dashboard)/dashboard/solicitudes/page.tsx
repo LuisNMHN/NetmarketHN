@@ -51,10 +51,12 @@ export default function SolicitudesPage() {
           const supabase = supabaseBrowser()
           
           // Cargar solicitudes aceptadas (donde el vendedor puede estar involucrado)
+          // IMPORTANTE: Excluir las solicitudes del usuario actual
           const { data: acceptedRequests } = await supabase
             .from('purchase_requests')
             .select('*')
             .eq('status', 'accepted')
+            .neq('buyer_id', userId) // ⭐ Excluir solicitudes del usuario actual ⭐
           
           // Combinar todas las solicitudes
           const allRequests = [...requestsToShow]
@@ -217,6 +219,16 @@ export default function SolicitudesPage() {
   }
 
   const filteredRequests = requests.filter(request => {
+    // ⭐ Excluir solicitudes del usuario actual ⭐
+    if (userId && request.buyer_id === userId) {
+      return false
+    }
+    
+    // No mostrar completed, expired o cancelled
+    if (request.status === 'completed' || request.status === 'expired' || request.status === 'cancelled') {
+      return false
+    }
+    
     const paymentInfo = getPaymentMethodInfo(request)
     return (
       request.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -279,59 +291,168 @@ export default function SolicitudesPage() {
     
     console.log('🔌 Configurando suscripción realtime para purchase_requests...')
     
-    const channel = supabase
-      .channel('purchase_requests_changes')
+    // Canal para INSERT y UPDATE de solicitudes activas
+    const channelActive = supabase
+      .channel('purchase_requests_active_changes')
       .on('postgres_changes', {
-        event: '*',
+        event: 'INSERT',
         schema: 'public',
         table: 'purchase_requests',
         filter: 'status=eq.active'
       }, (payload) => {
-        console.log('🔄 Cambio detectado en purchase_requests:', {
-          eventType: payload.eventType,
-          new: payload.new,
-          old: payload.old,
-          full_payload: payload
-        })
-        
-        // Si es una nueva solicitud (INSERT)
-        if (payload.eventType === 'INSERT' && payload.new) {
-          const newRequest = payload.new as PurchaseRequest
-          console.log('✅ Nueva solicitud detectada:', newRequest)
-          setRequests(prev => [newRequest, ...prev])
+        const newRequest = payload.new as PurchaseRequest
+        console.log('✅ Nueva solicitud activa detectada:', newRequest)
+        // Solo agregar si no es del usuario actual
+        if (userId && newRequest.buyer_id !== userId) {
+          setRequests(prev => {
+            // Evitar duplicados
+            if (prev.some(req => req.id === newRequest.id)) return prev
+            return [newRequest, ...prev]
+          })
           toast({
             title: "Nueva solicitud disponible",
             description: `Se ha publicado una nueva solicitud de compra`,
           })
         }
-        // Si se actualiza una solicitud (UPDATE)
-        else if (payload.eventType === 'UPDATE') {
-          const updatedRequest = payload.new as PurchaseRequest
-          console.log('🔄 Solicitud actualizada:', updatedRequest)
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'purchase_requests',
+        filter: 'status=eq.active'
+      }, (payload) => {
+        const updatedRequest = payload.new as PurchaseRequest
+        console.log('🔄 Solicitud activa actualizada:', updatedRequest)
+        // Solo actualizar si no es del usuario actual
+        if (userId && updatedRequest.buyer_id !== userId) {
           setRequests(prev => prev.map(req => req.id === updatedRequest.id ? updatedRequest : req))
+        } else {
+          // Si ahora es del usuario actual, removerla de la lista
+          setRequests(prev => prev.filter(req => req.id !== updatedRequest.id))
         }
-        // Si se elimina una solicitud (DELETE)
-        else if (payload.eventType === 'DELETE') {
-          const deletedId = payload.old?.id
-          console.log('🗑️ Solicitud eliminada:', deletedId)
-          if (deletedId) {
-            setRequests(prev => prev.filter(req => req.id !== deletedId))
+      })
+      .subscribe((status, error) => {
+        console.log('📡 Estado de suscripción realtime (active):', status)
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Suscripción realtime (active) activa')
+        } else if (status === 'CHANNEL_ERROR') {
+          console.warn('⚠️ Error en la suscripción realtime (active):', error)
+        }
+      })
+    
+    // Canal separado para DELETE (sin filtro de status, para detectar todas las eliminaciones)
+    const channelDelete = supabase
+      .channel('purchase_requests_deletes')
+      .on('postgres_changes', {
+        event: 'DELETE',
+        schema: 'public',
+        table: 'purchase_requests'
+      }, (payload) => {
+        const deletedId = payload.old?.id
+        console.log('🗑️ Solicitud eliminada detectada:', deletedId)
+        if (deletedId) {
+          setRequests(prev => {
+            const filtered = prev.filter(req => req.id !== deletedId)
+            console.log(`🗑️ Solicitud ${deletedId} removida. Quedan ${filtered.length} solicitudes`)
+            return filtered
+          })
+        }
+      })
+      .subscribe((status, error) => {
+        console.log('📡 Estado de suscripción realtime (delete):', status)
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Suscripción realtime (delete) activa')
+        } else if (status === 'CHANNEL_ERROR') {
+          console.warn('⚠️ Error en la suscripción realtime (delete):', error)
+        }
+      })
+    
+    // Canal para detectar cambios de estado a 'cancelled' o cualquier otro estado no activo
+    // Escucha todos los UPDATE sin filtro de status para poder detectar cambios de estado
+    const channelStatusChanges = supabase
+      .channel('purchase_requests_status_changes')
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'purchase_requests'
+      }, (payload) => {
+        const updatedRequest = payload.new as PurchaseRequest
+        const oldRequest = payload.old as PurchaseRequest
+        
+        console.log('🔄 Cambio de estado detectado:', {
+          requestId: updatedRequest.id,
+          oldStatus: oldRequest?.status,
+          newStatus: updatedRequest.status
+        })
+        
+        // Si la solicitud cambió a 'cancelled', removerla y cerrar panel si está abierto
+        if (updatedRequest.status === 'cancelled') {
+          console.log('🚫 Solicitud cancelada detectada:', updatedRequest.id)
+          
+          // Cerrar el panel de transacción si está abierto para esta solicitud
+          if (completionPanelOpen && selectedRequest?.id === updatedRequest.id) {
+            console.log('🚫 Cerrando panel de transacción debido a cancelación')
+            setCompletionPanelOpen(false)
+            setSelectedRequest(null)
+          }
+          
+          // Remover la solicitud de la lista completamente
+          setRequests(prev => {
+            const filtered = prev.filter(req => req.id !== updatedRequest.id)
+            console.log(`🚫 Solicitud ${updatedRequest.id} removida de la lista (cancelada por comprador)`)
+            return filtered
+          })
+          
+          // Mostrar aviso al vendedor explicando que el comprador canceló
+          toast({
+            title: "Solicitud Cancelada",
+            description: `El comprador ha cancelado la solicitud de compra.`,
+            variant: "destructive",
+            duration: 5000,
+          })
+        }
+        // Si cambió de 'active' o 'accepted' a otro estado que no debería mostrarse
+        else if (
+          (oldRequest?.status === 'active' || oldRequest?.status === 'accepted') &&
+          !['active', 'accepted'].includes(updatedRequest.status)
+        ) {
+          console.log(`🔄 Solicitud ${updatedRequest.id} cambió de ${oldRequest.status} a ${updatedRequest.status}, removiendo de la lista`)
+          setRequests(prev => prev.filter(req => req.id !== updatedRequest.id))
+        }
+        // Si cambió a 'active' o 'accepted' desde otro estado
+        else if (['active', 'accepted'].includes(updatedRequest.status)) {
+          console.log(`✅ Solicitud ${updatedRequest.id} cambió a estado ${updatedRequest.status}`)
+          // Solo agregar si no es del usuario actual y no está ya en la lista
+          if (userId && updatedRequest.buyer_id !== userId) {
+            setRequests(prev => {
+              if (prev.some(req => req.id === updatedRequest.id)) {
+                // Ya existe, actualizarla
+                return prev.map(req => req.id === updatedRequest.id ? updatedRequest : req)
+              } else {
+                // No existe, agregarla
+                return [updatedRequest, ...prev]
+              }
+            })
+          } else {
+            // Es del usuario actual, removerla
+            setRequests(prev => prev.filter(req => req.id !== updatedRequest.id))
           }
         }
       })
       .subscribe((status, error) => {
-        console.log('📡 Estado de suscripción realtime:', status)
+        console.log('📡 Estado de suscripción realtime (status changes):', status)
         if (status === 'SUBSCRIBED') {
-          console.log('✅ Suscripción realtime activa')
+          console.log('✅ Suscripción realtime (status changes) activa')
         } else if (status === 'CHANNEL_ERROR') {
-          console.warn('⚠️ Error en la suscripción realtime:', error)
-          // No es crítico, la app continuará funcionando sin realtime
+          console.warn('⚠️ Error en la suscripción realtime (status changes):', error)
         }
       })
     
     return () => {
-      console.log('🧹 Limpiando suscripción realtime...')
-      supabase.removeChannel(channel)
+      console.log('🧹 Limpiando suscripciones realtime...')
+      supabase.removeChannel(channelActive)
+      supabase.removeChannel(channelDelete)
+      supabase.removeChannel(channelStatusChanges)
     }
   }, [userId, toast])
 

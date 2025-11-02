@@ -19,6 +19,7 @@ DECLARE
     notification_cta_label TEXT;
     notification_cta_href TEXT;
     dedupe_key TEXT;
+    v_formatted_amount TEXT;
 BEGIN
     -- Solo procesar si es una solicitud activa y no es de tarjeta de crédito
     IF NEW.status = 'active' AND NEW.payment_method != 'card' THEN
@@ -32,14 +33,30 @@ BEGIN
         LEFT JOIN public.profiles p ON p.id = au.id
         WHERE au.id = NEW.buyer_id;
         
-        -- Construir contenido de la notificación
+        -- Formatear monto según moneda (siempre presente para identificación precisa)
+        v_formatted_amount := CASE 
+            WHEN NEW.currency_type = 'USD' THEN '$' || COALESCE(NEW.amount_in_original_currency::TEXT, NEW.amount::TEXT)
+            WHEN NEW.currency_type = 'EUR' THEN '€' || COALESCE(NEW.amount_in_original_currency::TEXT, NEW.amount::TEXT)
+            ELSE 'L.' || COALESCE(NEW.amount::TEXT, '0')
+        END;
+        
+        -- Título
         notification_title := 'Nueva Solicitud de Compra';
-        notification_body := buyer_profile.buyer_name || ' ha publicado una nueva solicitud de compra por ' || 
-                           CASE 
-                               WHEN NEW.currency_type = 'USD' THEN '$' || NEW.amount_in_original_currency::TEXT
-                               WHEN NEW.currency_type = 'EUR' THEN '€' || NEW.amount_in_original_currency::TEXT
-                               ELSE 'L.' || NEW.amount::TEXT
-                           END || ' HNLD';
+        
+        -- Construir cuerpo con formato simple y visible en todos los dispositivos:
+        -- (nombre) creó por (cantidad) • Código: NMHN-XXXXXXXX • Expira: fecha
+        notification_body := buyer_profile.buyer_name || ' creó una solicitud de compra por ' || 
+                           v_formatted_amount || '.';
+        
+        -- Agregar código separado por " • " para mejor visibilidad
+        IF NEW.unique_code IS NOT NULL AND NEW.unique_code != '' THEN
+            notification_body := notification_body || ' • Código: ' || NEW.unique_code;
+        END IF;
+        
+        -- Agregar temporalidad separada por " • "
+        IF NEW.expires_at IS NOT NULL THEN
+            notification_body := notification_body || ' • Expira: ' || TO_CHAR(NEW.expires_at AT TIME ZONE 'UTC', 'DD/MM/YYYY HH24:MI');
+        END IF;
         
         notification_cta_label := 'Ver Solicitud';
         notification_cta_href := '/dashboard/solicitudes';
@@ -61,6 +78,7 @@ BEGIN
                 'request_id', NEW.id,
                 'buyer_id', NEW.buyer_id,
                 'amount', NEW.amount,
+                'formatted_amount', v_formatted_amount,
                 'currency_type', NEW.currency_type,
                 'payment_method', NEW.payment_method,
                 'unique_code', NEW.unique_code,

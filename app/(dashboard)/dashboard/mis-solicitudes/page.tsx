@@ -86,10 +86,95 @@ export default function MisSolicitudesPage() {
   }
 
   const canDeleteRequest = (request: PurchaseRequest): boolean => {
-    // Se puede eliminar si la solicitud está cancelada, completada o expirada
+    // Se puede eliminar si la solicitud está cancelada, completada, expirada
+    // O si la transacción asociada está expirada
     return request.status === 'cancelled' || 
            request.status === 'completed' ||
-           request.status === 'expired'
+           request.status === 'expired' ||
+           isTransactionExpired(request.id) // Nueva función para verificar expiración de transacción
+  }
+
+  // Verificar si una transacción está expirada
+  // Estado para almacenar qué transacciones están expiradas
+  const [expiredTransactions, setExpiredTransactions] = useState<Set<string>>(new Set())
+
+  // Verificar si una transacción está expirada
+  const isTransactionExpired = (requestId: string): boolean => {
+    return expiredTransactions.has(requestId)
+  }
+
+  // Verificar transacciones expiradas al cargar las solicitudes
+  const checkExpiredTransactions = async () => {
+    const supabase = supabaseBrowser()
+    const expiredSet = new Set<string>()
+    
+    // Para cada solicitud aceptada, verificar si su transacción está expirada
+    for (const request of requests) {
+      if (request.status === 'accepted') {
+        try {
+          const { data: transactions } = await supabase
+            .from('purchase_transactions')
+            .select('id, payment_deadline')
+            .eq('request_id', request.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+          
+          if (transactions && transactions.length > 0) {
+            const transaction = transactions[0]
+            if (transaction.payment_deadline) {
+              const deadline = new Date(transaction.payment_deadline).getTime()
+              const now = new Date().getTime()
+              if (deadline < now) {
+                expiredSet.add(request.id)
+                
+                // Actualizar el estado de la solicitud a "expired" en la BD
+                try {
+                  const { error: updateError } = await supabase
+                    .from('purchase_requests')
+                    .update({
+                      status: 'expired',
+                      updated_at: new Date().toISOString()
+                    })
+                    .eq('id', request.id)
+                  
+                  if (updateError) {
+                    console.error('❌ Error actualizando estado de solicitud a expirada:', updateError)
+                  } else {
+                    console.log('✅ Solicitud marcada como expirada:', request.id)
+                    
+                    // Enviar notificación de expiración
+                    try {
+                      const { data: { user } } = await supabase.auth.getUser()
+                      if (user) {
+                        await supabase.rpc('notify_request_expired', {
+                          p_request_id: request.id,
+                          p_buyer_id: user.id
+                        })
+                      }
+                    } catch (notifyErr) {
+                      console.error('❌ Error enviando notificación de expiración:', notifyErr)
+                    }
+                    
+                    // Actualizar el estado local de la solicitud
+                    setRequests(prev => prev.map(req => 
+                      req.id === request.id 
+                        ? { ...req, status: 'expired' as const }
+                        : req
+                    ))
+                  }
+                } catch (updateError) {
+                  console.error('❌ Error actualizando estado de solicitud a expirada:', updateError)
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error verificando transacción expirada:', error)
+        }
+      }
+    }
+    
+    setExpiredTransactions(expiredSet)
   }
 
   const canCancelRequest = (request: PurchaseRequest): boolean => {
@@ -194,6 +279,17 @@ export default function MisSolicitudesPage() {
 
   const handleCompletePurchase = async (request: PurchaseRequest) => {
     console.log('🖱️ handleCompletePurchase llamado para solicitud:', request.id)
+    console.log('📊 request object:', request)
+    
+    // Verificar si la transacción está expirada antes de abrir el panel
+    if (isTransactionExpired(request.id)) {
+      toast({
+        title: "Transacción expirada",
+        description: "Esta transacción ha expirado. Solo puedes eliminarla.",
+        variant: "destructive",
+      })
+      return
+    }
     
     try {
       // Buscar la transacción relacionada con esta solicitud
@@ -201,29 +297,91 @@ export default function MisSolicitudesPage() {
       
       console.log('🔍 Buscando transacción para request_id:', request.id)
       
-      const { data: transaction, error } = await supabase
+      // Buscar la transacción más reciente (puede haber múltiples si se reactivó)
+      const { data: transactions, error } = await supabase
         .from('purchase_transactions')
         .select(`
           *,
           transaction_steps (*)
         `)
         .eq('request_id', request.id)
-        .single()
+        .order('created_at', { ascending: false }) // Ordenar por más reciente
+        .limit(1)
 
-      console.log('🔍 Transacción encontrada:', transaction)
+      console.log('🔍 Transacciones encontradas:', transactions)
       console.log('🔍 Error (si existe):', error)
-      console.log('🔍 Pasos de la transacción:', transaction?.transaction_steps)
 
-      if (error || !transaction) {
+      // Verificar si la transacción está expirada
+      if (transactions && transactions.length > 0) {
+        const transaction = transactions[0]
+        if (transaction.payment_deadline) {
+          const deadline = new Date(transaction.payment_deadline).getTime()
+          const now = new Date().getTime()
+          if (deadline < now) {
+            // Marcar como expirada y actualizar estado en BD
+            setExpiredTransactions(prev => new Set([...prev, request.id]))
+            
+            // Actualizar estado de la solicitud a "expired"
+            try {
+              await supabase
+                .from('purchase_requests')
+                .update({
+                  status: 'expired',
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', request.id)
+              
+              // Actualizar estado local
+              setRequests(prev => prev.map(req => 
+                req.id === request.id 
+                  ? { ...req, status: 'expired' as const }
+                  : req
+              ))
+            } catch (updateError) {
+              console.error('❌ Error actualizando estado de solicitud a expirada:', updateError)
+            }
+            
+            toast({
+              title: "Transacción expirada",
+              description: "Esta transacción ha expirado. Solo puedes eliminarla.",
+              variant: "destructive",
+            })
+            return
+          }
+        }
+      }
+
+      // Si no hay transacción o hay error, verificar si la solicitud está aceptada
+      if (error || !transactions || transactions.length === 0) {
         console.error('❌ Error o transacción no encontrada:', error)
-        console.log('ℹ️ Esta solicitud aún no tiene una transacción activa. El vendedor debe aceptar el trato primero.')
-        toast({
-          title: "Información",
-          description: "Esta solicitud aún no tiene una transacción activa. Espera a que el vendedor acepte el trato.",
-          variant: "default",
-        })
+        
+        // Verificar si la solicitud tiene un seller_id (fue aceptada)
+        const { data: requestData } = await supabase
+          .from('purchase_requests')
+          .select('seller_id, status')
+          .eq('id', request.id)
+          .single()
+        
+        if (requestData?.seller_id && requestData?.status === 'accepted') {
+          console.log('⚠️ Solicitud aceptada pero sin transacción. El vendedor debe completar el proceso.')
+          toast({
+            title: "Esperando",
+            description: "El vendedor está completando el proceso. Intenta nuevamente en un momento.",
+            variant: "default",
+          })
+        } else {
+          toast({
+            title: "Información",
+            description: "El vendedor debe aceptar el trato primero.",
+            variant: "default",
+          })
+        }
         return
       }
+
+      const transaction = transactions[0]
+      console.log('🔍 Transacción seleccionada:', transaction.id)
+      console.log('🔍 Pasos de la transacción:', transaction?.transaction_steps)
 
       // Abrir el panel de completar compra con la transacción existente
       const transactionData = {
@@ -231,19 +389,19 @@ export default function MisSolicitudesPage() {
         seller_id: transaction.seller_id,
         buyer_id: transaction.buyer_id,
         amount: transaction.amount,
-        currency: transaction.currency,
-        payment_method: transaction.payment_method,
+        currency: transaction.currency || request.currency_type || 'USD',
+        payment_method: transaction.payment_method || request.payment_method || 'local_transfer',
         transaction_id: transaction.id,  // IMPORTANTE: incluir el ID de la transacción
         transaction_steps: transaction.transaction_steps || []
       }
       
-      console.log('✅ Datos de transacción preparados:', transactionData)
+      console.log('📊 Datos de transacción preparados:', transactionData)
       
+      // CRÍTICO: Establecer BOTH estados de forma síncrona
+      console.log('📤 Estableciendo selectedTransaction y abriendo panel...')
       setSelectedTransaction(transactionData)
-      console.log('✅ setSelectedTransaction llamado')
-      
       setCompletionPanelOpen(true)
-      console.log('✅ Panel de completar compra abierto para el comprador')
+      console.log('✅ Panel configurado para abrirse')
     } catch (error) {
       console.error('❌ Error al abrir el panel:', error)
       toast({
@@ -463,6 +621,14 @@ export default function MisSolicitudesPage() {
     }
   }, [userId, toast])
 
+  // Verificar transacciones expiradas cuando cambien las solicitudes
+  useEffect(() => {
+    if (requests.length > 0) {
+      checkExpiredTransactions()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requests])
+
   if (loading) {
     return (
       <div className="max-w-6xl mx-auto p-4 md:p-6">
@@ -516,12 +682,12 @@ export default function MisSolicitudesPage() {
         </Card>
         <Card className="p-3 sm:p-4">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-0">
-            <CardTitle className="text-xs sm:text-sm font-medium">Ofertas</CardTitle>
-            <MessageSquare className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600" />
+            <CardTitle className="text-xs sm:text-sm font-medium">Aceptadas</CardTitle>
+            <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600" />
           </CardHeader>
           <CardContent className="p-0 pt-2">
             <div className="text-lg sm:text-2xl font-bold text-blue-600">
-              {requests.filter(r => (r.offers_count || 0) > 0).length}
+              {requests.filter(r => r.status === 'accepted').length}
             </div>
           </CardContent>
         </Card>
@@ -611,35 +777,71 @@ export default function MisSolicitudesPage() {
                       <Eye className="mr-2 h-4 w-4" />
                       Ver Detalles
                     </Button>
-                    {request.status === 'accepted' && (
-                      <Button
-                        variant="default" 
-                        size="sm"
-                        onClick={async () => {
-                          // Verificar primero si existe una transacción
-                          const supabase = supabaseBrowser()
-                          const { data: checkTransaction } = await supabase
-                            .from('purchase_transactions')
-                            .select('id')
-                            .eq('request_id', request.id)
-                            .single()
-                          
-                          if (checkTransaction) {
-                            await handleCompletePurchase(request)
-                          } else {
-                            toast({
-                              title: "Esperando transacción",
-                              description: "La transacción aún no está disponible. Espera a que el vendedor complete el proceso de aceptación.",
-                              variant: "default",
-                            })
-                          }
-                        }}
-                        className="w-full bg-green-600 hover:bg-green-700 text-white"
-                      >
-                        <ShoppingCart className="mr-2 h-4 w-4" />
-                        Completar Compra
-                      </Button>
-                    )}
+                    {(() => {
+                      const isAccepted = request.status === 'accepted'
+                      const isExpired = isTransactionExpired(request.id)
+                      // Solo mostrar el botón si está aceptada Y NO está expirada
+                      if (!isAccepted || isExpired) return null
+                      
+                      return (
+                        <div className="w-full">
+                          <button
+                            type="button"
+                            className="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md flex items-center justify-center text-sm font-medium cursor-pointer"
+                            onClick={async (e) => {
+                              e.stopPropagation()
+                              
+                              // Verificar si la transacción está expirada
+                              const supabase = supabaseBrowser()
+                              const { data: checkTransaction } = await supabase
+                                .from('purchase_transactions')
+                                .select('id, payment_deadline')
+                                .eq('request_id', request.id)
+                                .single()
+                              
+                              if (checkTransaction?.payment_deadline) {
+                                const deadline = new Date(checkTransaction.payment_deadline).getTime()
+                                const now = new Date().getTime()
+                                if (deadline < now) {
+                                  // Marcar como expirada y actualizar estado en BD
+                                  setExpiredTransactions(prev => new Set([...prev, request.id]))
+                                  
+                                  // Actualizar estado de la solicitud a "expired"
+                                  await supabase
+                                    .from('purchase_requests')
+                                    .update({
+                                      status: 'expired',
+                                      updated_at: new Date().toISOString()
+                                    })
+                                    .eq('id', request.id)
+                                  
+                                  // Actualizar estado local
+                                  setRequests(prev => prev.map(req => 
+                                    req.id === request.id 
+                                      ? { ...req, status: 'expired' as const }
+                                      : req
+                                  ))
+                                  
+                                  toast({
+                                    title: "Transacción expirada",
+                                    description: "Esta transacción ha expirado. Solo puedes eliminarla.",
+                                    variant: "destructive",
+                                  })
+                                  return
+                                }
+                              }
+                              
+                              handleCompletePurchase(request).catch(err => {
+                                console.error('❌ Error:', err)
+                              })
+                            }}
+                          >
+                            <ShoppingCart className="mr-2 h-4 w-4" />
+                            Completar Compra
+                          </button>
+                        </div>
+                      )
+                    })()}
                     <div className="flex space-x-2">
                       {canDeleteRequest(request) ? (
                         <Button
@@ -740,7 +942,12 @@ export default function MisSolicitudesPage() {
                       <Eye className="mr-2 h-4 w-4" />
                       Ver Detalles
                     </Button>
-                    {request.status === 'accepted' && (
+                    {(() => {
+                      const isAccepted = request.status === 'accepted'
+                      const isExpired = isTransactionExpired(request.id)
+                      // Solo mostrar el botón si está aceptada Y NO está expirada
+                      return isAccepted && !isExpired
+                    })() && (
                       <Button
                         variant="default" 
                         size="sm"
@@ -749,11 +956,43 @@ export default function MisSolicitudesPage() {
                           const supabase = supabaseBrowser()
                           const { data: checkTransaction } = await supabase
                             .from('purchase_transactions')
-                            .select('id')
+                            .select('id, payment_deadline')
                             .eq('request_id', request.id)
                             .single()
                           
                           if (checkTransaction) {
+                            // Verificar si la transacción está expirada
+                            if (checkTransaction.payment_deadline) {
+                              const deadline = new Date(checkTransaction.payment_deadline).getTime()
+                              const now = new Date().getTime()
+                              if (deadline < now) {
+                                // Marcar como expirada y actualizar estado en BD
+                                setExpiredTransactions(prev => new Set([...prev, request.id]))
+                                
+                                // Actualizar estado de la solicitud a "expired"
+                                await supabase
+                                  .from('purchase_requests')
+                                  .update({
+                                    status: 'expired',
+                                    updated_at: new Date().toISOString()
+                                  })
+                                  .eq('id', request.id)
+                                
+                                // Actualizar estado local
+                                setRequests(prev => prev.map(req => 
+                                  req.id === request.id 
+                                    ? { ...req, status: 'expired' as const }
+                                    : req
+                                ))
+                                
+                                toast({
+                                  title: "Transacción expirada",
+                                  description: "Esta transacción ha expirado. Solo puedes eliminarla.",
+                                  variant: "destructive",
+                                })
+                                return
+                              }
+                            }
                             await handleCompletePurchase(request)
                           } else {
                             toast({
@@ -1036,7 +1275,7 @@ export default function MisSolicitudesPage() {
       )}
 
       {/* Purchase Completion Panel */}
-      {selectedTransaction && (
+      {selectedTransaction ? (
         <PurchaseCompletionPanel
           requestId={selectedTransaction.request_id}
           transactionId={selectedTransaction.transaction_id}
@@ -1055,7 +1294,7 @@ export default function MisSolicitudesPage() {
             console.log('Transacción creada:', transactionId)
           }}
         />
-      )}
+      ) : null}
     </div>
   )
 }

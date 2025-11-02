@@ -30,3 +30,7 @@ CHECK (type IN (
 -- Verificar que se aplicó correctamente
 SELECT 'Constraint actualizado correctamente' as resultado;
 
+
+
+
+

@@ -480,6 +480,25 @@ export async function deletePurchaseRequest(
       return { success: false, error: 'Solo se pueden eliminar solicitudes canceladas o expiradas' }
     }
 
+    // Notificar a vendedores involucrados ANTES de eliminar la solicitud
+    // (debe hacerse antes porque después ya no existirá en la BD)
+    try {
+      console.log('📤 Llamando notify_request_deleted para request:', requestId)
+      const { data, error } = await supabase.rpc('notify_request_deleted', {
+        p_request_id: requestId,
+        p_buyer_id: user.id
+      })
+      
+      if (error) {
+        console.error('❌ Error ejecutando notify_request_deleted:', error)
+      } else {
+        console.log('✅ notify_request_deleted ejecutado:', data)
+      }
+    } catch (error) {
+      console.error('❌ Excepción ejecutando notify_request_deleted:', error)
+      // Continuar con la eliminación incluso si falla la notificación
+    }
+
     // Eliminar la solicitud y todas las relaciones (CASCADE)
     const { error: deleteError } = await supabase
       .from('purchase_requests')
@@ -538,6 +557,7 @@ export async function cancelPurchaseRequest(
     }
 
     // Actualizar el estado de la solicitud a 'cancelled'
+    // El trigger SQL automáticamente notificará a los vendedores involucrados
     const { error: updateError } = await supabase
       .from('purchase_requests')
       .update({ 
@@ -551,7 +571,7 @@ export async function cancelPurchaseRequest(
       return { success: false, error: 'Error cancelando la solicitud' }
     }
 
-    // Crear notificación para el usuario
+    // Crear notificación para el comprador (confirmación)
     await supabase
       .from('request_notifications')
       .insert({
@@ -561,6 +581,24 @@ export async function cancelPurchaseRequest(
         title: 'Solicitud Cancelada',
         message: 'Tu solicitud de compra ha sido cancelada exitosamente.'
       })
+
+    // Notificar a vendedores involucrados (esto también se hace automáticamente por el trigger)
+    // pero lo hacemos aquí como respaldo
+    try {
+      console.log('📤 Llamando notify_request_cancelled para request:', requestId)
+      const { data, error } = await supabase.rpc('notify_request_cancelled', {
+        p_request_id: requestId,
+        p_buyer_id: user.id
+      })
+      
+      if (error) {
+        console.error('❌ Error ejecutando notify_request_cancelled:', error)
+      } else {
+        console.log('✅ notify_request_cancelled ejecutado:', data)
+      }
+    } catch (error) {
+      console.error('❌ Excepción ejecutando notify_request_cancelled:', error)
+    }
 
     revalidatePath('/dashboard/solicitudes')
     revalidatePath('/dashboard/mis-solicitudes')

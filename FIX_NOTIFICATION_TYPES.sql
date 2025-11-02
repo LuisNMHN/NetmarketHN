@@ -47,3 +47,7 @@ SELECT 'Constraint actualizado correctamente' as resultado;
 -- FIN DEL SCRIPT
 -- =========================================================
 
+
+
+
+

@@ -327,3 +327,7 @@ export async function startNegotiation(requestId: string) {
 
 Una vez que hayas completado todos estos pasos, tu sistema de negociación mejorado estará funcionando perfectamente. Si encuentras algún problema, revisa la sección de "Problemas Comunes" o consulta los logs de la consola del navegador y de Supabase.
 
+
+
+
+

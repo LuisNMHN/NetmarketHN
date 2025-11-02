@@ -182,3 +182,7 @@ SELECT 'Si ves este mensaje sin errores, el sistema está funcionando correctame
 -- 4. Si hay errores, revisa la guía de verificación completa
 -- =========================================================
 
+
+
+
+
