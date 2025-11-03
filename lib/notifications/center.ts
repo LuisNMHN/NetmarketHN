@@ -90,8 +90,8 @@ export class NotificationCenter {
             console.log('📊 NotificationCenter - Request ID:', notification.payload.request_id)
           }
           
-          // Log específico para cancelaciones, eliminaciones y expiraciones
-          if (notification.event === 'REQUEST_CANCELLED' || notification.event === 'REQUEST_DELETED' || notification.event === 'REQUEST_EXPIRED') {
+          // Log específico para cancelaciones, eliminaciones, expiraciones y completadas
+          if (notification.event === 'REQUEST_CANCELLED' || notification.event === 'REQUEST_DELETED' || notification.event === 'REQUEST_EXPIRED' || notification.event === 'REQUEST_COMPLETED') {
             console.log('🚨 NotificationCenter - Notificación de solicitud:', {
               event: notification.event,
               title: notification.title,

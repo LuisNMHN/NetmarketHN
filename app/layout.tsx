@@ -2,6 +2,7 @@ import type React from "react"
 import { Geist, Geist_Mono } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "sonner"
+import { Toaster as ShadcnToaster } from "@/components/ui/toaster"
 import SupabaseAuthListener from "@/app/providers/SupabaseAuthListener"
 import { NotificationProvider } from "@/components/notifications/NotificationProvider"
 import "./globals.css"
@@ -31,6 +32,7 @@ export default function RootLayout({
         </ThemeProvider>
         <SupabaseAuthListener />
         <Toaster position="top-center" richColors closeButton />
+        <ShadcnToaster />
       </body>
     </html>
   )

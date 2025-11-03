@@ -83,8 +83,8 @@ export function NotificationBell({ className }: NotificationBellProps) {
       
       console.log('🔔 NotificationBell - Listener recibió notificación:', notification.id)
       
-      // Log detallado para cancelaciones/eliminaciones/expiraciones
-      if (notification.event === 'REQUEST_CANCELLED' || notification.event === 'REQUEST_DELETED' || notification.event === 'REQUEST_EXPIRED') {
+      // Log detallado para cancelaciones/eliminaciones/expiraciones/completadas
+      if (notification.event === 'REQUEST_CANCELLED' || notification.event === 'REQUEST_DELETED' || notification.event === 'REQUEST_EXPIRED' || notification.event === 'REQUEST_COMPLETED') {
         console.log('🚨 NotificationBell - Notificación de solicitud:', {
           id: notification.id,
           event: notification.event,

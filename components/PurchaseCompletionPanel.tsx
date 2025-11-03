@@ -128,8 +128,14 @@ export function PurchaseCompletionPanel({
   const [chatThreadId, setChatThreadId] = useState<string | null>(null)
   const chatRealtimeChannelRef = React.useRef<any>(null)
   const currentSubscribedThreadIdRef = React.useRef<string | null>(null)
+  const transactionRealtimeChannelRef = React.useRef<any>(null)
+  const currentSubscribedTransactionIdRef = React.useRef<string | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const chatMessagesContainerRef = React.useRef<HTMLDivElement>(null)
+  const timerIntervalRef = React.useRef<NodeJS.Timeout | null>(null)
+  const transactionCompletionHandledRef = React.useRef<boolean>(false)
   const [uploadingFile, setUploadingFile] = useState(false)
+  const [hasPaymentProof, setHasPaymentProof] = useState(false)
   
   // Cargar mensajes del chat
   const loadChatMessages = async () => {
@@ -206,6 +212,40 @@ export function PurchaseCompletionPanel({
         if (messagesError) console.error('❌ Error cargando mensajes:', messagesError)
         
         setChatMessages(messages || [])
+        
+        // Verificar si hay documentos de verificación de pago del comprador
+        if (messages && messages.length > 0 && userRole === 'buyer' && transaction) {
+          const buyerDocuments = messages.filter(msg => 
+            msg.sender_id === currentUserId && 
+            msg.attachments && 
+            Array.isArray(msg.attachments) && 
+            msg.attachments.length > 0
+          )
+          if (buyerDocuments.length > 0) {
+            setHasPaymentProof(true)
+          } else {
+            // También verificar en transaction_documents
+            const { data: transactionDocs } = await supabase
+              .from('transaction_documents')
+              .select('*')
+              .eq('transaction_id', transaction.id)
+              .eq('document_type', 'payment_proof')
+              .eq('uploaded_by', currentUserId)
+            
+            if (transactionDocs && transactionDocs.length > 0) {
+              setHasPaymentProof(true)
+            } else {
+              setHasPaymentProof(false)
+            }
+          }
+        }
+        
+        // Scroll al final después de cargar mensajes
+        setTimeout(() => {
+          if (chatMessagesContainerRef.current) {
+            chatMessagesContainerRef.current.scrollTop = chatMessagesContainerRef.current.scrollHeight
+          }
+        }, 200)
         
         // Configurar suscripción realtime para nuevos mensajes
         // Usar setTimeout para asegurar que la suscripción se configure completamente
@@ -339,6 +379,15 @@ export function PurchaseCompletionPanel({
             mime_type: file.type,
             uploaded_by: user.id
           })
+        
+        // Si el comprador subió un documento y el paso 2 está en progreso, marcar como disponible
+        if (userRole === 'buyer') {
+          const allSteps = transaction?.transaction_steps || []
+          const step2 = allSteps.find(s => s.step_order === 2)
+          if (step2?.status === 'in_progress') {
+            setHasPaymentProof(true)
+          }
+        }
       }
 
       toast({
@@ -461,6 +510,15 @@ export function PurchaseCompletionPanel({
       // realtime lo recibirá también pero verificará duplicados
       setChatMessages(prev => [...prev, newMessage])
       
+      // Si el comprador subió un documento y el paso 2 está en progreso, verificar si es comprobante de pago
+      if (newMessage.sender_id === currentUserId && userRole === 'buyer' && newMessage.attachments && newMessage.attachments.length > 0) {
+        const allSteps = transaction?.transaction_steps || []
+        const step2 = allSteps.find(s => s.step_order === 2)
+        if (step2?.status === 'in_progress') {
+          setHasPaymentProof(true)
+        }
+      }
+      
     } catch (error) {
       console.error('❌ Error enviando mensaje:', error)
       toast({
@@ -533,7 +591,18 @@ export function PurchaseCompletionPanel({
           }
           
           console.log('✅ Mensaje agregado (de otro usuario):', newMessage.id)
-          return [...prev, newMessage]
+          const updated = [...prev, newMessage]
+          
+          // Si el comprador subió un documento y el paso 2 está en progreso, verificar si es comprobante de pago
+          if (newMessage.sender_id === currentUserId && userRole === 'buyer' && newMessage.attachments && Array.isArray(newMessage.attachments) && newMessage.attachments.length > 0) {
+            const allSteps = transaction?.transaction_steps || []
+            const step2 = allSteps.find(s => s.step_order === 2)
+            if (step2?.status === 'in_progress') {
+              setHasPaymentProof(true)
+            }
+          }
+          
+          return updated
         })
       })
       .subscribe((status) => {
@@ -547,11 +616,273 @@ export function PurchaseCompletionPanel({
     chatRealtimeChannelRef.current = channel
   }, [])
   
+  // Configurar suscripción realtime para transaction_steps y purchase_transactions
+  const setupTransactionRealtimeSubscription = useCallback((transactionId: string) => {
+    // Verificar si ya tenemos una suscripción activa para esta transacción
+    if (transactionRealtimeChannelRef.current && currentSubscribedTransactionIdRef.current === transactionId) {
+      console.log('✅ Suscripción de transacción ya existe, reutilizando')
+      return
+    }
+    
+    // Limpiar suscripción anterior si es para una transacción diferente
+    if (transactionRealtimeChannelRef.current) {
+      console.log('🧹 Limpiando suscripción realtime de transacción anterior')
+      transactionRealtimeChannelRef.current.unsubscribe()
+      transactionRealtimeChannelRef.current = null
+      currentSubscribedTransactionIdRef.current = null
+    }
+    
+    const supabase = supabaseBrowser()
+    console.log('🔌 Configurando suscripción realtime para transacción:', transactionId)
+    
+    const channel = supabase
+      .channel(`transaction:${transactionId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'transaction_steps',
+        filter: `transaction_id=eq.${transactionId}`
+      }, (payload: any) => {
+        console.log('📊 Cambio en transaction_steps recibido:', payload)
+        const updatedStep = payload.new
+        const eventType = payload.eventType || (payload.old ? 'UPDATE' : 'INSERT')
+        
+        // Verificar si el paso 4 se completó (para ambos usuarios)
+        const isStep4Completed = updatedStep?.step_order === 4 && updatedStep?.status === 'completed'
+        
+        // Actualizar el paso en el estado local
+        setTransaction(prev => {
+          if (!prev) return prev
+          
+          let updatedSteps = prev.transaction_steps || []
+          
+          if (eventType === 'DELETE') {
+            // Remover el paso eliminado
+            updatedSteps = updatedSteps.filter(step => step.id !== updatedStep?.id)
+          } else if (eventType === 'INSERT') {
+            // Agregar nuevo paso si no existe
+            if (!updatedSteps.find(s => s.id === updatedStep.id)) {
+              updatedSteps = [...updatedSteps, updatedStep]
+            }
+          } else {
+            // UPDATE: actualizar el paso existente
+            updatedSteps = updatedSteps.map(step => {
+              if (step.id === updatedStep.id) {
+                return { ...step, ...updatedStep }
+              }
+              return step
+            })
+          }
+          
+          // Si el paso 4 se completó, ejecutar acciones para ambos usuarios
+          if (isStep4Completed && !transactionCompletionHandledRef.current) {
+            console.log('✅ Paso 4 completado detectado en realtime - ejecutando acciones para ambos usuarios')
+            transactionCompletionHandledRef.current = true
+            
+            // Detener el temporizador
+            if (timerIntervalRef.current) {
+              clearInterval(timerIntervalRef.current)
+              timerIntervalRef.current = null
+            }
+            setTimeRemaining(null)
+            
+            // Actualizar solicitud a completada (para ambos usuarios)
+            const updateRequestStatus = async () => {
+              try {
+                const supabase = supabaseBrowser()
+                const { error: requestUpdateError } = await supabase
+                  .rpc('mark_request_completed', {
+                    p_request_id: requestId
+                  })
+                
+                if (requestUpdateError) {
+                  console.error('⚠️ Error actualizando solicitud a completada:', requestUpdateError)
+                  await supabase
+                    .from('purchase_requests')
+                    .update({
+                      status: 'completed',
+                      updated_at: new Date().toISOString()
+                    })
+                    .eq('id', requestId)
+                }
+                
+                // Disparar evento para actualizar la UI
+                const updateNotification = new CustomEvent('request-status-changed', {
+                  detail: { requestId, newStatus: 'completed' }
+                })
+                window.dispatchEvent(updateNotification)
+                
+                // Crear notificación persistente similar a las de crear/cancelar solicitudes
+                const transactionId = prev?.id
+                if (transactionId) {
+                  try {
+                    const { data: notificationResult, error: notificationError } = await supabase
+                      .rpc('notify_request_completed', {
+                        p_request_id: requestId,
+                        p_transaction_id: transactionId
+                      })
+                    
+                    if (notificationError) {
+                      console.error('⚠️ Error creando notificación de solicitud completada:', notificationError)
+                    } else {
+                      console.log('✅ Notificación de solicitud completada creada:', notificationResult)
+                    }
+                  } catch (notifErr) {
+                    console.error('⚠️ Error en creación de notificación:', notifErr)
+                  }
+                }
+              } catch (requestErr) {
+                console.error('⚠️ Error en actualización de solicitud:', requestErr)
+              }
+            }
+            updateRequestStatus()
+            
+            // Mostrar notificación de éxito (para ambos usuarios)
+            setTimeout(() => {
+              toast({
+                title: "✅ Transacción completada",
+                description: `Se acreditó exitosamente el saldo de L.${prev.amount || amount} de HNLD al comprador. La transacción ha finalizado correctamente.`,
+                duration: 5000,
+              })
+            }, 500)
+            
+            // Cerrar el panel después de 3 segundos (para ambos usuarios)
+            setTimeout(() => {
+              console.log('🔒 Cerrando panel de transacción después de completar (realtime)')
+              onClose()
+            }, 3000)
+          }
+          
+          return {
+            ...prev,
+            transaction_steps: updatedSteps
+          }
+        })
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'purchase_transactions',
+        filter: `id=eq.${transactionId}`
+      }, (payload: any) => {
+        console.log('📊 Cambio en purchase_transactions recibido:', payload)
+        const updatedTransaction = payload.new
+        
+        // Verificar si la transacción se completó (para ambos usuarios)
+        const isTransactionCompleted = updatedTransaction?.status === 'completed'
+        
+        // Actualizar la transacción completa
+        setTransaction(prev => {
+          if (!prev) return prev
+          
+          const wasCompleted = prev.status === 'completed'
+          
+          // Si la transacción acaba de completarse (no estaba completada antes)
+          if (isTransactionCompleted && !wasCompleted && !transactionCompletionHandledRef.current) {
+            console.log('✅ Transacción completada detectada en realtime - ejecutando acciones para ambos usuarios')
+            transactionCompletionHandledRef.current = true
+            
+            // Detener el temporizador
+            if (timerIntervalRef.current) {
+              clearInterval(timerIntervalRef.current)
+              timerIntervalRef.current = null
+            }
+            setTimeRemaining(null)
+            
+            // Actualizar solicitud a completada (para ambos usuarios)
+            const updateRequestStatus = async () => {
+              try {
+                const supabase = supabaseBrowser()
+                const { error: requestUpdateError } = await supabase
+                  .rpc('mark_request_completed', {
+                    p_request_id: requestId
+                  })
+                
+                if (requestUpdateError) {
+                  console.error('⚠️ Error actualizando solicitud a completada:', requestUpdateError)
+                  await supabase
+                    .from('purchase_requests')
+                    .update({
+                      status: 'completed',
+                      updated_at: new Date().toISOString()
+                    })
+                    .eq('id', requestId)
+                }
+                
+                // Disparar evento para actualizar la UI
+                const updateNotification = new CustomEvent('request-status-changed', {
+                  detail: { requestId, newStatus: 'completed' }
+                })
+                window.dispatchEvent(updateNotification)
+                
+                // Crear notificación persistente similar a las de crear/cancelar solicitudes
+                const transactionId = updatedTransaction?.id || prev?.id
+                if (transactionId) {
+                  try {
+                    const { data: notificationResult, error: notificationError } = await supabase
+                      .rpc('notify_request_completed', {
+                        p_request_id: requestId,
+                        p_transaction_id: transactionId
+                      })
+                    
+                    if (notificationError) {
+                      console.error('⚠️ Error creando notificación de solicitud completada:', notificationError)
+                    } else {
+                      console.log('✅ Notificación de solicitud completada creada:', notificationResult)
+                    }
+                  } catch (notifErr) {
+                    console.error('⚠️ Error en creación de notificación:', notifErr)
+                  }
+                }
+              } catch (requestErr) {
+                console.error('⚠️ Error en actualización de solicitud:', requestErr)
+              }
+            }
+            updateRequestStatus()
+            
+            // Mostrar notificación de éxito (para ambos usuarios)
+            setTimeout(() => {
+              toast({
+                title: "✅ Transacción completada",
+                description: `Se acreditó exitosamente el saldo de L.${updatedTransaction?.amount || prev.amount || amount} de HNLD al comprador. La transacción ha finalizado correctamente.`,
+                duration: 5000,
+              })
+            }, 500)
+            
+            // Cerrar el panel después de 3 segundos (para ambos usuarios)
+            setTimeout(() => {
+              console.log('🔒 Cerrando panel de transacción después de completar (realtime - transaction status)')
+              onClose()
+            }, 3000)
+          }
+          
+          return {
+            ...prev,
+            ...updatedTransaction,
+            // Mantener transaction_steps si están en el estado anterior
+            transaction_steps: prev.transaction_steps || []
+          }
+        })
+      })
+      .subscribe((status) => {
+        console.log('🔌 Estado de suscripción transacción realtime:', status)
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Suscripción realtime activa para transacción:', transactionId)
+          currentSubscribedTransactionIdRef.current = transactionId
+        }
+      })
+    
+    transactionRealtimeChannelRef.current = channel
+  }, [])
+  
   // Limpiar suscripción al desmontar o cuando cambia el thread
   useEffect(() => {
     return () => {
       if (chatRealtimeChannelRef.current) {
         chatRealtimeChannelRef.current.unsubscribe()
+      }
+      if (transactionRealtimeChannelRef.current) {
+        transactionRealtimeChannelRef.current.unsubscribe()
       }
     }
   }, [])
@@ -562,6 +893,80 @@ export function PurchaseCompletionPanel({
       loadChatMessages()
     }
   }, [isOpen, chatEnabled, requestId])
+  
+  // Scroll automático al último mensaje
+  const scrollToBottom = React.useCallback(() => {
+    if (chatMessagesContainerRef.current) {
+      const container = chatMessagesContainerRef.current
+      // Usar múltiples requestAnimationFrame para asegurar que el DOM se haya actualizado completamente
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (container) {
+            container.scrollTop = container.scrollHeight
+          }
+        })
+      })
+    }
+  }, [])
+  
+  // Ejecutar scroll cuando cambien los mensajes (usando la longitud para detectar cambios)
+  useEffect(() => {
+    if (chatMessages.length > 0 && chatEnabled) {
+      // Pequeño delay para asegurar que el DOM se actualizó
+      const timeoutId = setTimeout(() => {
+        scrollToBottom()
+      }, 150)
+      return () => clearTimeout(timeoutId)
+    }
+  }, [chatMessages.length, chatEnabled, scrollToBottom])
+  
+  // También ejecutar cuando se completa el envío de un mensaje
+  useEffect(() => {
+    if (chatSending === false && chatMessages.length > 0 && chatEnabled) {
+      const timeoutId = setTimeout(() => {
+        scrollToBottom()
+      }, 100)
+      return () => clearTimeout(timeoutId)
+    }
+  }, [chatSending, chatMessages.length, chatEnabled, scrollToBottom])
+  
+  // Verificar documentos de pago cuando cambia el paso 2 a in_progress o cuando cambian los mensajes
+  useEffect(() => {
+    if (transaction && userRole === 'buyer' && currentUserId) {
+      const allSteps = transaction.transaction_steps || []
+      const step2 = allSteps.find(s => s.step_order === 2)
+      if (step2?.status === 'in_progress') {
+        if (chatMessages.length > 0) {
+          const buyerDocuments = chatMessages.filter(msg => 
+            msg.sender_id === currentUserId && 
+            msg.attachments && 
+            Array.isArray(msg.attachments) && 
+            msg.attachments.length > 0
+          )
+          setHasPaymentProof(buyerDocuments.length > 0)
+        } else {
+          // Si no hay mensajes todavía, verificar en transaction_documents
+          const checkTransactionDocuments = async () => {
+            const supabase = supabaseBrowser()
+            const { data: transactionDocs } = await supabase
+              .from('transaction_documents')
+              .select('*')
+              .eq('transaction_id', transaction.id)
+              .eq('document_type', 'payment_proof')
+              .eq('uploaded_by', currentUserId)
+            
+            setHasPaymentProof(transactionDocs && transactionDocs.length > 0)
+          }
+          checkTransactionDocuments()
+        }
+      } else {
+        // Si el paso 2 no está en progreso, resetear el estado
+        setHasPaymentProof(false)
+      }
+    } else {
+      setHasPaymentProof(false)
+    }
+  }, [transaction?.transaction_steps, chatMessages, userRole, currentUserId, transaction?.id])
   
   // Mock del chat hook para compatibilidad
   const chatHook = {
@@ -623,13 +1028,21 @@ export function PurchaseCompletionPanel({
       setChatMessages([])
       setChatEnabled(false)
       setChatThreadId(null)
+      setHasPaymentProof(false)
+      transactionCompletionHandledRef.current = false
       
       // Limpiar suscripción realtime
       if (chatRealtimeChannelRef.current) {
-        console.log('🧹 Limpiando suscripción realtime')
+        console.log('🧹 Limpiando suscripción realtime de chat')
         chatRealtimeChannelRef.current.unsubscribe()
         chatRealtimeChannelRef.current = null
         currentSubscribedThreadIdRef.current = null
+      }
+      if (transactionRealtimeChannelRef.current) {
+        console.log('🧹 Limpiando suscripción realtime de transacción')
+        transactionRealtimeChannelRef.current.unsubscribe()
+        transactionRealtimeChannelRef.current = null
+        currentSubscribedTransactionIdRef.current = null
       }
       return
     }
@@ -828,6 +1241,9 @@ export function PurchaseCompletionPanel({
         }
         
         setTransaction(transactionWithUsers)
+        
+        // Configurar suscripción realtime para transaction_steps y purchase_transactions
+        setupTransactionRealtimeSubscription(existingTransaction.id)
         
         // Si hay payment_deadline, habilitar el chat automáticamente
         if (existingTransaction.payment_deadline) {
@@ -1114,13 +1530,19 @@ export function PurchaseCompletionPanel({
             console.log('⏰ Tiempo agotado, cerrando panel')
             setTimeRemaining(0)
             clearInterval(interval)
+            timerIntervalRef.current = null
             
             // Cuando el tiempo se agota, cerrar el panel y reactivar la solicitud
             handleTimeoutExpiration()
           }
         }, 1000)
+        
+        timerIntervalRef.current = interval
 
-        return () => clearInterval(interval)
+        return () => {
+          clearInterval(interval)
+          timerIntervalRef.current = null
+        }
       } else {
         // Si el deadline ya expiró, NO cerrar el panel automáticamente
         // Solo marcar el temporizador como expirado
@@ -1158,7 +1580,13 @@ export function PurchaseCompletionPanel({
       
       case 1: // Paso 2: Pago en proceso
         if (userRole === 'buyer') {
-          if (isInProgress) return 'Realice el pago antes de que expire el temporizador'
+          if (isInProgress) {
+            // Verificar si hay documento de verificación de pago
+            if (!hasPaymentProof) {
+              return '⚠️ Adjunte una imagen o documento de verificación del depósito en el chat para completar este paso'
+            }
+            return 'Comprobante adjuntado. Haz clic para confirmar el pago realizado'
+          }
           if (isCompleted) return 'Pago completado, a la espera de verificación'
           return 'Realice el pago una vez que el vendedor acepte el trato'
         } else {
@@ -1169,11 +1597,11 @@ export function PurchaseCompletionPanel({
       
       case 2: // Paso 3: Verificación del recibo
         if (userRole === 'buyer') {
-          if (isInProgress) return 'Esperando a que el vendedor verifique el recibo'
+          if (isInProgress) return 'Esperando a que el vendedor verifique el recibo y el depósito en su cuenta'
           if (isCompleted) return 'Recibo verificado correctamente'
           return 'Subida de comprobante pendiente'
         } else {
-          if (isInProgress) return 'Verifique el comprobante de pago del comprador'
+          if (isInProgress) return 'Verifique el recibo del comprador y confirme que el depósito se recibió en su cuenta'
           if (isCompleted) return 'Recibo verificado y confirmado'
           return 'Esperando comprobante de pago del comprador'
         }
@@ -1485,6 +1913,10 @@ export function PurchaseCompletionPanel({
       }
       console.log('✅ Transacción creada con pasos:', transactionWithRequest)
       setTransaction(transactionWithRequest)
+      
+      // Configurar suscripción realtime para transaction_steps y purchase_transactions
+      setupTransactionRealtimeSubscription(result.data.id)
+      
       onTransactionCreated?.(result.data.id)
     }
   }
@@ -1568,8 +2000,27 @@ export function PurchaseCompletionPanel({
   // Renderizar el panel usando Portal directamente en el body
   // Esto asegura que esté completamente fuera del DOM principal y no se vea afectado por el blur
   const panelContent = (
+    <>
+      <style>{`
+        @keyframes pulse-glow {
+          0%, 100% {
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.25), 0 0 30px rgba(59, 130, 246, 0.15), 0 0 45px rgba(59, 130, 246, 0.08);
+          }
+          50% {
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.35), 0 0 40px rgba(59, 130, 246, 0.2), 0 0 60px rgba(59, 130, 246, 0.12);
+          }
+        }
+        @keyframes pulse-glow-orange {
+          0%, 100% {
+            box-shadow: 0 0 15px rgba(251, 146, 60, 0.25), 0 0 30px rgba(251, 146, 60, 0.15), 0 0 45px rgba(251, 146, 60, 0.08);
+          }
+          50% {
+            box-shadow: 0 0 20px rgba(251, 146, 60, 0.35), 0 0 40px rgba(251, 146, 60, 0.2), 0 0 60px rgba(251, 146, 60, 0.12);
+          }
+        }
+      `}</style>
     <div 
-      className={`fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 ${!isOpen ? 'hidden' : ''}`} 
+      className={`fixed inset-0 bg-black/50 flex items-center justify-center z-50 py-0 ${!isOpen ? 'hidden' : ''}`} 
       data-panel-overlay="true"
       style={{ 
         filter: 'none', 
@@ -1577,7 +2028,7 @@ export function PurchaseCompletionPanel({
       }}
     >
       <div 
-        className="bg-white rounded-lg shadow-2xl w-full max-w-7xl max-h-[90vh] overflow-hidden relative"
+        className="bg-white dark:bg-gray-900 rounded-lg shadow-2xl sm:rounded-lg w-full max-w-md sm:max-w-lg md:max-w-xl h-[92vh] overflow-hidden relative flex flex-col"
         data-panel-content="true"
         style={{
           filter: 'none !important',
@@ -1585,616 +2036,490 @@ export function PurchaseCompletionPanel({
           isolation: 'isolate' // Crear nuevo contexto de apilamiento
         }}
       >
-        {/* Botón de cerrar */}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onClose}
-          className="absolute top-4 right-4 z-10 bg-white/80 hover:bg-white"
-        >
-          <X className="h-5 w-5" />
-        </Button>
-        <div className="flex h-[90vh]">
-          {/* Panel Izquierdo - Detalles de Compra */}
-          <div className="w-80 bg-gray-50 border-r border-gray-200 p-6">
-            <div className="space-y-6">
-              {/* Resumen de Compra */}
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900 mb-3">
-                  Compra de HNLD
-                </h2>
-                <div className="text-2xl font-bold text-gray-900 mb-2">
-                  Total: {requestData?.currency_type || currency} {requestData?.amount?.toLocaleString() || amount.toLocaleString()}
+        {/* Header General del Panel */}
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-b border-gray-200 dark:border-gray-700 px-3 sm:px-6 py-1 sm:py-2 flex-shrink-0">
+          <div className="flex items-center justify-between mb-1 sm:mb-2">
+            <div className="flex items-center space-x-2 sm:space-x-3">
+              <h1 className="text-sm sm:text-xl font-bold text-gray-900 dark:text-gray-100">
+                Compra de HNLD
+              </h1>
+              <span className="text-sm sm:text-xl font-bold text-gray-900 dark:text-gray-100">
+                -
+              </span>
+              <span className="text-sm sm:text-xl font-bold text-gray-700 dark:text-gray-300">
+                {requestData?.currency_type || currency} {requestData?.amount?.toLocaleString() || amount.toLocaleString()}
+              </span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onClose}
+              className="bg-white/80 dark:bg-gray-800/80 hover:bg-white dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-700 p-1 h-6 w-6 sm:h-7 sm:w-7"
+            >
+              <X className="h-3 w-3 sm:h-4 sm:w-4" />
+            </Button>
+          </div>
+          
+          {/* Código y Método de Pago - Card Combinada */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-1.5 sm:p-3 border border-gray-200 dark:border-gray-700">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
+              {/* Código Único */}
+              <div className="pr-2 sm:pr-3 border-r border-gray-200 dark:border-gray-700">
+                <div className="flex items-center space-x-1.5 sm:space-x-2 mb-0.5 sm:mb-1">
+                  <FileText className="h-3 w-3 sm:h-4 sm:w-4 text-green-600 dark:text-green-400" />
+                  <span className="text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400">Código</span>
                 </div>
-                {/* Aviso sobre cambio de divisa para USD y EUR */}
-                {(requestData?.currency_type === 'USD' || requestData?.currency_type === 'EUR' || currency === 'USD' || currency === 'EUR') && (
-                  <div className="mb-2">
-                    <Alert className="bg-blue-50 border-blue-200 py-2 px-3">
-                      <AlertCircle className="h-3 w-3 text-blue-600 mr-1.5" />
-                      <AlertDescription className="text-xs text-blue-800 leading-tight">
-                        La cantidad de HNLD es equivalente al cambio de divisa actual.
-                      </AlertDescription>
-                    </Alert>
-                  </div>
-                )}
-                <div className="text-xs text-gray-500">
-                  Código: {requestData?.unique_code || `NMHN-${new Date().toISOString().split('T')[0].replace(/-/g, '')}-${String(requestId.slice(-6)).toUpperCase()}`}
+                <div className="text-[11px] sm:text-sm font-mono font-semibold text-gray-900 dark:text-gray-100">
+                  {requestData?.unique_code || `NMHN-${new Date().toISOString().split('T')[0].replace(/-/g, '')}-${String(requestId.slice(-6)).toUpperCase()}`}
                 </div>
               </div>
 
               {/* Método de Pago */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-700 mb-2">Método de Pago Aceptado:</h3>
-                <div className="bg-white border border-gray-300 rounded-lg p-3">
-                  <div className="flex items-center space-x-2 text-sm text-gray-900">
-                    <CreditCard className="h-4 w-4 text-blue-600" />
-                    <span className="font-medium">
-                      {getPaymentMethodDisplayName(requestData?.payment_method || paymentMethod)}
-                    </span>
-                  </div>
+              <div className="pl-2 sm:pl-3">
+                <div className="flex items-center space-x-1.5 sm:space-x-2 mb-0.5 sm:mb-1">
+                  <CreditCard className="h-3 w-3 sm:h-4 sm:w-4 text-purple-600 dark:text-purple-400" />
+                  <span className="text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400">Método de Pago</span>
                 </div>
-              </div>
-
-              {/* Información del Comprador o Vendedor (según el rol) */}
-              {requestData && userRole && (
-                (() => {
-                  // Si es el comprador, mostrar información del vendedor
-                  // Si es el vendedor, mostrar información del comprador
-                  const counterpartyInfo = userRole === 'buyer' 
-                    ? requestData.seller 
-                    : requestData.buyer
-                  
-                  const counterpartyRole = userRole === 'buyer' ? 'Vendedor' : 'Comprador'
-                  
-                  return (
-                    <div className={`${userRole === 'buyer' ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'} border rounded-lg p-4`}>
-                      <h3 className={`text-sm font-medium mb-2 ${userRole === 'buyer' ? 'text-green-800' : 'text-blue-800'}`}>
-                        {counterpartyRole}
-                      </h3>
-                      <div className="flex items-center space-x-3">
-                        <div className={`w-10 h-10 ${userRole === 'buyer' ? 'bg-green-100' : 'bg-blue-100'} rounded-full flex items-center justify-center`}>
-                          {counterpartyInfo?.avatar_url ? (
-                            <img 
-                              src={counterpartyInfo.avatar_url} 
-                              alt={counterpartyInfo.full_name}
-                              className="w-10 h-10 rounded-full object-cover"
-                            />
-                          ) : (
-                            <User className={`h-5 w-5 ${userRole === 'buyer' ? 'text-green-600' : 'text-blue-600'}`} />
-                          )}
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <div className={`text-sm font-medium ${userRole === 'buyer' ? 'text-green-900' : 'text-blue-900'}`}>
-                              {counterpartyInfo?.full_name || counterpartyRole}
-                            </div>
-                            <div className="flex space-x-1">
-                              {(() => {
-                                const verification = counterpartyInfo?.verification_status || 'unverified'
-                                
-                                // Mostrar nivel de verificación según el estado KYC
-                                let verificationLevel = 0
-                                if (verification === 'approved') {
-                                  verificationLevel = 4
-                                } else if (verification === 'review') {
-                                  verificationLevel = 2
-                                } else {
-                                  verificationLevel = 0
-                                }
-                                
-                                return Array.from({ length: 4 }, (_, i) => {
-                                  if (i < verificationLevel) {
-                                    return <CheckCircle key={i} className="h-3 w-3 text-green-500" />
-                                  } else {
-                                    return <Circle key={i} className="h-3 w-3 text-gray-300" />
-                                  }
-                                })
-                              })()}
-                            </div>
-                          </div>
-                          <div className={`text-xs mt-1 ${userRole === 'buyer' ? 'text-green-700' : 'text-blue-700'}`}>
-                            Verificación: {
-                              (() => {
-                                const verification = counterpartyInfo?.verification_status || 'unverified'
-                                if (verification === 'approved') return 'Verificado'
-                                if (verification === 'review') return 'En revisión'
-                                if (verification === 'rejected') return 'Rechazado'
-                                return 'No verificado'
-                              })()
-                            }
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })()
-              )}
-
-              {/* Temporizador */}
-              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                {transaction?.payment_deadline ? (
-                  <>
-                    <div className="flex items-center space-x-2 mb-2">
-                      <Timer className="h-5 w-5 text-orange-600" />
-                      <span className="text-sm font-medium text-orange-800">Temporizador:</span>
-                    </div>
-                    <div className="text-2xl font-bold text-orange-600">
-                      {timeRemaining ? formatTimeRemaining(timeRemaining) : '00:00'}
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex items-center space-x-2">
-                    <Clock className="h-5 w-5 text-gray-400" />
-                    <span className="text-sm text-gray-500">Esperando aceptación del trato</span>
-                  </div>
-                )}
+                <div className="text-[11px] sm:text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  {getPaymentMethodDisplayName(requestData?.payment_method || paymentMethod)}
+                </div>
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Panel Central - Flujo de Transacción y Escrow */}
-          <div className="flex-1 p-6">
-            <div className="space-y-6">
-              {/* Información de Escrow */}
-              <Card className="border-green-200 bg-green-50">
-                <CardContent className="p-4">
-                  <div className="flex items-center space-x-3">
-                    <Lock className="h-6 w-6 text-green-600" />
-                    <div>
-                      <h3 className="text-lg font-semibold text-green-800">Fondos en custodia NMHN</h3>
-                      <p className="text-sm text-green-700">Estado: Protegidos</p>
-                      <p className="text-xs text-green-600 mt-1">
-                        Si surge una disputa, NMHN actuará como árbitro.
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Pasos de la Transacción */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-gray-900">Pasos de la Transacción</h3>
-                {(() => {
-                  // BUSCAR el paso con step_order === 1 (Paso 1) y step_order === 2 (Paso 2)
-                  const allSteps = transaction?.transaction_steps || []
-                  const step1 = allSteps.find(s => s.step_order === 1)
-                  const step2 = allSteps.find(s => s.step_order === 2)
-                  
-                  // DEBUG removido para evitar re-renders infinitos
-                  
-                  return userRole && (
-                    <div className="bg-blue-50 p-2 rounded text-xs">
-                      <strong>Rol:</strong> {userRole === 'buyer' ? 'COMPRADOR' : 'VENDEDOR'}
-                      {' | '}
-                      <strong>Paso 1:</strong> {step1?.status || 'undefined'}
-                      {' | '}
-                      <strong>Paso 2:</strong> {step2?.status || 'undefined'}
-                    </div>
-                  )
-                })()}
-                
-                {/* Paso 1 - Aceptar trato */}
-                {(() => {
-                  const allSteps = transaction?.transaction_steps || []
-                  const step1 = allSteps.find(s => s.step_order === 1)
-                  const step1Status = step1?.status || 'pending'
-                  
-                  return (
-                    <div className="flex items-start space-x-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                        step1Status === 'completed' 
-                          ? 'bg-green-500' 
-                          : 'bg-orange-500'
-                      }`}>
-                        {step1Status === 'completed' ? (
-                          <CheckCircle className="h-4 w-4 text-white" />
-                        ) : (
-                          <Clock className="h-4 w-4 text-white" />
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <h4 className={`font-medium ${
-                          step1Status === 'completed' 
-                            ? 'text-gray-900' 
-                            : 'text-orange-700'
-                        }`}>
-                          Aceptar el trato
-                        </h4>
-                        <p className="text-sm text-gray-600">
-                          {getStepDescription(0, step1Status)}
-                        </p>
-                      </div>
-                    </div>
-                  )
-                })()}
-
-                {/* Paso 2 - Pago en proceso */}
-                {(() => {
-                  const allSteps = transaction?.transaction_steps || []
-                  const step2 = allSteps.find(s => s.step_order === 2)
-                  const step2Status = step2?.status || 'pending'
-                  
-                  return (
-                    <div className="flex items-start space-x-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                        step2Status === 'in_progress' 
-                          ? 'bg-blue-500' 
-                          : 'bg-gray-300'
-                      }`}>
-                        {step2Status === 'in_progress' ? (
-                          <AlertCircle className="h-4 w-4 text-white" />
-                        ) : (
-                          <Circle className="h-4 w-4 text-gray-600" />
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <h4 className={`font-medium ${
-                          step2Status === 'in_progress' 
-                            ? 'text-gray-900' 
-                            : 'text-gray-500'
-                        }`}>
-                          Pago en proceso
-                        </h4>
-                        <p className={`text-sm ${
-                          step2Status === 'in_progress' 
-                            ? 'text-gray-600' 
-                            : 'text-gray-400'
-                        }`}>
-                          {getStepDescription(1, step2Status)}
-                        </p>
-                      </div>
-                    </div>
-                  )
-                })()}
-
-                {/* Paso 3 - Verificación del recibo */}
-                {(() => {
-                  const allSteps = transaction?.transaction_steps || []
-                  const step3 = allSteps.find(s => s.step_order === 3)
-                  const step3Status = step3?.status || 'pending'
-                  
-                  return (
-                    <div className="flex items-start space-x-3">
-                      <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center flex-shrink-0">
-                        <Circle className="h-4 w-4 text-gray-600" />
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="font-medium text-gray-500">Verificación del recibo</h4>
-                        <p className="text-sm text-gray-400">
-                          {getStepDescription(2, step3Status)}
-                        </p>
-                      </div>
-                    </div>
-                  )
-                })()}
-
-                {/* Paso 4 - Liberación de fondos */}
-                {(() => {
-                  const allSteps = transaction?.transaction_steps || []
-                  const step4 = allSteps.find(s => s.step_order === 4)
-                  const step4Status = step4?.status || 'pending'
-                  
-                  return (
-                    <div className="flex items-start space-x-3">
-                      <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center flex-shrink-0">
-                        <Circle className="h-4 w-4 text-gray-600" />
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="font-medium text-gray-500">Liberación de fondos</h4>
-                        <p className="text-sm text-gray-400">
-                          {getStepDescription(3, step4Status)}
-                        </p>
-                      </div>
-                    </div>
-                  )
-                })()}
-              </div>
-
-              {/* Botones de Acción según el Paso Actual */}
-              {/* Botón para Paso 1 - Aceptar Trato (solo vendedor) */}
+        {/* Contenido Principal */}
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          {/* Panel Central - Flujo de Transacción */}
+          <div className="px-3 sm:px-6 pt-3 sm:pt-6 pb-0 flex-shrink-0 flex justify-center -mt-2 sm:-mt-3">
+            <div className="w-full max-w-2xl">
+              {/* Paso Actual de la Transacción - Interactivo */}
               {(() => {
                 const allSteps = transaction?.transaction_steps || []
-                const step1 = allSteps.find(s => s.step_order === 1)
-                const step1Status = step1?.status || 'pending'
-                return step1Status !== 'completed'
-              })() && (
-                <div className="pt-4">
-                  <Button 
-                    className="w-full bg-orange-600 hover:bg-orange-700 text-white py-3 text-lg font-semibold"
-                    onClick={async () => {
-                      try {
-                        console.log('✅ Vendedor aceptando el trato')
-                        
-                        const now = new Date()
-                        const paymentDeadline = new Date(now.getTime() + 15 * 60 * 1000).toISOString() // 15 minutos
-                        const verificationDeadline = new Date(now.getTime() + 30 * 60 * 1000).toISOString() // 30 minutos
-                        
-                        const supabase = supabaseBrowser()
-                        
-                        // 1. Actualizar transacción en la base de datos
-                        const { error: updateError } = await supabase
-                          .from('purchase_transactions')
-                          .update({
-                            payment_deadline: paymentDeadline,
-                            verification_deadline: verificationDeadline,
-                            agreement_confirmed_at: now.toISOString(),
-                            status: 'agreement_confirmed'
-                          })
-                          .eq('id', transaction?.id)
-                        
-                        if (updateError) {
-                          console.error('Error actualizando transacción:', updateError)
-                          return
-                        }
-                        
-                        // 2. Actualizar transacción localmente
-                        setTransaction(prev => {
-                          if (!prev) return prev
-                          console.log('🔄 Pasos antes de actualizar:', prev.transaction_steps)
-                          
-                          const updatedSteps = prev.transaction_steps?.map((step, idx) => {
-                            if (idx === 0) {
-                              // Paso 1: Completado
-                              console.log('✅ Actualizando paso 1 a completado')
-                              return { ...step, status: 'completed', completed_at: now.toISOString() }
-                            } else if (idx === 1) {
-                              // Paso 2: En progreso
-                              console.log('⏳ Actualizando paso 2 a en progreso')
-                              return { ...step, status: 'in_progress' }
-                            }
-                            return step
-                          }) || []
-                          
-                          console.log('🔄 Pasos después de actualizar:', updatedSteps)
-                          
-                          const updatedTransaction = {
-                            ...prev,
-                            payment_deadline: paymentDeadline,
-                            verification_deadline: verificationDeadline,
-                            agreement_confirmed_at: now.toISOString(),
-                            status: 'agreement_confirmed',
-                            transaction_steps: updatedSteps
-                          }
-                          
-                          console.log('✅ Transacción actualizada:', updatedTransaction)
-                          return updatedTransaction
+                
+                // Determinar qué paso mostrar: el primero que no esté completado, o el último si todos están completos
+                const getCurrentStepToShow = () => {
+                  // Buscar el primer paso que no esté completado
+                  for (let order = 1; order <= 4; order++) {
+                    const step = allSteps.find(s => s.step_order === order)
+                    const status = step?.status || 'pending'
+                    if (status !== 'completed') {
+                      return { order, status, step }
+                    }
+                  }
+                  // Si todos están completos, mostrar el último paso
+                  const lastStep = allSteps.find(s => s.step_order === 4)
+                  return { 
+                    order: 4, 
+                    status: lastStep?.status || 'completed',
+                    step: lastStep
+                  }
+                }
+                
+                const currentStepInfo = getCurrentStepToShow()
+                const { order: stepOrder, status: stepStatus } = currentStepInfo
+                
+                // Configuración de cada paso
+                const stepConfig = {
+                  1: {
+                    title: 'Aceptar el trato',
+                    descriptionIndex: 0,
+                    defaultColor: 'orange',
+                    completedColor: 'green',
+                    actionRole: 'seller' as const
+                  },
+                  2: {
+                    title: 'Pago en proceso',
+                    descriptionIndex: 1,
+                    defaultColor: 'blue',
+                    completedColor: 'green',
+                    actionRole: 'buyer' as const
+                  },
+                  3: {
+                    title: 'Verificación del recibo',
+                    descriptionIndex: 2,
+                    defaultColor: 'blue',
+                    completedColor: 'green',
+                    actionRole: 'seller' as const // Vendedor verifica el depósito
+                  },
+                  4: {
+                    title: 'Liberación de fondos',
+                    descriptionIndex: 3,
+                    defaultColor: 'blue',
+                    completedColor: 'green',
+                    actionRole: null // Este paso no tiene acción directa
+                  }
+                }
+                
+                const config = stepConfig[stepOrder as keyof typeof stepConfig]
+                const isCompleted = stepStatus === 'completed'
+                const isInProgress = stepStatus === 'in_progress'
+                // Para el paso 2, el comprador necesita haber subido un documento de verificación
+                const canPerformAction = config.actionRole && !isCompleted && userRole === config.actionRole && 
+                  (stepOrder !== 2 || userRole !== 'buyer' || hasPaymentProof)
+                
+                // Funciones de acción para cada paso
+                const handleStepAction = async () => {
+                  if (loading || !canPerformAction) return
+                  
+                  try {
+                    if (stepOrder === 1 && userRole === 'seller') {
+                      // Acción Paso 1: Aceptar Trato
+                      console.log('✅ Vendedor aceptando el trato')
+                      
+                      const now = new Date()
+                      const paymentDeadline = new Date(now.getTime() + 15 * 60 * 1000).toISOString()
+                      const verificationDeadline = new Date(now.getTime() + 30 * 60 * 1000).toISOString()
+                      
+                      const supabase = supabaseBrowser()
+                      
+                      // 1. Actualizar transacción en la base de datos
+                      const { error: updateError } = await supabase
+                        .from('purchase_transactions')
+                        .update({
+                          payment_deadline: paymentDeadline,
+                          verification_deadline: verificationDeadline,
+                          agreement_confirmed_at: now.toISOString(),
+                          status: 'agreement_confirmed'
                         })
-                        
-                        // 3. Actualizar estado de la solicitud a "accepted" en la BD (sin cambiar negotiating fields)
-                        try {
-                          console.log('🔄 Actualizando estado de solicitud a "accepted"')
-                          console.log('📋 Request ID:', requestId)
-                          console.log('📋 Seller ID:', sellerId)
-                          
-                          const { data: updateData, error: requestUpdateError } = await supabase
-                            .from('purchase_requests')
-                            .update({
-                              status: 'accepted',
-                              seller_id: sellerId,
-                              accepted_at: now.toISOString(),
-                              updated_at: now.toISOString()
-                            })
-                            .eq('id', requestId)
-                            .select()
-                            
-                          console.log('📊 Intentando actualizar solicitud:', {
-                            requestId,
-                            sellerId,
-                            updateData,
-                            error: requestUpdateError
-                          })
-                          
-                          if (requestUpdateError) {
-                            console.error('❌ No se pudo actualizar el estado en la BD:', requestUpdateError)
-                            console.error('📋 Detalles del error:', JSON.stringify(requestUpdateError, null, 2))
-                            // No es crítico, continuamos con el flujo
-                          } else {
-                            console.log('✅ Estado de solicitud actualizado a "accepted" en la BD:', updateData)
+                        .eq('id', transaction?.id)
+                      
+                      if (updateError) {
+                        console.error('Error actualizando transacción:', updateError)
+                        return
+                      }
+                      
+                      // 2. Actualizar transacción localmente
+                      setTransaction(prev => {
+                        if (!prev) return prev
+                        const updatedSteps = prev.transaction_steps?.map((step, idx) => {
+                          if (idx === 0) {
+                            return { ...step, status: 'completed', completed_at: now.toISOString() }
+                          } else if (idx === 1) {
+                            return { ...step, status: 'in_progress' }
                           }
-                          
-                          // Notificar al comprador para que recargue la página
+                          return step
+                        }) || []
+                        
+                        return {
+                          ...prev,
+                          payment_deadline: paymentDeadline,
+                          verification_deadline: verificationDeadline,
+                          agreement_confirmed_at: now.toISOString(),
+                          status: 'agreement_confirmed',
+                          transaction_steps: updatedSteps
+                        }
+                      })
+                      
+                      // 3. Actualizar estado de la solicitud
+                      try {
+                        const { error: requestUpdateError } = await supabase
+                          .from('purchase_requests')
+                          .update({
+                            status: 'accepted',
+                            seller_id: sellerId,
+                            accepted_at: now.toISOString(),
+                            updated_at: now.toISOString()
+                          })
+                          .eq('id', requestId)
+                        
+                        if (!requestUpdateError) {
                           const updateNotification = new CustomEvent('request-status-changed', {
                             detail: { requestId, newStatus: 'accepted' }
                           })
                           window.dispatchEvent(updateNotification)
-                          
-                          console.log('✅ Evento request-status-changed disparado')
-                        } catch (requestErr) {
-                          console.error('❌ Error en actualización de solicitud:', requestErr)
-                          // Continuar con el flujo aunque falle la actualización
                         }
-                        
-                        // 4. HABILITAR EL CHAT
-                        setChatEnabled(true)
-                        console.log('💬 Chat habilitado')
-                        
-                        // 4. INICIAR EL TEMPORIZADOR (se iniciará automáticamente con el useEffect que depende de payment_deadline)
-                        
-                        // 5. ENVIAR NOTIFICACIÓN AL COMPRADOR
-                        try {
-                          // Obtener el buyer_id de la transacción
-                          const buyerId = transaction?.buyer_id
-                          
-                          console.log('📬 Intentando enviar notificación al comprador:', buyerId)
-                          
-                          if (buyerId && requestData) {
-                            // Obtener información del vendedor y formatear datos
-                            const sellerName = requestData.seller?.full_name || 
-                                             (requestData.seller_id ? 'Vendedor' : 'Un vendedor')
-                            
-                            // Formatear monto según moneda
-                            const currencySymbol = requestData.currency_type === 'USD' ? '$' : 
-                                                 requestData.currency_type === 'EUR' ? '€' : 'L.'
-                            const formattedAmount = currencySymbol + 
-                              new Intl.NumberFormat('es-HN').format(requestData.amount || amount || 0)
-                            
-                            // Construir el título con el código (si existe)
-                            let notificationTitle = 'Solicitud aceptada'
-                            if (requestData.unique_code) {
-                              notificationTitle = notificationTitle + '\n' + requestData.unique_code
-                            }
-                            
-                            // Construir el cuerpo con formato: (nombre) aceptó tu solicitud por (cantidad).
-                            let notificationBody = sellerName + ' aceptó tu solicitud por ' + formattedAmount + '.'
-                            
-                            // Llamar a la función emit_notification en la BD
-                            const { data: notificationData, error: notificationError } = await supabase.rpc('emit_notification', {
-                              p_user_id: buyerId,
-                              p_topic: 'order',
-                              p_event: 'ORDER_ACCEPTED',
-                              p_title: notificationTitle,
-                              p_body: notificationBody,
-                              p_priority: 'high',
-                              p_cta_label: 'Ver transacción',
-                              p_cta_href: `/dashboard/mis-solicitudes`,
-                              p_payload: {
-                                transaction_id: transaction?.id,
-                                request_id: requestId,
-                                amount: requestData.amount || amount,
-                                currency_type: requestData.currency_type || currency,
-                                unique_code: requestData.unique_code,
-                                formatted_amount: formattedAmount
-                              }
-                            })
-                            
-                            if (notificationError) {
-                              console.error('❌ Error enviando notificación:', notificationError)
-                              console.error('📋 Detalles del error:', JSON.stringify(notificationError, null, 2))
-                            } else {
-                              console.log('✅ Notificación enviada al comprador:', notificationData)
-                            }
-                          } else {
-                            console.warn('⚠️ No se encontró buyer_id en la transacción o requestData no está disponible')
-                          }
-                        } catch (notificationErr) {
-                          console.error('❌ Error en envío de notificación:', notificationErr)
-                        }
-                        
-                        // 6. Actualizar pasos en la BD (no crítico si falla)
-                        try {
-                          // Actualizar paso 1 a completado
-                          await supabase
-                            .from('transaction_steps')
-                            .update({
-                              status: 'completed',
-                              completed_at: now.toISOString()
-                            })
-                            .eq('transaction_id', transaction?.id)
-                            .eq('step_order', 1)
-                          
-                          // Actualizar paso 2 a en progreso
-                          await supabase
-                            .from('transaction_steps')
-                            .update({
-                              status: 'in_progress'
-                            })
-                            .eq('transaction_id', transaction?.id)
-                            .eq('step_order', 2)
-                          
-                          console.log('✅ Pasos actualizados en la base de datos')
-                          
-                          // Recargar la transacción desde la base de datos para sincronizar
-                          if (transaction?.id) {
-                            const { data: updatedTransaction, error: fetchError } = await supabase
-                              .from('purchase_transactions')
-                              .select(`
-                                *,
-                                transaction_steps (*)
-                              `)
-                              .eq('id', transaction.id)
-                              .single()
-                            
-                            if (!fetchError && updatedTransaction) {
-                              const transactionWithUsers = {
-                                ...updatedTransaction,
-                                request: requestData,
-                                buyer: requestData.buyer,
-                                seller: requestData.seller
-                              }
-                              setTransaction(transactionWithUsers)
-                              console.log('🔄 Transacción recargada desde la BD:', transactionWithUsers)
-                            }
-                          }
-                        } catch (stepError) {
-                          console.log('⚠️ No se pudieron actualizar los pasos (problema de permisos RLS):', stepError)
-                        }
-                        
-                      } catch (error) {
-                        console.error('Error en aceptar trato:', error)
+                      } catch (requestErr) {
+                        console.error('Error en actualización de solicitud:', requestErr)
                       }
-                    }}
-                    disabled={loading || userRole !== 'seller'}
-                  >
-                    {userRole === 'seller' ? 'Aceptar Trato' : 'Esperando aceptación del vendedor'}
-                  </Button>
-                </div>
-              )}
-              
-              {/* Botón para Paso 2 - Confirmar Pago (solo comprador) */}
-              {(() => {
-                const allSteps = transaction?.transaction_steps || []
-                const step1 = allSteps.find(s => s.step_order === 1)
-                const step2 = allSteps.find(s => s.step_order === 2)
-                const step1Completed = step1?.status === 'completed'
-                const step2InProgress = step2?.status === 'in_progress'
-                return step1Completed && step2InProgress && userRole === 'buyer'
-              })() && (
-                <div className="pt-4">
-                  <Button 
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 text-lg font-semibold"
-                    onClick={async () => {
+                      
+                      // 4. Habilitar el chat
+                      setChatEnabled(true)
+                      
+                      // 5. Enviar notificación al comprador
                       try {
-                        console.log('✅ Comprador confirmando pago realizado')
-                        
-                        const now = new Date()
-                        const supabase = supabaseBrowser()
-                        
-                        // 1. Actualizar paso 2 a completado
-                        const { error: stepUpdateError } = await supabase
+                        const buyerId = transaction?.buyer_id
+                        if (buyerId && requestData) {
+                          const sellerName = requestData.seller?.full_name || 'Un vendedor'
+                          const currencySymbol = requestData.currency_type === 'USD' ? '$' : 
+                                               requestData.currency_type === 'EUR' ? '€' : 'L.'
+                          const formattedAmount = currencySymbol + 
+                            new Intl.NumberFormat('es-HN').format(requestData.amount || amount || 0)
+                          
+                          let notificationTitle = 'Solicitud aceptada'
+                          if (requestData.unique_code) {
+                            notificationTitle = notificationTitle + '\n' + requestData.unique_code
+                          }
+                          
+                          let notificationBody = sellerName + ' aceptó tu solicitud por ' + formattedAmount + '.'
+                          
+                          await supabase.rpc('emit_notification', {
+                            p_user_id: buyerId,
+                            p_topic: 'order',
+                            p_event: 'ORDER_ACCEPTED',
+                            p_title: notificationTitle,
+                            p_body: notificationBody,
+                            p_priority: 'high',
+                            p_cta_label: 'Ver transacción',
+                            p_cta_href: `/dashboard/mis-solicitudes`,
+                            p_payload: {
+                              transaction_id: transaction?.id,
+                              request_id: requestId,
+                              amount: requestData.amount || amount,
+                              currency_type: requestData.currency_type || currency,
+                              unique_code: requestData.unique_code,
+                              formatted_amount: formattedAmount
+                            }
+                          })
+                        }
+                      } catch (notificationErr) {
+                        console.error('Error en envío de notificación:', notificationErr)
+                      }
+                      
+                      // 6. Actualizar pasos en la BD
+                      try {
+                        await supabase
                           .from('transaction_steps')
                           .update({
                             status: 'completed',
                             completed_at: now.toISOString()
                           })
                           .eq('transaction_id', transaction?.id)
-                          .eq('step_order', 2)
+                          .eq('step_order', 1)
                         
-                        if (stepUpdateError) {
-                          console.error('❌ Error actualizando paso 2:', stepUpdateError)
-                          return
-                        }
-                        
-                        // 2. Actualizar paso 3 a en progreso
                         await supabase
                           .from('transaction_steps')
                           .update({
                             status: 'in_progress'
                           })
                           .eq('transaction_id', transaction?.id)
-                          .eq('step_order', 3)
+                          .eq('step_order', 2)
                         
-                        // 3. Actualizar transacción local
-                        setTransaction(prev => {
-                          if (!prev) return prev
-                          const updatedSteps = prev.transaction_steps?.map((step, idx) => {
-                            if (idx === 1) {
-                              return { ...step, status: 'completed', completed_at: now.toISOString() }
-                            } else if (idx === 2) {
-                              return { ...step, status: 'in_progress' }
-                            }
-                            return step
-                          }) || []
+                        // Recargar la transacción desde la BD
+                        if (transaction?.id) {
+                          const { data: updatedTransaction } = await supabase
+                            .from('purchase_transactions')
+                            .select(`
+                              *,
+                              transaction_steps (*)
+                            `)
+                            .eq('id', transaction.id)
+                            .single()
                           
-                          return {
-                            ...prev,
-                            transaction_steps: updatedSteps
+                          if (updatedTransaction) {
+                            const transactionWithUsers = {
+                              ...updatedTransaction,
+                              request: requestData,
+                              buyer: requestData.buyer,
+                              seller: requestData.seller
+                            }
+                            setTransaction(transactionWithUsers)
                           }
+                        }
+                      } catch (stepError) {
+                        console.log('⚠️ No se pudieron actualizar los pasos:', stepError)
+                      }
+                      
+                    } else if (stepOrder === 2 && userRole === 'buyer') {
+                      // Acción Paso 2: Confirmar Pago
+                      console.log('✅ Comprador confirmando pago realizado')
+                      
+                      const now = new Date()
+                      const supabase = supabaseBrowser()
+                      
+                      // 1. Actualizar paso 2 a completado
+                      const { error: stepUpdateError } = await supabase
+                        .from('transaction_steps')
+                        .update({
+                          status: 'completed',
+                          completed_at: now.toISOString()
+                        })
+                        .eq('transaction_id', transaction?.id)
+                        .eq('step_order', 2)
+                      
+                      if (stepUpdateError) {
+                        console.error('❌ Error actualizando paso 2:', stepUpdateError)
+                        return
+                      }
+                      
+                      // 2. Actualizar paso 3 a en progreso
+                      await supabase
+                        .from('transaction_steps')
+                        .update({
+                          status: 'in_progress'
+                        })
+                        .eq('transaction_id', transaction?.id)
+                        .eq('step_order', 3)
+                      
+                      // 3. Actualizar transacción local
+                      setTransaction(prev => {
+                        if (!prev) return prev
+                        const updatedSteps = prev.transaction_steps?.map((step, idx) => {
+                          if (idx === 1) {
+                            return { ...step, status: 'completed', completed_at: now.toISOString() }
+                          } else if (idx === 2) {
+                            return { ...step, status: 'in_progress' }
+                          }
+                          return step
+                        }) || []
+                        
+                        return {
+                          ...prev,
+                          transaction_steps: updatedSteps
+                        }
+                      })
+                      
+                      // 4. Recargar transacción desde la BD
+                      const { data: updatedTransaction } = await supabase
+                        .from('purchase_transactions')
+                        .select(`
+                          *,
+                          transaction_steps (*)
+                        `)
+                        .eq('id', transaction.id)
+                        .single()
+                      
+                      if (updatedTransaction) {
+                        const transactionWithUsers = {
+                          ...updatedTransaction,
+                          request: requestData,
+                          buyer: requestData.buyer,
+                          seller: requestData.seller
+                        }
+                        setTransaction(transactionWithUsers)
+                      }
+                    } else if (stepOrder === 3 && userRole === 'seller') {
+                      // Acción Paso 3: Verificar Depósito
+                      console.log('✅ Vendedor verificando depósito')
+                      
+                      const now = new Date()
+                      const supabase = supabaseBrowser()
+                      
+                      // 1. Actualizar paso 3 a completado
+                      const { error: step3Error } = await supabase
+                        .from('transaction_steps')
+                        .update({
+                          status: 'completed',
+                          completed_at: now.toISOString()
+                        })
+                        .eq('transaction_id', transaction?.id)
+                        .eq('step_order', 3)
+                      
+                      if (step3Error) {
+                        console.error('❌ Error actualizando paso 3:', step3Error)
+                        toast({
+                          title: "Error",
+                          description: "No se pudo completar la verificación. Inténtalo de nuevo.",
+                          variant: "destructive",
+                        })
+                        return
+                      }
+                      
+                      // 2. Acreditar HNLD al comprador automáticamente
+                      try {
+                        const buyerIdToCredit = transaction?.buyer_id || buyerId
+                        const transactionAmount = transaction?.amount || amount
+                        
+                        console.log(`💰 Acreditando L.${transactionAmount} de HNLD al comprador ${buyerIdToCredit}`)
+                        
+                        const { data: emitResult, error: emitError } = await supabase.rpc('emit_hnld', {
+                          p_user_id: buyerIdToCredit,
+                          p_amount: transactionAmount,
+                          p_description: `Compra completada - Transacción ${transaction?.id?.substring(0, 8)}`
                         })
                         
-                        console.log('✅ Pago confirmado por el comprador')
+                        if (emitError) {
+                          console.error('❌ Error acreditando HNLD:', emitError)
+                          toast({
+                            title: "Error al acreditar HNLD",
+                            description: "La verificación se completó pero hubo un error al acreditar los HNLD. Contacta al soporte.",
+                            variant: "destructive",
+                          })
+                        } else {
+                          console.log('✅ HNLD acreditado exitosamente:', emitResult)
+                        }
+                      } catch (hnldError) {
+                        console.error('❌ Error en acreditación de HNLD:', hnldError)
+                        toast({
+                          title: "Error al acreditar HNLD",
+                          description: "La verificación se completó pero hubo un error al acreditar los HNLD. Contacta al soporte.",
+                          variant: "destructive",
+                        })
+                      }
+                      
+                      // 3. Completar paso 4 automáticamente
+                      const { error: step4Error } = await supabase
+                        .from('transaction_steps')
+                        .update({
+                          status: 'completed',
+                          completed_at: now.toISOString()
+                        })
+                        .eq('transaction_id', transaction?.id)
+                        .eq('step_order', 4)
+                      
+                      if (step4Error) {
+                        console.error('❌ Error actualizando paso 4:', step4Error)
+                      }
+                      
+                      // 4. Marcar transacción como completada
+                      const transactionUpdatePayload: any = {
+                        status: 'completed'
+                      }
+                      
+                      // Solo agregar completed_at si la columna existe (evitar errores)
+                      // Intentar actualizar primero sin completed_at
+                      const { data: transactionUpdateData, error: transactionError } = await supabase
+                        .from('purchase_transactions')
+                        .update(transactionUpdatePayload)
+                        .eq('id', transaction?.id)
+                        .select()
+                      
+                      if (transactionError) {
+                        console.error('❌ Error actualizando transacción:', {
+                          error: transactionError,
+                          message: transactionError.message,
+                          details: transactionError.details,
+                          hint: transactionError.hint,
+                          code: transactionError.code
+                        })
+                        // Intentar actualizar solo el status si la primera actualización falló
+                        const { error: simpleUpdateError } = await supabase
+                          .from('purchase_transactions')
+                          .update({ status: 'completed' })
+                          .eq('id', transaction?.id)
                         
-                        // 4. Recargar transacción desde la BD
-                        const { data: updatedTransaction, error: fetchError } = await supabase
+                        if (simpleUpdateError) {
+                          console.error('❌ Error en actualización simple también:', simpleUpdateError)
+                        } else {
+                          console.log('✅ Transacción actualizada (sin completed_at)')
+                        }
+                      } else {
+                        console.log('✅ Transacción actualizada exitosamente:', transactionUpdateData)
+                      }
+                      
+                      // 5. Actualizar transacción local
+                      setTransaction(prev => {
+                        if (!prev) return prev
+                        const updatedSteps = prev.transaction_steps?.map((step, idx) => {
+                          if (idx === 2) { // Paso 3 (índice 2)
+                            return { ...step, status: 'completed', completed_at: now.toISOString() }
+                          } else if (idx === 3) { // Paso 4 (índice 3)
+                            return { ...step, status: 'completed', completed_at: now.toISOString() }
+                          }
+                          return step
+                        }) || []
+                        
+                        return {
+                          ...prev,
+                          status: 'completed',
+                          completed_at: now.toISOString(),
+                          transaction_steps: updatedSteps
+                        }
+                      })
+                      
+                      // 6. Recargar transacción desde la BD para asegurar sincronización
+                      try {
+                        const { data: updatedTransaction, error: reloadError } = await supabase
                           .from('purchase_transactions')
                           .select(`
                             *,
@@ -2203,7 +2528,10 @@ export function PurchaseCompletionPanel({
                           .eq('id', transaction.id)
                           .single()
                         
-                        if (!fetchError && updatedTransaction) {
+                        if (reloadError) {
+                          console.error('⚠️ Error recargando transacción (no crítico):', reloadError)
+                          // Continuamos sin recargar, el estado local ya está actualizado
+                        } else if (updatedTransaction) {
                           const transactionWithUsers = {
                             ...updatedTransaction,
                             request: requestData,
@@ -2211,42 +2539,305 @@ export function PurchaseCompletionPanel({
                             seller: requestData.seller
                           }
                           setTransaction(transactionWithUsers)
-                          console.log('🔄 Transacción recargada desde la BD:', transactionWithUsers)
+                        }
+                      } catch (reloadError) {
+                        console.error('⚠️ Excepción al recargar transacción (no crítico):', reloadError)
+                        // Continuamos sin recargar, el estado local ya está actualizado
+                      }
+                      
+                      // 7. Actualizar estado de la solicitud a "completed"
+                      try {
+                        const { data: requestUpdateResult, error: requestUpdateError } = await supabase
+                          .rpc('mark_request_completed', {
+                            p_request_id: requestId
+                          })
+                        
+                        if (requestUpdateError) {
+                          console.error('⚠️ Error actualizando solicitud a completada:', requestUpdateError)
+                          // Intentar actualización directa como fallback
+                          await supabase
+                            .from('purchase_requests')
+                            .update({
+                              status: 'completed',
+                              updated_at: now.toISOString()
+                            })
+                            .eq('id', requestId)
+                        } else {
+                          console.log('✅ Solicitud actualizada a completada:', requestUpdateResult)
                         }
                         
-                      } catch (error) {
-                        console.error('Error confirmando pago:', error)
+                        // Disparar evento para actualizar la UI en otros componentes
+                        const updateNotification = new CustomEvent('request-status-changed', {
+                          detail: { requestId, newStatus: 'completed' }
+                        })
+                        window.dispatchEvent(updateNotification)
+                        
+                        // Crear notificación persistente similar a las de crear/cancelar solicitudes
+                        if (transaction?.id) {
+                          try {
+                            const { data: notificationResult, error: notificationError } = await supabase
+                              .rpc('notify_request_completed', {
+                                p_request_id: requestId,
+                                p_transaction_id: transaction.id
+                              })
+                            
+                            if (notificationError) {
+                              console.error('⚠️ Error creando notificación de solicitud completada:', notificationError)
+                            } else {
+                              console.log('✅ Notificación de solicitud completada creada:', notificationResult)
+                            }
+                          } catch (notifErr) {
+                            console.error('⚠️ Error en creación de notificación:', notifErr)
+                          }
+                        }
+                      } catch (requestErr) {
+                        console.error('⚠️ Error en actualización de solicitud:', requestErr)
                       }
-                    }}
-                    disabled={loading || userRole !== 'buyer'}
-                  >
-                    Confirmar Pago Realizado
-                  </Button>
-                </div>
-              )}
+                      
+                      // 8. Detener el temporizador
+                      if (timerIntervalRef.current) {
+                        clearInterval(timerIntervalRef.current)
+                        timerIntervalRef.current = null
+                      }
+                      setTimeRemaining(null)
+                      
+                      // 9. Marcar que la finalización fue manejada (para evitar duplicados en realtime)
+                      transactionCompletionHandledRef.current = true
+                      
+                      // 10. Mostrar notificación de éxito con mensaje de acreditación
+                      toast({
+                        title: "✅ Transacción completada",
+                        description: `Se acreditó exitosamente el saldo de L.${transaction?.amount || amount} de HNLD al comprador. La transacción ha finalizado correctamente.`,
+                        duration: 5000,
+                      })
+                      
+                      // 11. Cerrar el panel después de 3 segundos
+                      setTimeout(() => {
+                        console.log('🔒 Cerrando panel de transacción después de completar')
+                        onClose()
+                      }, 3000)
+                    }
+                  } catch (error) {
+                    console.error('Error en acción del paso:', error)
+                    toast({
+                      title: "Error",
+                      description: "Ocurrió un error al procesar la acción. Inténtalo de nuevo.",
+                      variant: "destructive",
+                    })
+                  }
+                }
+                
+                // Determinar colores según el estado
+                let borderColor = ''
+                let bgColor = ''
+                let iconBgColor = ''
+                let textColor = ''
+                let hoverClasses = ''
+                
+                if (isCompleted) {
+                  borderColor = 'border-green-200 dark:border-green-800'
+                  bgColor = 'bg-green-50 dark:bg-green-950/20'
+                  iconBgColor = 'bg-green-500'
+                  textColor = 'text-gray-900 dark:text-gray-100'
+                  hoverClasses = 'cursor-default'
+                } else if (canPerformAction) {
+                  if (stepOrder === 1) {
+                    borderColor = 'border-orange-200 dark:border-orange-800'
+                    bgColor = 'bg-orange-50 dark:bg-orange-950/20'
+                    iconBgColor = 'bg-orange-500'
+                    textColor = 'text-orange-700 dark:text-orange-400'
+                    hoverClasses = 'cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-950/40 hover:border-orange-300 dark:hover:border-orange-700 transition-all duration-200 active:scale-[0.98]'
+                  } else {
+                    borderColor = 'border-blue-200 dark:border-blue-800'
+                    bgColor = 'bg-blue-50 dark:bg-blue-950/20'
+                    iconBgColor = 'bg-blue-500'
+                    textColor = 'text-gray-900 dark:text-gray-100'
+                    hoverClasses = 'cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-950/40 hover:border-blue-300 dark:hover:border-blue-700 transition-all duration-200 active:scale-[0.98]'
+                  }
+                } else if (stepOrder === 2 && userRole === 'buyer' && isInProgress && !hasPaymentProof) {
+                  // Paso 2 deshabilitado si no hay comprobante
+                  borderColor = 'border-gray-300 dark:border-gray-600'
+                  bgColor = 'bg-gray-50 dark:bg-gray-800'
+                  iconBgColor = 'bg-gray-400 dark:bg-gray-600'
+                  textColor = 'text-gray-600 dark:text-gray-400'
+                  hoverClasses = 'cursor-not-allowed opacity-75'
+                } else if (isInProgress) {
+                  borderColor = 'border-blue-200 dark:border-blue-800'
+                  bgColor = 'bg-blue-50 dark:bg-blue-950/20'
+                  iconBgColor = 'bg-blue-500'
+                  textColor = 'text-gray-900 dark:text-gray-100'
+                  hoverClasses = 'cursor-default'
+                } else {
+                  borderColor = 'border-gray-200 dark:border-gray-700'
+                  bgColor = 'bg-gray-50 dark:bg-gray-800'
+                  iconBgColor = 'bg-gray-300 dark:bg-gray-600'
+                  textColor = 'text-gray-500 dark:text-gray-400'
+                  hoverClasses = 'cursor-default'
+                }
+                
+                return (
+                  <div className="mb-0 pb-0">
+                    <Card 
+                      className={`${borderColor} ${bgColor} ${hoverClasses} ${canPerformAction ? 'shadow-md hover:shadow-lg' : ''} relative ${
+                        (canPerformAction || (isInProgress && !(stepOrder === 2 && userRole === 'buyer' && !hasPaymentProof)))
+                          ? (stepOrder === 1 
+                              ? 'ring-1 ring-offset-1 ring-orange-400/40 dark:ring-orange-500/40' 
+                              : 'ring-1 ring-offset-1 ring-blue-400/40 dark:ring-blue-500/40') 
+                          : ''
+                      }`}
+                      onClick={canPerformAction ? handleStepAction : undefined}
+                      style={(canPerformAction || (isInProgress && !(stepOrder === 2 && userRole === 'buyer' && !hasPaymentProof))) ? {
+                        border: '2px solid',
+                        borderColor: stepOrder === 1 
+                          ? 'rgba(251, 146, 60, 0.6)' 
+                          : 'rgba(59, 130, 246, 0.6)',
+                        transition: 'all 0.3s ease-in-out',
+                        transform: 'scale(1)',
+                        animation: stepOrder === 1 
+                          ? 'pulse-glow-orange 2s ease-in-out infinite' 
+                          : 'pulse-glow 2s ease-in-out infinite'
+                      } : undefined}
+                    >
+                      <CardContent className="p-3 sm:p-4">
+                        <div className="flex items-start space-x-3">
+                          <div className="flex flex-col items-center flex-shrink-0">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${iconBgColor}`}>
+                              {isCompleted ? (
+                                <CheckCircle className="h-5 w-5 text-white" />
+                              ) : isInProgress || stepOrder === 1 || canPerformAction ? (
+                                stepOrder === 1 ? (
+                                  <Clock className="h-5 w-5 text-white" />
+                                ) : (
+                                  <AlertCircle className="h-5 w-5 text-white" />
+                                )
+                              ) : (
+                                <Circle className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                              )}
+                            </div>
+                            <span className="text-[11px] sm:text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap mt-1">
+                              {stepOrder} de 4
+                            </span>
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center mb-1">
+                              <h4 className={`text-sm font-semibold ${textColor} flex-1`}>
+                                {config.title}
+                                {canPerformAction && (
+                                  <span className="ml-2 text-sm font-normal opacity-75">
+                                    (Haz clic para completar)
+                                  </span>
+                                )}
+                              </h4>
+                            </div>
+                            <p className={`text-sm ${
+                              isCompleted || isInProgress || stepOrder === 1 || canPerformAction
+                                ? 'text-gray-600 dark:text-gray-400' 
+                                : 'text-gray-400 dark:text-gray-500'
+                            }`}>
+                              {getStepDescription(config.descriptionIndex, stepStatus)}
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )
+              })()}
+
             </div>
           </div>
 
-          {/* Panel Derecho - Chat entre las Partes */}
-          <div className="w-80 bg-white border-l border-gray-200 flex flex-col h-full">
-            {/* Header del Chat */}
-            <div className="p-4 border-b border-gray-200 flex-shrink-0">
-              <h3 className="text-lg font-semibold text-gray-900">
+          {/* Panel de Chat - Debajo de los Pasos */}
+          <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex flex-col flex-1 min-h-0 overflow-hidden mt-2 sm:mt-3 flex-shrink">
+            {/* Header del Chat - Información Completa en Dos Columnas */}
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-b border-gray-200 dark:border-gray-700 px-2 sm:px-4 py-1 sm:py-2 flex-shrink-0 overflow-y-auto max-h-[40vh]">
+              <h3 className="text-xs sm:text-base font-semibold text-gray-900 dark:text-gray-100 mb-1 sm:mb-2">
                 Chat de Negociación
               </h3>
-              {requestInfo && (
-                <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600 mt-2">
-                  <span className="font-semibold text-gray-900">
-                    {requestInfo.currency} {requestInfo.amount?.toLocaleString()}
-                  </span>
-                  <span>•</span>
-                  <span>{getPaymentMethodDisplayName(requestInfo.paymentMethod)}</span>
+
+              <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                {/* Temporizador */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-2 sm:p-3 border border-gray-200 dark:border-gray-700">
+                  <div className="flex items-center space-x-2 mb-1">
+                    <Timer className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                    <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Tiempo Restante</span>
+                  </div>
+                  {transaction?.payment_deadline && timeRemaining ? (
+                    <div className="text-lg font-bold text-orange-600 dark:text-orange-400">
+                      {formatTimeRemaining(timeRemaining)}
+                    </div>
+                  ) : (
+                    <div className="flex items-center space-x-2">
+                      <Clock className="h-4 w-4 text-gray-400" />
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Esperando aceptación</span>
+                    </div>
+                  )}
                 </div>
-              )}
+
+                {/* Información del Usuario Contraparte */}
+                {requestData && userRole && (
+                    <div className={`${userRole === 'buyer' ? 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800' : 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800'} border rounded-lg p-2 sm:p-3`}>
+                      <div className="flex items-center space-x-3">
+                        <div className={`w-10 h-10 ${userRole === 'buyer' ? 'bg-green-100 dark:bg-green-900/50' : 'bg-blue-100 dark:bg-blue-900/50'} rounded-full flex items-center justify-center flex-shrink-0`}>
+                          {(() => {
+                            const counterpartyInfo = userRole === 'buyer' ? requestData.seller : requestData.buyer
+                            return counterpartyInfo?.avatar_url ? (
+                              <img 
+                                src={counterpartyInfo.avatar_url} 
+                                alt={counterpartyInfo.full_name}
+                                className="w-10 h-10 rounded-full object-cover"
+                              />
+                            ) : (
+                              <User className={`h-5 w-5 ${userRole === 'buyer' ? 'text-green-600 dark:text-green-400' : 'text-blue-600 dark:text-blue-400'}`} />
+                            )
+                          })()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className={`text-xs font-medium ${userRole === 'buyer' ? 'text-green-800 dark:text-green-300' : 'text-blue-800 dark:text-blue-300'}`}>
+                            {userRole === 'buyer' ? 'Vendedor' : 'Comprador'}
+                          </div>
+                          <div className={`text-sm font-semibold truncate ${userRole === 'buyer' ? 'text-green-900 dark:text-green-100' : 'text-blue-900 dark:text-blue-100'}`}>
+                            {(() => {
+                              const counterpartyInfo = userRole === 'buyer' ? requestData.seller : requestData.buyer
+                              return counterpartyInfo?.full_name || (userRole === 'buyer' ? 'Vendedor' : 'Comprador')
+                            })()}
+                          </div>
+                          <div className="flex items-center space-x-1 mt-1">
+                            {(() => {
+                              const counterpartyInfo = userRole === 'buyer' ? requestData.seller : requestData.buyer
+                              const verification = counterpartyInfo?.verification_status || 'unverified'
+                              let verificationLevel = 0
+                              if (verification === 'approved') {
+                                verificationLevel = 4
+                              } else if (verification === 'review') {
+                                verificationLevel = 2
+                              }
+                              
+                              return (
+                                <>
+                                  {Array.from({ length: 4 }, (_, i) => {
+                                    if (i < verificationLevel) {
+                                      return <CheckCircle key={i} className="h-3 w-3 text-green-500" />
+                                    } else {
+                                      return <Circle key={i} className="h-3 w-3 text-gray-300 dark:text-gray-600" />
+                                    }
+                                  })}
+                                  <span className={`text-xs ml-1 ${userRole === 'buyer' ? 'text-green-700 dark:text-green-400' : 'text-blue-700 dark:text-blue-400'}`}>
+                                    {verification === 'approved' ? 'Verificado' : verification === 'review' ? 'En revisión' : 'No verificado'}
+                                  </span>
+                                </>
+                              )
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+              </div>
             </div>
 
             {/* Contenido del Chat */}
-            <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
+            <div ref={chatMessagesContainerRef} className="flex-1 overflow-y-auto p-4 bg-gray-50 dark:bg-gray-900">
               {!chatEnabled ? (
                 <div className="flex flex-col items-center justify-center h-full">
                   <MessageSquare className="h-12 w-12 text-gray-400 mb-4" />
@@ -2336,7 +2927,7 @@ export function PurchaseCompletionPanel({
             </div>
 
             {/* Input del Chat */}
-            <div className="p-4 border-t border-gray-200 bg-white">
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
               <input
                 type="file"
                 ref={fileInputRef}
@@ -2395,6 +2986,7 @@ export function PurchaseCompletionPanel({
         </div>
       </div>
     </div>
+    </>
   )
 
   // NO retornar null - el componente debe montarse para que los useEffect funcionen
