@@ -23,7 +23,6 @@ import {
   FileText,
   CreditCard,
   ArrowRight,
-  Star,
   TrendingUp,
   Award,
   X,
@@ -38,7 +37,6 @@ import {
   File
 } from 'lucide-react'
 // import { toast } from 'sonner' // No se usa en este componente
-import { ReputationSection } from '@/components/reputation/ReputationSection'
 import { usePurchaseTransactionClient } from '@/hooks/usePurchaseTransactionClient'
 import { type PurchaseTransaction, type TransactionStep } from '@/lib/actions/purchase_transactions'
 import { supabaseBrowser } from '@/lib/supabase/client'
@@ -2028,7 +2026,7 @@ export function PurchaseCompletionPanel({
       }}
     >
       <div 
-        className="bg-white dark:bg-gray-900 rounded-lg shadow-2xl sm:rounded-lg w-full max-w-md sm:max-w-lg md:max-w-xl h-[92vh] overflow-hidden relative flex flex-col"
+        className="bg-card text-foreground rounded-lg shadow-2xl sm:rounded-lg w-full max-w-md sm:max-w-lg md:max-w-xl h-[92vh] overflow-hidden relative flex flex-col"
         data-panel-content="true"
         style={{
           filter: 'none !important',
@@ -2037,16 +2035,16 @@ export function PurchaseCompletionPanel({
         }}
       >
         {/* Header General del Panel */}
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-b border-gray-200 dark:border-gray-700 px-3 sm:px-6 py-1 sm:py-2 flex-shrink-0">
+        <div className="bg-muted border-b border-border px-3 sm:px-6 py-1 sm:py-2 flex-shrink-0">
           <div className="flex items-center justify-between mb-1 sm:mb-2">
             <div className="flex items-center space-x-2 sm:space-x-3">
-              <h1 className="text-sm sm:text-xl font-bold text-gray-900 dark:text-gray-100">
+              <h1 className="text-sm sm:text-xl font-bold text-foreground">
                 Compra de HNLD
               </h1>
-              <span className="text-sm sm:text-xl font-bold text-gray-900 dark:text-gray-100">
+              <span className="text-sm sm:text-xl font-bold text-foreground">
                 -
               </span>
-              <span className="text-sm sm:text-xl font-bold text-gray-700 dark:text-gray-300">
+              <span className="text-sm sm:text-xl font-bold text-muted-foreground">
                 {requestData?.currency_type || currency} {requestData?.amount?.toLocaleString() || amount.toLocaleString()}
               </span>
             </div>
@@ -2054,22 +2052,22 @@ export function PurchaseCompletionPanel({
               variant="ghost"
               size="sm"
               onClick={onClose}
-              className="bg-white/80 dark:bg-gray-800/80 hover:bg-white dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-700 p-1 h-6 w-6 sm:h-7 sm:w-7"
+              className="bg-card/80 hover:bg-card border border-border p-1 h-6 w-6 sm:h-7 sm:w-7"
             >
               <X className="h-3 w-3 sm:h-4 sm:w-4" />
             </Button>
           </div>
           
           {/* Código y Método de Pago - Card Combinada */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-1.5 sm:p-3 border border-gray-200 dark:border-gray-700">
+          <div className="bg-card rounded-lg p-1.5 sm:p-3 border border-border">
             <div className="grid grid-cols-2 gap-2 sm:gap-3">
               {/* Código Único */}
-              <div className="pr-2 sm:pr-3 border-r border-gray-200 dark:border-gray-700">
+              <div className="pr-2 sm:pr-3 border-r border-border">
                 <div className="flex items-center space-x-1.5 sm:space-x-2 mb-0.5 sm:mb-1">
                   <FileText className="h-3 w-3 sm:h-4 sm:w-4 text-green-600 dark:text-green-400" />
                   <span className="text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400">Código</span>
                 </div>
-                <div className="text-[11px] sm:text-sm font-mono font-semibold text-gray-900 dark:text-gray-100">
+                <div className="text-[11px] sm:text-sm font-mono font-semibold text-foreground">
                   {requestData?.unique_code || `NMHN-${new Date().toISOString().split('T')[0].replace(/-/g, '')}-${String(requestId.slice(-6)).toUpperCase()}`}
                 </div>
               </div>
@@ -2080,7 +2078,7 @@ export function PurchaseCompletionPanel({
                   <CreditCard className="h-3 w-3 sm:h-4 sm:w-4 text-purple-600 dark:text-purple-400" />
                   <span className="text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400">Método de Pago</span>
                 </div>
-                <div className="text-[11px] sm:text-sm font-semibold text-gray-900 dark:text-gray-100">
+                <div className="text-[11px] sm:text-sm font-semibold text-foreground">
                   {getPaymentMethodDisplayName(requestData?.payment_method || paymentMethod)}
                 </div>
               </div>
@@ -2635,54 +2633,54 @@ export function PurchaseCompletionPanel({
                 let hoverClasses = ''
                 
                 if (isCompleted) {
-                  borderColor = 'border-green-200 dark:border-green-800'
-                  bgColor = 'bg-green-50 dark:bg-green-950/20'
+                  borderColor = 'border-emerald-400 dark:border-green-800 border-2'
+                  bgColor = stepOrder === 1 ? 'bg-white dark:bg-green-950/20' : 'bg-white dark:bg-green-950/20'
                   iconBgColor = 'bg-green-500'
-                  textColor = 'text-gray-900 dark:text-gray-100'
+                  textColor = 'text-foreground'
                   hoverClasses = 'cursor-default'
                 } else if (canPerformAction) {
                   if (stepOrder === 1) {
-                    borderColor = 'border-orange-200 dark:border-orange-800'
-                    bgColor = 'bg-orange-50 dark:bg-orange-950/20'
+                    borderColor = 'border-orange-400 dark:border-orange-800 border-2'
+                    bgColor = 'bg-white dark:bg-orange-950/20'
                     iconBgColor = 'bg-orange-500'
-                    textColor = 'text-orange-700 dark:text-orange-400'
-                    hoverClasses = 'cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-950/40 hover:border-orange-300 dark:hover:border-orange-700 transition-all duration-200 active:scale-[0.98]'
+                    textColor = 'text-foreground dark:text-orange-400'
+                    hoverClasses = 'cursor-pointer hover:shadow-md dark:hover:bg-orange-950/40 hover:border-orange-300 dark:hover:border-orange-700 transition-all duration-200 active:scale-[0.98]'
                   } else {
-                    borderColor = 'border-blue-200 dark:border-blue-800'
-                    bgColor = 'bg-blue-50 dark:bg-blue-950/20'
+                    borderColor = 'border-blue-400 dark:border-blue-800 border-2'
+                    bgColor = 'bg-white dark:bg-blue-950/20'
                     iconBgColor = 'bg-blue-500'
-                    textColor = 'text-gray-900 dark:text-gray-100'
-                    hoverClasses = 'cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-950/40 hover:border-blue-300 dark:hover:border-blue-700 transition-all duration-200 active:scale-[0.98]'
+                    textColor = 'text-foreground'
+                    hoverClasses = 'cursor-pointer hover:shadow-md dark:hover:bg-blue-950/40 hover:border-blue-300 dark:hover:border-blue-700 transition-all duration-200 active:scale-[0.98]'
                   }
                 } else if (stepOrder === 2 && userRole === 'buyer' && isInProgress && !hasPaymentProof) {
                   // Paso 2 deshabilitado si no hay comprobante
                   borderColor = 'border-gray-300 dark:border-gray-600'
-                  bgColor = 'bg-gray-50 dark:bg-gray-800'
+                  bgColor = 'bg-white dark:bg-gray-800'
                   iconBgColor = 'bg-gray-400 dark:bg-gray-600'
-                  textColor = 'text-gray-600 dark:text-gray-400'
+                  textColor = 'text-muted-foreground'
                   hoverClasses = 'cursor-not-allowed opacity-75'
                 } else if (isInProgress) {
-                  borderColor = 'border-blue-200 dark:border-blue-800'
-                  bgColor = 'bg-blue-50 dark:bg-blue-950/20'
+                  borderColor = 'border-blue-400 dark:border-blue-800 border-2'
+                  bgColor = stepOrder === 1 ? 'bg-white dark:bg-orange-950/20' : 'bg-white dark:bg-blue-950/20'
                   iconBgColor = 'bg-blue-500'
-                  textColor = 'text-gray-900 dark:text-gray-100'
+                  textColor = 'text-foreground'
                   hoverClasses = 'cursor-default'
                 } else {
-                  borderColor = 'border-gray-200 dark:border-gray-700'
-                  bgColor = 'bg-gray-50 dark:bg-gray-800'
+                  borderColor = 'border-border dark:border-gray-700'
+                  bgColor = 'bg-white dark:bg-gray-800'
                   iconBgColor = 'bg-gray-300 dark:bg-gray-600'
-                  textColor = 'text-gray-500 dark:text-gray-400'
+                  textColor = 'text-muted-foreground'
                   hoverClasses = 'cursor-default'
                 }
                 
                 return (
                   <div className="mb-0 pb-0">
                     <Card 
-                      className={`${borderColor} ${bgColor} ${hoverClasses} ${canPerformAction ? 'shadow-md hover:shadow-lg' : ''} relative ${
+                      className={`${borderColor} ${bgColor} ${hoverClasses} ${canPerformAction && stepOrder !== 1 ? 'shadow-md hover:shadow-lg' : ''} relative ${
                         (canPerformAction || (isInProgress && !(stepOrder === 2 && userRole === 'buyer' && !hasPaymentProof)))
                           ? (stepOrder === 1 
-                              ? 'ring-1 ring-offset-1 ring-orange-400/40 dark:ring-orange-500/40' 
-                              : 'ring-1 ring-offset-1 ring-blue-400/40 dark:ring-blue-500/40') 
+                              ? 'ring-2 ring-offset-2 ring-offset-background ring-orange-400/60 dark:ring-orange-500/40' 
+                              : 'ring-2 ring-offset-2 ring-offset-background ring-blue-400/60 dark:ring-blue-500/40') 
                           : ''
                       }`}
                       onClick={canPerformAction ? handleStepAction : undefined}
@@ -2694,7 +2692,7 @@ export function PurchaseCompletionPanel({
                         transition: 'all 0.3s ease-in-out',
                         transform: 'scale(1)',
                         animation: stepOrder === 1 
-                          ? 'pulse-glow-orange 2s ease-in-out infinite' 
+                          ? 'none' 
                           : 'pulse-glow 2s ease-in-out infinite'
                       } : undefined}
                     >
@@ -2748,16 +2746,16 @@ export function PurchaseCompletionPanel({
           </div>
 
           {/* Panel de Chat - Debajo de los Pasos */}
-          <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex flex-col flex-1 min-h-0 overflow-hidden mt-2 sm:mt-3 flex-shrink">
+          <div className="border-t border-border bg-background flex flex-col flex-1 min-h-0 overflow-hidden mt-2 sm:mt-3 flex-shrink">
             {/* Header del Chat - Información Completa en Dos Columnas */}
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-b border-gray-200 dark:border-gray-700 px-2 sm:px-4 py-1 sm:py-2 flex-shrink-0 overflow-y-auto max-h-[40vh]">
-              <h3 className="text-xs sm:text-base font-semibold text-gray-900 dark:text-gray-100 mb-1 sm:mb-2">
+            <div className="bg-muted border-b border-border px-2 sm:px-4 py-1 sm:py-2 flex-shrink-0 overflow-y-auto max-h-[40vh]">
+              <h3 className="text-xs sm:text-base font-semibold text-foreground mb-1 sm:mb-2">
                 Chat de Negociación
               </h3>
 
               <div className="grid grid-cols-2 gap-2 sm:gap-3">
                 {/* Temporizador */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg p-2 sm:p-3 border border-gray-200 dark:border-gray-700">
+                <div className="bg-card rounded-lg p-2 sm:p-3 border border-border">
                   <div className="flex items-center space-x-2 mb-1">
                     <Timer className="h-4 w-4 text-orange-600 dark:text-orange-400" />
                     <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Tiempo Restante</span>
@@ -2769,16 +2767,16 @@ export function PurchaseCompletionPanel({
                   ) : (
                     <div className="flex items-center space-x-2">
                       <Clock className="h-4 w-4 text-gray-400" />
-                      <span className="text-xs text-gray-500 dark:text-gray-400">Esperando aceptación</span>
+                      <span className="text-xs text-muted-foreground">Esperando aceptación</span>
                     </div>
                   )}
                 </div>
 
                 {/* Información del Usuario Contraparte */}
                 {requestData && userRole && (
-                    <div className={`${userRole === 'buyer' ? 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800' : 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800'} border rounded-lg p-2 sm:p-3`}>
+                    <div className={`bg-white dark:bg-card border border-border rounded-lg p-2 sm:p-3`}>
                       <div className="flex items-center space-x-3">
-                        <div className={`w-10 h-10 ${userRole === 'buyer' ? 'bg-green-100 dark:bg-green-900/50' : 'bg-blue-100 dark:bg-blue-900/50'} rounded-full flex items-center justify-center flex-shrink-0`}>
+                        <div className={`w-10 h-10 bg-muted rounded-full flex items-center justify-center flex-shrink-0`}>
                           {(() => {
                             const counterpartyInfo = userRole === 'buyer' ? requestData.seller : requestData.buyer
                             return counterpartyInfo?.avatar_url ? (
@@ -2788,44 +2786,41 @@ export function PurchaseCompletionPanel({
                                 className="w-10 h-10 rounded-full object-cover"
                               />
                             ) : (
-                              <User className={`h-5 w-5 ${userRole === 'buyer' ? 'text-green-600 dark:text-green-400' : 'text-blue-600 dark:text-blue-400'}`} />
+                              <User className={`h-5 w-5 ${userRole === 'buyer' ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'}`} />
                             )
                           })()}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className={`text-xs font-medium ${userRole === 'buyer' ? 'text-green-800 dark:text-green-300' : 'text-blue-800 dark:text-blue-300'}`}>
-                            {userRole === 'buyer' ? 'Vendedor' : 'Comprador'}
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-block h-2.5 w-2.5 rounded-full ${userRole === 'buyer' ? 'bg-emerald-400' : 'bg-blue-400'}`}></span>
+                            <div className={`text-xs font-medium text-muted-foreground`}>
+                              {userRole === 'buyer' ? 'Vendedor' : 'Comprador'}
+                            </div>
                           </div>
-                          <div className={`text-sm font-semibold truncate ${userRole === 'buyer' ? 'text-green-900 dark:text-green-100' : 'text-blue-900 dark:text-blue-100'}`}>
+                          <div className={`text-sm font-semibold truncate text-foreground`}>
                             {(() => {
                               const counterpartyInfo = userRole === 'buyer' ? requestData.seller : requestData.buyer
                               return counterpartyInfo?.full_name || (userRole === 'buyer' ? 'Vendedor' : 'Comprador')
                             })()}
                           </div>
-                          <div className="flex items-center space-x-1 mt-1">
+                          <div className="mt-1">
                             {(() => {
                               const counterpartyInfo = userRole === 'buyer' ? requestData.seller : requestData.buyer
                               const verification = counterpartyInfo?.verification_status || 'unverified'
-                              let verificationLevel = 0
-                              if (verification === 'approved') {
-                                verificationLevel = 4
-                              } else if (verification === 'review') {
-                                verificationLevel = 2
-                              }
-                              
+                              const label = verification === 'approved' 
+                                ? 'Verificado' 
+                                : verification === 'review' 
+                                  ? 'En revisión' 
+                                  : 'No verificado'
+                              const colorClasses = verification === 'approved'
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                : verification === 'review'
+                                  ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
+                                  : 'bg-muted text-muted-foreground border-border'
                               return (
-                                <>
-                                  {Array.from({ length: 4 }, (_, i) => {
-                                    if (i < verificationLevel) {
-                                      return <CheckCircle key={i} className="h-3 w-3 text-green-500" />
-                                    } else {
-                                      return <Circle key={i} className="h-3 w-3 text-gray-300 dark:text-gray-600" />
-                                    }
-                                  })}
-                                  <span className={`text-xs ml-1 ${userRole === 'buyer' ? 'text-green-700 dark:text-green-400' : 'text-blue-700 dark:text-blue-400'}`}>
-                                    {verification === 'approved' ? 'Verificado' : verification === 'review' ? 'En revisión' : 'No verificado'}
-                                  </span>
-                                </>
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${colorClasses}`}>
+                                  {label}
+                                </span>
                               )
                             })()}
                           </div>
@@ -2837,16 +2832,16 @@ export function PurchaseCompletionPanel({
             </div>
 
             {/* Contenido del Chat */}
-            <div ref={chatMessagesContainerRef} className="flex-1 overflow-y-auto p-4 bg-gray-50 dark:bg-gray-900">
+            <div ref={chatMessagesContainerRef} className="flex-1 overflow-y-auto p-4 bg-background">
               {!chatEnabled ? (
                 <div className="flex flex-col items-center justify-center h-full">
                   <MessageSquare className="h-12 w-12 text-gray-400 mb-4" />
-                  <p className="text-sm text-gray-500 text-center">
+                  <p className="text-sm text-muted-foreground text-center">
                     El chat se habilitará cuando el vendedor acepte el trato
                   </p>
                 </div>
               ) : chatHook.isLoading ? (
-                <div className="text-center text-sm text-gray-500 py-8">
+                <div className="text-center text-sm text-muted-foreground py-8">
                   Cargando chat...
                 </div>
               ) : chatHook.messages && chatHook.messages.length > 0 ? (
@@ -2859,7 +2854,7 @@ export function PurchaseCompletionPanel({
                       <div className={`max-w-xs rounded-lg px-3 py-2 ${
                         msg.sender_id === currentUserId 
                           ? 'bg-blue-600 text-white' 
-                          : 'bg-white border border-gray-200 text-gray-900'
+                          : 'bg-card border border-border text-foreground'
                       }`}>
                         <p className="text-sm">{msg.body}</p>
                         
@@ -2875,14 +2870,14 @@ export function PurchaseCompletionPanel({
                                 className={`flex items-center space-x-2 p-2 rounded ${
                                   msg.sender_id === currentUserId 
                                     ? 'bg-blue-700 hover:bg-blue-800' 
-                                    : 'bg-gray-100 hover:bg-gray-200'
+                                    : 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-100'
                                 } transition-colors`}
                               >
                                 <File className={`h-4 w-4 ${
                                   msg.sender_id === currentUserId ? 'text-white' : 'text-gray-600'
                                 }`} />
                                 <span className={`text-xs truncate ${
-                                  msg.sender_id === currentUserId ? 'text-white' : 'text-gray-700'
+                                  msg.sender_id === currentUserId ? 'text-white' : 'text-foreground'
                                 }`}>
                                   {attachment.name || 'Documento'}
                                 </span>
@@ -2920,14 +2915,14 @@ export function PurchaseCompletionPanel({
                   ))}
                 </div>
               ) : (
-                <div className="text-center text-sm text-gray-500 py-8">
+                <div className="text-center text-sm text-muted-foreground py-8">
                   No hay mensajes todavía
                 </div>
               )}
             </div>
 
             {/* Input del Chat */}
-            <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+            <div className="p-4 border-t border-border bg-card">
               <input
                 type="file"
                 ref={fileInputRef}
