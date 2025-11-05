@@ -616,6 +616,12 @@ export function PurchaseCompletionPanel({
   
   // Configurar suscripción realtime para transaction_steps y purchase_transactions
   const setupTransactionRealtimeSubscription = useCallback((transactionId: string) => {
+    // Validar que transactionId existe
+    if (!transactionId) {
+      console.error('❌ No se puede configurar realtime sin transactionId')
+      return
+    }
+    
     // Verificar si ya tenemos una suscripción activa para esta transacción
     if (transactionRealtimeChannelRef.current && currentSubscribedTransactionIdRef.current === transactionId) {
       console.log('✅ Suscripción de transacción ya existe, reutilizando')
@@ -625,7 +631,11 @@ export function PurchaseCompletionPanel({
     // Limpiar suscripción anterior si es para una transacción diferente
     if (transactionRealtimeChannelRef.current) {
       console.log('🧹 Limpiando suscripción realtime de transacción anterior')
-      transactionRealtimeChannelRef.current.unsubscribe()
+      try {
+        transactionRealtimeChannelRef.current.unsubscribe()
+      } catch (error) {
+        console.error('⚠️ Error al desuscribir canal anterior:', error)
+      }
       transactionRealtimeChannelRef.current = null
       currentSubscribedTransactionIdRef.current = null
     }
@@ -633,257 +643,328 @@ export function PurchaseCompletionPanel({
     const supabase = supabaseBrowser()
     console.log('🔌 Configurando suscripción realtime para transacción:', transactionId)
     
-    const channel = supabase
-      .channel(`transaction:${transactionId}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'transaction_steps',
-        filter: `transaction_id=eq.${transactionId}`
-      }, (payload: any) => {
-        console.log('📊 Cambio en transaction_steps recibido:', payload)
-        const updatedStep = payload.new
-        const eventType = payload.eventType || (payload.old ? 'UPDATE' : 'INSERT')
-        
-        // Verificar si el paso 4 se completó (para ambos usuarios)
-        const isStep4Completed = updatedStep?.step_order === 4 && updatedStep?.status === 'completed'
-        
-        // Actualizar el paso en el estado local
-        setTransaction(prev => {
-          if (!prev) return prev
-          
-          let updatedSteps = prev.transaction_steps || []
-          
-          if (eventType === 'DELETE') {
-            // Remover el paso eliminado
-            updatedSteps = updatedSteps.filter(step => step.id !== updatedStep?.id)
-          } else if (eventType === 'INSERT') {
-            // Agregar nuevo paso si no existe
-            if (!updatedSteps.find(s => s.id === updatedStep.id)) {
-              updatedSteps = [...updatedSteps, updatedStep]
+    try {
+      const channel = supabase
+        .channel(`transaction:${transactionId}`)
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'transaction_steps',
+          filter: `transaction_id=eq.${transactionId}`
+        }, (payload: any) => {
+          try {
+            console.log('📊 Cambio en transaction_steps recibido:', payload)
+            const updatedStep = payload.new
+            const eventType = payload.eventType || (payload.old ? 'UPDATE' : 'INSERT')
+            
+            // Verificar que el paso tiene los datos necesarios
+            if (!updatedStep || !updatedStep.id) {
+              console.warn('⚠️ Paso recibido sin datos válidos:', updatedStep)
+              return
             }
-          } else {
-            // UPDATE: actualizar el paso existente
-            updatedSteps = updatedSteps.map(step => {
-              if (step.id === updatedStep.id) {
-                return { ...step, ...updatedStep }
+            
+            // Verificar si el paso 4 se completó (para ambos usuarios)
+            const isStep4Completed = updatedStep?.step_order === 4 && updatedStep?.status === 'completed'
+            
+            // Actualizar el paso en el estado local
+            setTransaction(prev => {
+              if (!prev) return prev
+              
+              let updatedSteps = prev.transaction_steps || []
+              
+              if (eventType === 'DELETE') {
+                // Remover el paso eliminado
+                updatedSteps = updatedSteps.filter(step => step.id !== updatedStep?.id)
+              } else if (eventType === 'INSERT') {
+                // Agregar nuevo paso si no existe
+                if (!updatedSteps.find(s => s.id === updatedStep.id)) {
+                  updatedSteps = [...updatedSteps, updatedStep]
+                }
+              } else {
+                // UPDATE: actualizar el paso existente
+                updatedSteps = updatedSteps.map(step => {
+                  if (step.id === updatedStep.id) {
+                    return { ...step, ...updatedStep }
+                  }
+                  return step
+                })
               }
-              return step
+              
+              // Si el paso 4 se completó, ejecutar acciones para ambos usuarios
+              if (isStep4Completed && !transactionCompletionHandledRef.current) {
+                console.log('✅ Paso 4 completado detectado en realtime - ejecutando acciones para ambos usuarios')
+                transactionCompletionHandledRef.current = true
+                
+                // Detener el temporizador
+                if (timerIntervalRef.current) {
+                  clearInterval(timerIntervalRef.current)
+                  timerIntervalRef.current = null
+                }
+                setTimeRemaining(null)
+                
+                // Actualizar solicitud a completada (para ambos usuarios)
+                const updateRequestStatus = async () => {
+                  try {
+                    const supabase = supabaseBrowser()
+                    const { error: requestUpdateError } = await supabase
+                      .rpc('mark_request_completed', {
+                        p_request_id: requestId
+                      })
+                    
+                    if (requestUpdateError) {
+                      console.error('⚠️ Error actualizando solicitud a completada:', requestUpdateError)
+                      await supabase
+                        .from('purchase_requests')
+                        .update({
+                          status: 'completed',
+                          updated_at: new Date().toISOString()
+                        })
+                        .eq('id', requestId)
+                    }
+                    
+                    // Disparar evento para actualizar la UI
+                    const updateNotification = new CustomEvent('request-status-changed', {
+                      detail: { requestId, newStatus: 'completed' }
+                    })
+                    window.dispatchEvent(updateNotification)
+                    
+                    // Crear notificación persistente similar a las de crear/cancelar solicitudes
+                    const transactionId = prev?.id
+                    if (transactionId) {
+                      try {
+                        const { data: notificationResult, error: notificationError } = await supabase
+                          .rpc('notify_request_completed', {
+                            p_request_id: requestId,
+                            p_transaction_id: transactionId
+                          })
+                        
+                        if (notificationError) {
+                          console.error('⚠️ Error creando notificación de solicitud completada:', notificationError)
+                        } else {
+                          console.log('✅ Notificación de solicitud completada creada:', notificationResult)
+                        }
+                      } catch (notifErr) {
+                        console.error('⚠️ Error en creación de notificación:', notifErr)
+                      }
+                    }
+                  } catch (requestErr) {
+                    console.error('⚠️ Error en actualización de solicitud:', requestErr)
+                  }
+                }
+                updateRequestStatus()
+                
+                // Mostrar notificación de éxito (para ambos usuarios)
+                setTimeout(() => {
+                  toast({
+                    title: "✅ Transacción completada",
+                    description: `Se acreditó exitosamente el saldo de L.${prev.amount || amount} de HNLD al comprador. La transacción ha finalizado correctamente.`,
+                    duration: 5000,
+                  })
+                }, 500)
+                
+                // Cerrar el panel después de 3 segundos (para ambos usuarios)
+                setTimeout(() => {
+                  console.log('🔒 Cerrando panel de transacción después de completar (realtime)')
+                  onClose()
+                }, 3000)
+              }
+              
+              return {
+                ...prev,
+                transaction_steps: updatedSteps
+              }
             })
-          }
-          
-          // Si el paso 4 se completó, ejecutar acciones para ambos usuarios
-          if (isStep4Completed && !transactionCompletionHandledRef.current) {
-            console.log('✅ Paso 4 completado detectado en realtime - ejecutando acciones para ambos usuarios')
-            transactionCompletionHandledRef.current = true
-            
-            // Detener el temporizador
-            if (timerIntervalRef.current) {
-              clearInterval(timerIntervalRef.current)
-              timerIntervalRef.current = null
-            }
-            setTimeRemaining(null)
-            
-            // Actualizar solicitud a completada (para ambos usuarios)
-            const updateRequestStatus = async () => {
-              try {
-                const supabase = supabaseBrowser()
-                const { error: requestUpdateError } = await supabase
-                  .rpc('mark_request_completed', {
-                    p_request_id: requestId
-                  })
-                
-                if (requestUpdateError) {
-                  console.error('⚠️ Error actualizando solicitud a completada:', requestUpdateError)
-                  await supabase
-                    .from('purchase_requests')
-                    .update({
-                      status: 'completed',
-                      updated_at: new Date().toISOString()
-                    })
-                    .eq('id', requestId)
-                }
-                
-                // Disparar evento para actualizar la UI
-                const updateNotification = new CustomEvent('request-status-changed', {
-                  detail: { requestId, newStatus: 'completed' }
-                })
-                window.dispatchEvent(updateNotification)
-                
-                // Crear notificación persistente similar a las de crear/cancelar solicitudes
-                const transactionId = prev?.id
-                if (transactionId) {
-                  try {
-                    const { data: notificationResult, error: notificationError } = await supabase
-                      .rpc('notify_request_completed', {
-                        p_request_id: requestId,
-                        p_transaction_id: transactionId
-                      })
-                    
-                    if (notificationError) {
-                      console.error('⚠️ Error creando notificación de solicitud completada:', notificationError)
-                    } else {
-                      console.log('✅ Notificación de solicitud completada creada:', notificationResult)
-                    }
-                  } catch (notifErr) {
-                    console.error('⚠️ Error en creación de notificación:', notifErr)
-                  }
-                }
-              } catch (requestErr) {
-                console.error('⚠️ Error en actualización de solicitud:', requestErr)
-              }
-            }
-            updateRequestStatus()
-            
-            // Mostrar notificación de éxito (para ambos usuarios)
-            setTimeout(() => {
-              toast({
-                title: "✅ Transacción completada",
-                description: `Se acreditó exitosamente el saldo de L.${prev.amount || amount} de HNLD al comprador. La transacción ha finalizado correctamente.`,
-                duration: 5000,
-              })
-            }, 500)
-            
-            // Cerrar el panel después de 3 segundos (para ambos usuarios)
-            setTimeout(() => {
-              console.log('🔒 Cerrando panel de transacción después de completar (realtime)')
-              onClose()
-            }, 3000)
-          }
-          
-          return {
-            ...prev,
-            transaction_steps: updatedSteps
+          } catch (error) {
+            console.error('❌ Error procesando cambio en transaction_steps:', error)
           }
         })
-      })
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'purchase_transactions',
-        filter: `id=eq.${transactionId}`
-      }, (payload: any) => {
-        console.log('📊 Cambio en purchase_transactions recibido:', payload)
-        const updatedTransaction = payload.new
-        
-        // Verificar si la transacción se completó (para ambos usuarios)
-        const isTransactionCompleted = updatedTransaction?.status === 'completed'
-        
-        // Actualizar la transacción completa
-        setTransaction(prev => {
-          if (!prev) return prev
-          
-          const wasCompleted = prev.status === 'completed'
-          
-          // Si la transacción acaba de completarse (no estaba completada antes)
-          if (isTransactionCompleted && !wasCompleted && !transactionCompletionHandledRef.current) {
-            console.log('✅ Transacción completada detectada en realtime - ejecutando acciones para ambos usuarios')
-            transactionCompletionHandledRef.current = true
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'purchase_transactions',
+          filter: `id=eq.${transactionId}`
+        }, (payload: any) => {
+          try {
+            console.log('📊 Cambio en purchase_transactions recibido:', payload)
+            const updatedTransaction = payload.new
             
-            // Detener el temporizador
-            if (timerIntervalRef.current) {
-              clearInterval(timerIntervalRef.current)
-              timerIntervalRef.current = null
+            // Verificar que la transacción tiene los datos necesarios
+            if (!updatedTransaction || !updatedTransaction.id) {
+              console.warn('⚠️ Transacción recibida sin datos válidos:', updatedTransaction)
+              return
             }
-            setTimeRemaining(null)
             
-            // Actualizar solicitud a completada (para ambos usuarios)
-            const updateRequestStatus = async () => {
-              try {
-                const supabase = supabaseBrowser()
-                const { error: requestUpdateError } = await supabase
-                  .rpc('mark_request_completed', {
-                    p_request_id: requestId
-                  })
+            // Verificar si la transacción se completó (para ambos usuarios)
+            const isTransactionCompleted = updatedTransaction?.status === 'completed'
+            
+            // Actualizar la transacción completa
+            setTransaction(prev => {
+              if (!prev) return prev
+              
+              const wasCompleted = prev.status === 'completed'
+              
+              // Si la transacción acaba de completarse (no estaba completada antes)
+              if (isTransactionCompleted && !wasCompleted && !transactionCompletionHandledRef.current) {
+                console.log('✅ Transacción completada detectada en realtime - ejecutando acciones para ambos usuarios')
+                transactionCompletionHandledRef.current = true
                 
-                if (requestUpdateError) {
-                  console.error('⚠️ Error actualizando solicitud a completada:', requestUpdateError)
-                  await supabase
-                    .from('purchase_requests')
-                    .update({
-                      status: 'completed',
-                      updated_at: new Date().toISOString()
-                    })
-                    .eq('id', requestId)
+                // Detener el temporizador
+                if (timerIntervalRef.current) {
+                  clearInterval(timerIntervalRef.current)
+                  timerIntervalRef.current = null
                 }
+                setTimeRemaining(null)
                 
-                // Disparar evento para actualizar la UI
-                const updateNotification = new CustomEvent('request-status-changed', {
-                  detail: { requestId, newStatus: 'completed' }
-                })
-                window.dispatchEvent(updateNotification)
-                
-                // Crear notificación persistente similar a las de crear/cancelar solicitudes
-                const transactionId = updatedTransaction?.id || prev?.id
-                if (transactionId) {
+                // Actualizar solicitud a completada (para ambos usuarios)
+                const updateRequestStatus = async () => {
                   try {
-                    const { data: notificationResult, error: notificationError } = await supabase
-                      .rpc('notify_request_completed', {
-                        p_request_id: requestId,
-                        p_transaction_id: transactionId
+                    const supabase = supabaseBrowser()
+                    const { error: requestUpdateError } = await supabase
+                      .rpc('mark_request_completed', {
+                        p_request_id: requestId
                       })
                     
-                    if (notificationError) {
-                      console.error('⚠️ Error creando notificación de solicitud completada:', notificationError)
-                    } else {
-                      console.log('✅ Notificación de solicitud completada creada:', notificationResult)
+                    if (requestUpdateError) {
+                      console.error('⚠️ Error actualizando solicitud a completada:', requestUpdateError)
+                      await supabase
+                        .from('purchase_requests')
+                        .update({
+                          status: 'completed',
+                          updated_at: new Date().toISOString()
+                        })
+                        .eq('id', requestId)
                     }
-                  } catch (notifErr) {
-                    console.error('⚠️ Error en creación de notificación:', notifErr)
+                    
+                    // Disparar evento para actualizar la UI
+                    const updateNotification = new CustomEvent('request-status-changed', {
+                      detail: { requestId, newStatus: 'completed' }
+                    })
+                    window.dispatchEvent(updateNotification)
+                    
+                    // Crear notificación persistente similar a las de crear/cancelar solicitudes
+                    const transactionId = updatedTransaction?.id || prev?.id
+                    if (transactionId) {
+                      try {
+                        const { data: notificationResult, error: notificationError } = await supabase
+                          .rpc('notify_request_completed', {
+                            p_request_id: requestId,
+                            p_transaction_id: transactionId
+                          })
+                        
+                        if (notificationError) {
+                          console.error('⚠️ Error creando notificación de solicitud completada:', notificationError)
+                        } else {
+                          console.log('✅ Notificación de solicitud completada creada:', notificationResult)
+                        }
+                      } catch (notifErr) {
+                        console.error('⚠️ Error en creación de notificación:', notifErr)
+                      }
+                    }
+                  } catch (requestErr) {
+                    console.error('⚠️ Error en actualización de solicitud:', requestErr)
                   }
                 }
-              } catch (requestErr) {
-                console.error('⚠️ Error en actualización de solicitud:', requestErr)
+                updateRequestStatus()
+                
+                // Mostrar notificación de éxito (para ambos usuarios)
+                setTimeout(() => {
+                  toast({
+                    title: "✅ Transacción completada",
+                    description: `Se acreditó exitosamente el saldo de L.${updatedTransaction?.amount || prev.amount || amount} de HNLD al comprador. La transacción ha finalizado correctamente.`,
+                    duration: 5000,
+                  })
+                }, 500)
+                
+                // Cerrar el panel después de 3 segundos (para ambos usuarios)
+                setTimeout(() => {
+                  console.log('🔒 Cerrando panel de transacción después de completar (realtime - transaction status)')
+                  onClose()
+                }, 3000)
               }
-            }
-            updateRequestStatus()
-            
-            // Mostrar notificación de éxito (para ambos usuarios)
-            setTimeout(() => {
-              toast({
-                title: "✅ Transacción completada",
-                description: `Se acreditó exitosamente el saldo de L.${updatedTransaction?.amount || prev.amount || amount} de HNLD al comprador. La transacción ha finalizado correctamente.`,
-                duration: 5000,
-              })
-            }, 500)
-            
-            // Cerrar el panel después de 3 segundos (para ambos usuarios)
-            setTimeout(() => {
-              console.log('🔒 Cerrando panel de transacción después de completar (realtime - transaction status)')
-              onClose()
-            }, 3000)
-          }
-          
-          return {
-            ...prev,
-            ...updatedTransaction,
-            // Mantener transaction_steps si están en el estado anterior
-            transaction_steps: prev.transaction_steps || []
+              
+              return {
+                ...prev,
+                ...updatedTransaction,
+                // Mantener transaction_steps si están en el estado anterior
+                transaction_steps: prev.transaction_steps || []
+              }
+            })
+          } catch (error) {
+            console.error('❌ Error procesando cambio en purchase_transactions:', error)
           }
         })
-      })
-      .subscribe((status) => {
-        console.log('🔌 Estado de suscripción transacción realtime:', status)
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ Suscripción realtime activa para transacción:', transactionId)
-          currentSubscribedTransactionIdRef.current = transactionId
-        }
-      })
-    
-    transactionRealtimeChannelRef.current = channel
-  }, [])
+        .subscribe((status) => {
+          console.log('🔌 Estado de suscripción transacción realtime:', status)
+          if (status === 'SUBSCRIBED') {
+            console.log('✅ Suscripción realtime activa para transacción:', transactionId)
+            currentSubscribedTransactionIdRef.current = transactionId
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('❌ Error en canal realtime de transacción:', transactionId)
+          } else if (status === 'TIMED_OUT') {
+            console.warn('⚠️ Timeout en suscripción realtime de transacción:', transactionId)
+          }
+        })
+      
+      transactionRealtimeChannelRef.current = channel
+    } catch (error) {
+      console.error('❌ Error configurando suscripción realtime de transacción:', error)
+    }
+  }, [requestId, amount, onClose, toast])
   
   // Limpiar suscripción al desmontar o cuando cambia el thread
   useEffect(() => {
     return () => {
       if (chatRealtimeChannelRef.current) {
-        chatRealtimeChannelRef.current.unsubscribe()
+        try {
+          chatRealtimeChannelRef.current.unsubscribe()
+        } catch (error) {
+          console.error('⚠️ Error desuscribiendo canal de chat:', error)
+        }
       }
       if (transactionRealtimeChannelRef.current) {
-        transactionRealtimeChannelRef.current.unsubscribe()
+        try {
+          transactionRealtimeChannelRef.current.unsubscribe()
+        } catch (error) {
+          console.error('⚠️ Error desuscribiendo canal de transacción:', error)
+        }
       }
     }
   }, [])
+  
+  // Limpiar y reconfigurar suscripción cuando cambia la transacción
+  useEffect(() => {
+    if (!isOpen || !transaction?.id) {
+      // Si el panel está cerrado o no hay transacción, limpiar suscripciones
+      if (transactionRealtimeChannelRef.current) {
+        console.log('🧹 Limpiando suscripción realtime (panel cerrado o sin transacción)')
+        try {
+          transactionRealtimeChannelRef.current.unsubscribe()
+        } catch (error) {
+          console.error('⚠️ Error desuscribiendo canal de transacción:', error)
+        }
+        transactionRealtimeChannelRef.current = null
+        currentSubscribedTransactionIdRef.current = null
+      }
+      return
+    }
+    
+    // Configurar suscripción realtime para la transacción actual
+    setupTransactionRealtimeSubscription(transaction.id)
+    
+    return () => {
+      // Limpiar cuando cambia la transacción
+      if (transactionRealtimeChannelRef.current && currentSubscribedTransactionIdRef.current === transaction.id) {
+        console.log('🧹 Limpiando suscripción realtime (cambio de transacción)')
+        try {
+          transactionRealtimeChannelRef.current.unsubscribe()
+        } catch (error) {
+          console.error('⚠️ Error desuscribiendo canal de transacción:', error)
+        }
+        transactionRealtimeChannelRef.current = null
+        currentSubscribedTransactionIdRef.current = null
+      }
+    }
+  }, [isOpen, transaction?.id, setupTransactionRealtimeSubscription])
   
   // Cargar mensajes cuando se abre el panel y el chat está habilitado
   useEffect(() => {
@@ -1032,13 +1113,21 @@ export function PurchaseCompletionPanel({
       // Limpiar suscripción realtime
       if (chatRealtimeChannelRef.current) {
         console.log('🧹 Limpiando suscripción realtime de chat')
-        chatRealtimeChannelRef.current.unsubscribe()
+        try {
+          chatRealtimeChannelRef.current.unsubscribe()
+        } catch (error) {
+          console.error('⚠️ Error desuscribiendo canal de chat:', error)
+        }
         chatRealtimeChannelRef.current = null
         currentSubscribedThreadIdRef.current = null
       }
       if (transactionRealtimeChannelRef.current) {
         console.log('🧹 Limpiando suscripción realtime de transacción')
-        transactionRealtimeChannelRef.current.unsubscribe()
+        try {
+          transactionRealtimeChannelRef.current.unsubscribe()
+        } catch (error) {
+          console.error('⚠️ Error desuscribiendo canal de transacción:', error)
+        }
         transactionRealtimeChannelRef.current = null
         currentSubscribedTransactionIdRef.current = null
       }
@@ -2010,11 +2099,27 @@ export function PurchaseCompletionPanel({
         }
         @keyframes pulse-glow-orange {
           0%, 100% {
-            box-shadow: 0 0 15px rgba(251, 146, 60, 0.25), 0 0 30px rgba(251, 146, 60, 0.15), 0 0 45px rgba(251, 146, 60, 0.08);
+            box-shadow: 0 0 8px rgba(249, 115, 22, 0.25), 0 0 16px rgba(249, 115, 22, 0.15);
           }
           50% {
-            box-shadow: 0 0 20px rgba(251, 146, 60, 0.35), 0 0 40px rgba(251, 146, 60, 0.2), 0 0 60px rgba(251, 146, 60, 0.12);
+            box-shadow: 0 0 12px rgba(249, 115, 22, 0.35), 0 0 24px rgba(249, 115, 22, 0.2);
           }
+        }
+        @keyframes pulse-glow-orange-dark {
+          0%, 100% {
+            box-shadow: 0 0 8px rgba(251, 146, 60, 0.3), 0 0 16px rgba(251, 146, 60, 0.2);
+          }
+          50% {
+            box-shadow: 0 0 12px rgba(251, 146, 60, 0.4), 0 0 24px rgba(251, 146, 60, 0.25);
+          }
+        }
+        .step-1-card {
+          animation: pulse-glow-orange 2s ease-in-out infinite;
+          border-color: rgb(249, 115, 22);
+        }
+        .dark .step-1-card {
+          animation: pulse-glow-orange-dark 2s ease-in-out infinite;
+          border-color: rgb(251, 146, 60);
         }
       `}</style>
     <div 
@@ -2038,13 +2143,13 @@ export function PurchaseCompletionPanel({
         <div className="bg-muted border-b border-border px-3 sm:px-6 py-1 sm:py-2 flex-shrink-0">
           <div className="flex items-center justify-between mb-1 sm:mb-2">
             <div className="flex items-center space-x-2 sm:space-x-3">
-              <h1 className="text-sm sm:text-xl font-bold text-foreground">
+              <h1 className="text-sm sm:text-base font-bold text-foreground">
                 Compra de HNLD
               </h1>
-              <span className="text-sm sm:text-xl font-bold text-foreground">
+              <span className="text-sm sm:text-base font-bold text-foreground">
                 -
               </span>
-              <span className="text-sm sm:text-xl font-bold text-muted-foreground">
+              <span className="text-sm sm:text-base font-bold text-muted-foreground">
                 {requestData?.currency_type || currency} {requestData?.amount?.toLocaleString() || amount.toLocaleString()}
               </span>
             </div>
@@ -2065,9 +2170,9 @@ export function PurchaseCompletionPanel({
               <div className="pr-2 sm:pr-3 border-r border-border">
                 <div className="flex items-center space-x-1.5 sm:space-x-2 mb-0.5 sm:mb-1">
                   <FileText className="h-3 w-3 sm:h-4 sm:w-4 text-green-600 dark:text-green-400" />
-                  <span className="text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400">Código</span>
+                  <span className="text-[10px] sm:text-xs font-medium text-muted-foreground">Código</span>
                 </div>
-                <div className="text-[11px] sm:text-sm font-mono font-semibold text-foreground">
+                <div className="text-xs sm:text-sm font-mono font-bold text-foreground">
                   {requestData?.unique_code || `NMHN-${new Date().toISOString().split('T')[0].replace(/-/g, '')}-${String(requestId.slice(-6)).toUpperCase()}`}
                 </div>
               </div>
@@ -2076,9 +2181,9 @@ export function PurchaseCompletionPanel({
               <div className="pl-2 sm:pl-3">
                 <div className="flex items-center space-x-1.5 sm:space-x-2 mb-0.5 sm:mb-1">
                   <CreditCard className="h-3 w-3 sm:h-4 sm:w-4 text-purple-600 dark:text-purple-400" />
-                  <span className="text-[10px] sm:text-xs font-medium text-gray-600 dark:text-gray-400">Método de Pago</span>
+                  <span className="text-[10px] sm:text-xs font-medium text-muted-foreground">Método de Pago</span>
                 </div>
-                <div className="text-[11px] sm:text-sm font-semibold text-foreground">
+                <div className="text-xs sm:text-sm font-semibold text-foreground">
                   {getPaymentMethodDisplayName(requestData?.payment_method || paymentMethod)}
                 </div>
               </div>
@@ -2633,66 +2738,66 @@ export function PurchaseCompletionPanel({
                 let hoverClasses = ''
                 
                 if (isCompleted) {
-                  borderColor = 'border-emerald-400 dark:border-green-800 border-2'
-                  bgColor = stepOrder === 1 ? 'bg-white dark:bg-green-950/20' : 'bg-white dark:bg-green-950/20'
-                  iconBgColor = 'bg-green-500'
-                  textColor = 'text-foreground'
+                  borderColor = 'border-emerald-500 dark:border-emerald-600 border-2'
+                  bgColor = 'bg-card'
+                  iconBgColor = 'bg-emerald-500 dark:bg-emerald-600'
+                  textColor = 'text-emerald-900 dark:text-emerald-300'
                   hoverClasses = 'cursor-default'
                 } else if (canPerformAction) {
                   if (stepOrder === 1) {
-                    borderColor = 'border-orange-400 dark:border-orange-800 border-2'
-                    bgColor = 'bg-white dark:bg-orange-950/20'
-                    iconBgColor = 'bg-orange-500'
-                    textColor = 'text-foreground dark:text-orange-400'
-                    hoverClasses = 'cursor-pointer hover:shadow-md dark:hover:bg-orange-950/40 hover:border-orange-300 dark:hover:border-orange-700 transition-all duration-200 active:scale-[0.98]'
+                    borderColor = 'border-orange-500 dark:border-orange-500 border-2'
+                    bgColor = 'bg-card'
+                    iconBgColor = 'bg-orange-500 dark:bg-orange-600'
+                    textColor = 'text-orange-900 dark:text-orange-200'
+                    hoverClasses = 'cursor-pointer hover:shadow-xl hover:bg-orange-50/50 dark:hover:bg-orange-950/20 hover:border-orange-600 dark:hover:border-orange-400 transition-all duration-200 active:scale-[0.98]'
                   } else {
-                    borderColor = 'border-blue-400 dark:border-blue-800 border-2'
-                    bgColor = 'bg-white dark:bg-blue-950/20'
-                    iconBgColor = 'bg-blue-500'
-                    textColor = 'text-foreground'
-                    hoverClasses = 'cursor-pointer hover:shadow-md dark:hover:bg-blue-950/40 hover:border-blue-300 dark:hover:border-blue-700 transition-all duration-200 active:scale-[0.98]'
+                    borderColor = 'border-blue-500 dark:border-blue-500 border-2'
+                    bgColor = 'bg-card'
+                    iconBgColor = 'bg-blue-500 dark:bg-blue-600'
+                    textColor = 'text-blue-900 dark:text-blue-200 group-hover:text-blue-950 dark:group-hover:text-blue-100'
+                    hoverClasses = 'cursor-pointer hover:shadow-sm hover:bg-blue-50/20 dark:hover:bg-blue-950/10 group transition-all duration-200 active:scale-[0.99]'
                   }
                 } else if (stepOrder === 2 && userRole === 'buyer' && isInProgress && !hasPaymentProof) {
                   // Paso 2 deshabilitado si no hay comprobante
-                  borderColor = 'border-gray-300 dark:border-gray-600'
-                  bgColor = 'bg-white dark:bg-gray-800'
-                  iconBgColor = 'bg-gray-400 dark:bg-gray-600'
-                  textColor = 'text-muted-foreground'
+                  borderColor = 'border-gray-300 dark:border-gray-700 border-2'
+                  bgColor = 'bg-card'
+                  iconBgColor = 'bg-gray-400 dark:bg-gray-700'
+                  textColor = 'text-gray-600 dark:text-gray-400'
                   hoverClasses = 'cursor-not-allowed opacity-75'
                 } else if (isInProgress) {
-                  borderColor = 'border-blue-400 dark:border-blue-800 border-2'
-                  bgColor = stepOrder === 1 ? 'bg-white dark:bg-orange-950/20' : 'bg-white dark:bg-blue-950/20'
-                  iconBgColor = 'bg-blue-500'
-                  textColor = 'text-foreground'
+                  borderColor = 'border-blue-400 dark:border-blue-600 border-2'
+                  bgColor = 'bg-card'
+                  iconBgColor = 'bg-blue-500 dark:bg-blue-600'
+                  textColor = 'text-blue-900 dark:text-blue-200'
                   hoverClasses = 'cursor-default'
                 } else {
-                  borderColor = 'border-border dark:border-gray-700'
-                  bgColor = 'bg-white dark:bg-gray-800'
-                  iconBgColor = 'bg-gray-300 dark:bg-gray-600'
-                  textColor = 'text-muted-foreground'
+                  borderColor = 'border-gray-300 dark:border-gray-700 border-2'
+                  bgColor = 'bg-card'
+                  iconBgColor = 'bg-gray-400 dark:bg-gray-600'
+                  textColor = 'text-gray-700 dark:text-gray-400'
                   hoverClasses = 'cursor-default'
                 }
                 
                 return (
                   <div className="mb-0 pb-0">
                     <Card 
-                      className={`${borderColor} ${bgColor} ${hoverClasses} ${canPerformAction && stepOrder !== 1 ? 'shadow-md hover:shadow-lg' : ''} relative ${
+                      className={`${borderColor} ${bgColor} ${hoverClasses} ${canPerformAction ? 'shadow-md hover:shadow-lg dark:shadow-md dark:hover:shadow-lg' : ''} relative ${
                         (canPerformAction || (isInProgress && !(stepOrder === 2 && userRole === 'buyer' && !hasPaymentProof)))
                           ? (stepOrder === 1 
-                              ? 'ring-2 ring-offset-2 ring-offset-background ring-orange-400/60 dark:ring-orange-500/40' 
-                              : 'ring-2 ring-offset-2 ring-offset-background ring-blue-400/60 dark:ring-blue-500/40') 
+                              ? 'ring-2 ring-offset-2 ring-offset-background ring-orange-500/40 dark:ring-orange-500/50 step-1-card' 
+                              : 'ring-2 ring-offset-2 ring-offset-background ring-blue-500/40 dark:ring-blue-500/50') 
                           : ''
                       }`}
                       onClick={canPerformAction ? handleStepAction : undefined}
                       style={(canPerformAction || (isInProgress && !(stepOrder === 2 && userRole === 'buyer' && !hasPaymentProof))) ? {
-                        border: '2px solid',
+                        border: stepOrder === 1 ? '3px solid' : '2px solid',
                         borderColor: stepOrder === 1 
-                          ? 'rgba(251, 146, 60, 0.6)' 
-                          : 'rgba(59, 130, 246, 0.6)',
+                          ? undefined 
+                          : 'rgba(59, 130, 246, 0.7)',
                         transition: 'all 0.3s ease-in-out',
                         transform: 'scale(1)',
                         animation: stepOrder === 1 
-                          ? 'none' 
+                          ? undefined 
                           : 'pulse-glow 2s ease-in-out infinite'
                       } : undefined}
                     >
@@ -2712,25 +2817,29 @@ export function PurchaseCompletionPanel({
                                 <Circle className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                               )}
                             </div>
-                            <span className="text-[11px] sm:text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap mt-1">
+                            <span className="text-xs font-medium text-muted-foreground whitespace-nowrap mt-1">
                               {stepOrder} de 4
                             </span>
                           </div>
                           <div className="flex-1">
                             <div className="flex items-center mb-1">
-                              <h4 className={`text-sm font-semibold ${textColor} flex-1`}>
+                              <h4 className={`text-base sm:text-lg font-semibold ${textColor} flex-1`}>
                                 {config.title}
                                 {canPerformAction && (
-                                  <span className="ml-2 text-sm font-normal opacity-75">
+                                  <span className="ml-2 text-xs sm:text-sm font-normal opacity-75">
                                     (Haz clic para completar)
                                   </span>
                                 )}
                               </h4>
                             </div>
-                            <p className={`text-sm ${
-                              isCompleted || isInProgress || stepOrder === 1 || canPerformAction
-                                ? 'text-gray-600 dark:text-gray-400' 
-                                : 'text-gray-400 dark:text-gray-500'
+                            <p className={`text-sm sm:text-base ${
+                              isCompleted 
+                                ? 'text-emerald-800 dark:text-emerald-300'
+                                : isInProgress || stepOrder === 1 || canPerformAction
+                                  ? (stepOrder === 1 
+                                      ? 'text-orange-900 dark:text-orange-200'
+                                      : 'text-blue-900 dark:text-blue-200 group-hover:text-blue-950 dark:group-hover:text-blue-100')
+                                  : 'text-gray-700 dark:text-gray-400'
                             }`}>
                               {getStepDescription(config.descriptionIndex, stepStatus)}
                             </p>
@@ -2749,7 +2858,7 @@ export function PurchaseCompletionPanel({
           <div className="border-t border-border bg-background flex flex-col flex-1 min-h-0 overflow-hidden mt-2 sm:mt-3 flex-shrink">
             {/* Header del Chat - Información Completa en Dos Columnas */}
             <div className="bg-muted border-b border-border px-2 sm:px-4 py-1 sm:py-2 flex-shrink-0 overflow-y-auto max-h-[40vh]">
-              <h3 className="text-xs sm:text-base font-semibold text-foreground mb-1 sm:mb-2">
+              <h3 className="text-xs sm:text-sm font-semibold text-foreground mb-1 sm:mb-2">
                 Chat de Negociación
               </h3>
 
@@ -2758,23 +2867,23 @@ export function PurchaseCompletionPanel({
                 <div className="bg-card rounded-lg p-2 sm:p-3 border border-border">
                   <div className="flex items-center space-x-2 mb-1">
                     <Timer className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-                    <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Tiempo Restante</span>
+                    <span className="text-xs font-medium text-muted-foreground">Tiempo Restante</span>
                   </div>
                   {transaction?.payment_deadline && timeRemaining ? (
-                    <div className="text-lg font-bold text-orange-600 dark:text-orange-400">
+                    <div className="text-base sm:text-lg font-bold text-orange-600 dark:text-orange-400">
                       {formatTimeRemaining(timeRemaining)}
                     </div>
                   ) : (
                     <div className="flex items-center space-x-2">
-                      <Clock className="h-4 w-4 text-gray-400" />
-                      <span className="text-xs text-muted-foreground">Esperando aceptación</span>
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-[10px] sm:text-xs text-muted-foreground">Esperando aceptación</span>
                     </div>
                   )}
                 </div>
 
                 {/* Información del Usuario Contraparte */}
                 {requestData && userRole && (
-                    <div className={`bg-white dark:bg-card border border-border rounded-lg p-2 sm:p-3`}>
+                    <div className={`bg-card border border-border rounded-lg p-2 sm:p-3`}>
                       <div className="flex items-center space-x-3">
                         <div className={`w-10 h-10 bg-muted rounded-full flex items-center justify-center flex-shrink-0`}>
                           {(() => {
@@ -2792,12 +2901,12 @@ export function PurchaseCompletionPanel({
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className={`inline-block h-2.5 w-2.5 rounded-full ${userRole === 'buyer' ? 'bg-emerald-400' : 'bg-blue-400'}`}></span>
+                            <span className={`inline-block h-2.5 w-2.5 rounded-full ${userRole === 'buyer' ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-blue-500 dark:bg-blue-400'}`}></span>
                             <div className={`text-xs font-medium text-muted-foreground`}>
                               {userRole === 'buyer' ? 'Vendedor' : 'Comprador'}
                             </div>
                           </div>
-                          <div className={`text-sm font-semibold truncate text-foreground`}>
+                          <div className={`text-xs sm:text-sm font-semibold truncate text-foreground`}>
                             {(() => {
                               const counterpartyInfo = userRole === 'buyer' ? requestData.seller : requestData.buyer
                               return counterpartyInfo?.full_name || (userRole === 'buyer' ? 'Vendedor' : 'Comprador')
@@ -2813,12 +2922,12 @@ export function PurchaseCompletionPanel({
                                   ? 'En revisión' 
                                   : 'No verificado'
                               const colorClasses = verification === 'approved'
-                                ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-700'
                                 : verification === 'review'
-                                  ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
+                                  ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 border-yellow-200 dark:border-yellow-700'
                                   : 'bg-muted text-muted-foreground border-border'
                               return (
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border ${colorClasses}`}>
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${colorClasses}`}>
                                   {label}
                                 </span>
                               )
@@ -2835,9 +2944,11 @@ export function PurchaseCompletionPanel({
             <div ref={chatMessagesContainerRef} className="flex-1 overflow-y-auto p-4 bg-background">
               {!chatEnabled ? (
                 <div className="flex flex-col items-center justify-center h-full">
-                  <MessageSquare className="h-12 w-12 text-gray-400 mb-4" />
+                  <MessageSquare className="h-12 w-12 text-muted-foreground mb-4" />
                   <p className="text-sm text-muted-foreground text-center">
-                    El chat se habilitará cuando el vendedor acepte el trato
+                    {userRole === 'seller' 
+                      ? 'Haz clic en "Aceptar Trato" para habilitar el chat y comenzar la comunicación'
+                      : 'El chat se habilitará cuando el vendedor acepte el trato'}
                   </p>
                 </div>
               ) : chatHook.isLoading ? (
@@ -2853,7 +2964,7 @@ export function PurchaseCompletionPanel({
                     >
                       <div className={`max-w-xs rounded-lg px-3 py-2 ${
                         msg.sender_id === currentUserId 
-                          ? 'bg-blue-600 text-white' 
+                          ? 'bg-blue-600 dark:bg-blue-600 text-white' 
                           : 'bg-card border border-border text-foreground'
                       }`}>
                         <p className="text-sm">{msg.body}</p>
@@ -2869,12 +2980,12 @@ export function PurchaseCompletionPanel({
                                 rel="noopener noreferrer"
                                 className={`flex items-center space-x-2 p-2 rounded ${
                                   msg.sender_id === currentUserId 
-                                    ? 'bg-blue-700 hover:bg-blue-800' 
-                                    : 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-100'
+                                    ? 'bg-blue-700 dark:bg-blue-700 hover:bg-blue-800 dark:hover:bg-blue-800' 
+                                    : 'bg-muted hover:bg-muted/80'
                                 } transition-colors`}
                               >
                                 <File className={`h-4 w-4 ${
-                                  msg.sender_id === currentUserId ? 'text-white' : 'text-gray-600'
+                                  msg.sender_id === currentUserId ? 'text-white' : 'text-muted-foreground'
                                 }`} />
                                 <span className={`text-xs truncate ${
                                   msg.sender_id === currentUserId ? 'text-white' : 'text-foreground'
@@ -2902,8 +3013,8 @@ export function PurchaseCompletionPanel({
                         
                         <p className={`text-xs mt-1 ${
                           msg.sender_id === currentUserId 
-                            ? 'text-blue-100' 
-                            : 'text-gray-500'
+                            ? 'text-blue-100 dark:text-blue-200' 
+                            : 'text-muted-foreground'
                         }`}>
                           {new Date(msg.created_at).toLocaleTimeString('es-ES', { 
                             hour: '2-digit', 
