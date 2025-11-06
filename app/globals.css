@@ -141,6 +141,56 @@
   }
 }
 
+/* Sonner (toasts) - Colores por tipo en todos los dispositivos */
+.sonner-toast[data-type="success"],
+.sonner-toast[data-type="success"] .description {
+  background-color: #065f46 !important; /* emerald-800 */
+  color: #ffffff !important;
+}
+.dark .sonner-toast[data-type="success"],
+.dark .sonner-toast[data-type="success"] .description {
+  background-color: #065f46 !important; /* mantiene contraste en dark */
+  color: #e6fffb !important;
+}
+
+.sonner-toast[data-type="error"],
+.sonner-toast[data-type="error"] .description {
+  background-color: #7f1d1d !important; /* red-900 */
+  color: #ffffff !important;
+}
+.dark .sonner-toast[data-type="error"],
+.dark .sonner-toast[data-type="error"] .description {
+  background-color: #7f1d1d !important;
+  color: #ffe4e6 !important;
+}
+
+.sonner-toast[data-type="info"],
+.sonner-toast[data-type="warning"],
+.sonner-toast[data-type="message"],
+.sonner-toast:not([data-type]) {
+  background-color: #0c4a6e !important; /* sky-900 (avisos/informativos) */
+  color: #e0f2fe !important;
+}
+.dark .sonner-toast[data-type="info"],
+.dark .sonner-toast[data-type="warning"],
+.dark .sonner-toast[data-type="message"],
+.dark .sonner-toast:not([data-type]) {
+  background-color: #082f49 !important; /* más oscuro para dark */
+  color: #bae6fd !important;
+}
+
+/* Botón de cierre y barra de progreso para consistencia */
+.sonner-toast [data-close-button] {
+  color: inherit !important;
+  opacity: 0.9;
+}
+.sonner-toast [data-close-button]:hover {
+  opacity: 1;
+}
+.sonner-toast [data-progress] {
+  background-color: rgba(255,255,255,0.5) !important;
+}
+
 /* Clases específicas para tamaño de iconos KYC */
 .ksc-icon-container {
   @apply w-5 h-5 flex items-center justify-center;

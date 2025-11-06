@@ -213,7 +213,11 @@ export function useTransactionalChat(params: UseTransactionalChatParams): UseTra
       console.log('🧹 Limpiando subscription realtime')
       initializedRef.current = null
       if (channelRef.current) {
-        channelRef.current.unsubscribe()
+        try {
+          channelRef.current.unsubscribe()
+        } catch (error) {
+          console.error('⚠️ Error desuscribiendo canal realtime:', error)
+        }
       }
     }
   }, [currentUserId, params.contextId, params.partyA, params.partyB, params.contextType, params.contextTitle, scrollToBottom])

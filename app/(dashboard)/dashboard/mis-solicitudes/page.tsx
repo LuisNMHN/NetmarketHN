@@ -615,8 +615,11 @@ export default function MisSolicitudesPage() {
     return () => {
       window.removeEventListener('request-status-changed', handleRequestStatusChange)
       if (channel) {
-        const supabase = supabaseBrowser()
-        supabase.removeChannel(channel)
+        try {
+          channel.unsubscribe()
+        } catch (error) {
+          console.error('⚠️ Error desuscribiendo canal Realtime:', error)
+        }
       }
     }
   }, [userId, toast])

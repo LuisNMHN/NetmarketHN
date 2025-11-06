@@ -25,21 +25,8 @@ export function useNotifications() {
     const unsubscribeNotification = notificationCenter.addListener((notification) => {
       setNotifications(prev => [notification, ...prev])
       
-      // Solo mostrar toast para notificaciones de alta prioridad críticas
-      if (notification.priority === 'high' && notification.topic === 'system') {
-        toast.success(notification.title, {
-          description: notification.body,
-          action: notification.cta_label ? {
-            label: notification.cta_label,
-            onClick: () => {
-              if (notification.cta_href) {
-                window.location.href = notification.cta_href
-              }
-            }
-          } : undefined,
-          duration: 5000,
-        })
-      }
+      // Nota: Los toasts se manejan en NotificationBell para evitar duplicados
+      // Solo mantener aquí toasts críticos del sistema si es necesario
     })
 
     const unsubscribeStats = notificationCenter.addStatsListener((newStats) => {

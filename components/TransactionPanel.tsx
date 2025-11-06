@@ -213,8 +213,8 @@ export function TransactionPanel({
                         1
                       </div>
                       <div>
-                        <p className="font-medium">Negociación</p>
-                        <p className="text-sm text-muted-foreground">
+                        <p className="font-medium text-black dark:text-white">Negociación</p>
+                        <p className="text-sm text-black dark:text-white">
                           Discute términos y condiciones
                         </p>
                       </div>
@@ -229,8 +229,8 @@ export function TransactionPanel({
                         2
                       </div>
                       <div>
-                        <p className="font-medium">Términos</p>
-                        <p className="text-sm text-muted-foreground">
+                        <p className="font-medium text-black dark:text-white">Términos</p>
+                        <p className="text-sm text-black dark:text-white">
                           Define condiciones finales
                         </p>
                       </div>
@@ -245,8 +245,8 @@ export function TransactionPanel({
                         3
                       </div>
                       <div>
-                        <p className="font-medium">Confirmación</p>
-                        <p className="text-sm text-muted-foreground">
+                        <p className="font-medium text-black dark:text-white">Confirmación</p>
+                        <p className="text-sm text-black dark:text-white">
                           Finaliza la transacción
                         </p>
                       </div>

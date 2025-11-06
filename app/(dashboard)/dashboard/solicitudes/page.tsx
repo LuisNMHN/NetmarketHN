@@ -450,9 +450,13 @@ export default function SolicitudesPage() {
     
     return () => {
       console.log('🧹 Limpiando suscripciones realtime...')
-      supabase.removeChannel(channelActive)
-      supabase.removeChannel(channelDelete)
-      supabase.removeChannel(channelStatusChanges)
+      try {
+        if (channelActive) channelActive.unsubscribe()
+        if (channelDelete) channelDelete.unsubscribe()
+        if (channelStatusChanges) channelStatusChanges.unsubscribe()
+      } catch (error) {
+        console.error('⚠️ Error desuscribiendo canales Realtime:', error)
+      }
     }
   }, [userId, toast])
 

@@ -13,6 +13,7 @@ import { es } from "date-fns/locale"
 import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 
 interface NotificationBellProps {
   className?: string
@@ -58,6 +59,7 @@ export function NotificationBell({ className }: NotificationBellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const isMobile = useIsMobile()
+  const shownToastIds = useRef<Set<string>>(new Set()) // Rastrear toasts ya mostrados para evitar duplicados
   
   // Sincronizar drawerOpen con isOpen en móvil
   useEffect(() => {
@@ -109,6 +111,47 @@ export function NotificationBell({ className }: NotificationBellProps) {
         })
         return [notification, ...prev.slice(0, 19)] // Mantener solo las 20 más recientes
       })
+      
+      // Mostrar toast cuando se acepta una solicitud de compra (ORDER_ACCEPTED)
+      // Evitar duplicados verificando si ya se mostró este toast
+      if (notification.priority === 'high' && notification.topic === 'order' && notification.event === 'ORDER_ACCEPTED') {
+        // Verificar si ya se mostró este toast para evitar duplicados
+        if (!shownToastIds.current.has(notification.id)) {
+          shownToastIds.current.add(notification.id)
+          toast.success(notification.title, {
+            description: notification.body,
+            action: notification.cta_label ? {
+              label: notification.cta_label,
+              onClick: () => {
+                if (notification.cta_href) {
+                  router.push(notification.cta_href)
+                }
+              }
+            } : undefined,
+            duration: 5000,
+          })
+        }
+      }
+      
+      // Mostrar toast para notificaciones críticas del sistema (alta prioridad)
+      if (notification.priority === 'high' && notification.topic === 'system') {
+        // Verificar si ya se mostró este toast para evitar duplicados
+        if (!shownToastIds.current.has(notification.id)) {
+          shownToastIds.current.add(notification.id)
+          toast.success(notification.title, {
+            description: notification.body,
+            action: notification.cta_label ? {
+              label: notification.cta_label,
+              onClick: () => {
+                if (notification.cta_href) {
+                  router.push(notification.cta_href)
+                }
+              }
+            } : undefined,
+            duration: 5000,
+          })
+        }
+      }
       
       // Actualizar estadísticas solo cuando se agrega una nueva notificación
       setStats(prev => ({

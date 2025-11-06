@@ -10,6 +10,7 @@ import { Progress } from '@/components/ui/progress'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Input } from '@/components/ui/input'
 import { useToast } from '@/hooks/use-toast'
+import { toast as sonnerToast } from 'sonner'
 import { 
   CheckCircle, 
   Clock, 
@@ -268,33 +269,21 @@ export function PurchaseCompletionPanel({
       const { data: { user } } = await supabase.auth.getUser()
       
       if (!user) {
-        toast({
-          title: "Error",
-          description: "Debes estar autenticado para subir documentos",
-          variant: "destructive",
-        })
+        sonnerToast.error('Debes estar autenticado para subir documentos')
         return
       }
 
       // Validar tamaño del archivo (máximo 10MB)
       const maxSize = 10 * 1024 * 1024 // 10MB
       if (file.size > maxSize) {
-        toast({
-          title: "Error",
-          description: "El archivo es demasiado grande. Máximo 10MB",
-          variant: "destructive",
-        })
+        sonnerToast.error('El archivo es demasiado grande. Máximo 10MB')
         return
       }
 
       // Validar tipo de archivo (imágenes y PDFs)
       const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/gif', 'image/webp', 'application/pdf']
       if (!allowedTypes.includes(file.type)) {
-        toast({
-          title: "Error",
-          description: "Solo se permiten imágenes (JPG, PNG, GIF, WEBP) y PDFs",
-          variant: "destructive",
-        })
+        sonnerToast.error('Solo se permiten imágenes (JPG, PNG, GIF, WEBP) y PDFs')
         return
       }
 
@@ -318,11 +307,7 @@ export function PurchaseCompletionPanel({
 
       if (uploadError) {
         console.error('Error subiendo archivo:', uploadError)
-        toast({
-          title: "Error",
-          description: "No se pudo subir el documento. Inténtalo de nuevo.",
-          variant: "destructive",
-        })
+        sonnerToast.error('No se pudo subir el documento. Inténtalo de nuevo.')
         return
       }
 
@@ -353,11 +338,7 @@ export function PurchaseCompletionPanel({
 
       if (messageError) {
         console.error('Error creando mensaje con documento:', messageError)
-        toast({
-          title: "Error",
-          description: "Documento subido pero error al crear el mensaje",
-          variant: "destructive",
-        })
+        sonnerToast.error('Documento subido pero error al crear el mensaje')
         return
       }
 
@@ -399,11 +380,7 @@ export function PurchaseCompletionPanel({
       }
     } catch (error) {
       console.error('Error en handleFileUpload:', error)
-      toast({
-        title: "Error",
-        description: "Error inesperado al subir el documento",
-        variant: "destructive",
-      })
+      sonnerToast.error('Error inesperado al subir el documento')
     } finally {
       setUploadingFile(false)
     }
@@ -519,11 +496,7 @@ export function PurchaseCompletionPanel({
       
     } catch (error) {
       console.error('❌ Error enviando mensaje:', error)
-      toast({
-        title: "Error",
-        description: "No se pudo enviar el mensaje. Verifica tu conexión.",
-        variant: "destructive",
-      })
+      sonnerToast.error('No se pudo enviar el mensaje. Verifica tu conexión.')
     } finally {
       setChatSending(false)
     }
@@ -612,7 +585,7 @@ export function PurchaseCompletionPanel({
       })
     
     chatRealtimeChannelRef.current = channel
-  }, [])
+  }, [currentUserId, userRole, transaction, setHasPaymentProof])
   
   // Configurar suscripción realtime para transaction_steps y purchase_transactions
   const setupTransactionRealtimeSubscription = useCallback((transactionId: string) => {
@@ -909,7 +882,7 @@ export function PurchaseCompletionPanel({
     } catch (error) {
       console.error('❌ Error configurando suscripción realtime de transacción:', error)
     }
-  }, [requestId, amount, onClose, toast])
+  }, [requestId, amount, onClose])
   
   // Limpiar suscripción al desmontar o cuando cambia el thread
   useEffect(() => {
@@ -1222,12 +1195,7 @@ export function PurchaseCompletionPanel({
           onClose()
           
           // Mostrar toast informativo
-          toast({
-            title: "Solicitud Cancelada",
-            description: "El comprador ha cancelado esta solicitud de compra. El panel se ha cerrado.",
-            variant: "destructive",
-            duration: 5000,
-          })
+          sonnerToast.error('El comprador ha cancelado esta solicitud de compra. El panel se ha cerrado.')
         }
       })
       .subscribe((status) => {
@@ -1236,9 +1204,13 @@ export function PurchaseCompletionPanel({
 
     return () => {
       console.log('🧹 Limpiando suscripción de cambios de status')
-      channel.unsubscribe()
+      try {
+        channel.unsubscribe()
+      } catch (error) {
+        console.error('⚠️ Error desuscribiendo canal de cambios de status:', error)
+      }
     }
-  }, [isOpen, requestId, onClose, toast])
+  }, [isOpen, requestId, onClose])
 
   const loadExistingTransaction = async () => {
     if (!requestData) return
@@ -1571,12 +1543,7 @@ export function PurchaseCompletionPanel({
     onClose()
     
     // Mostrar toast informativo
-    toast({
-      title: "Tiempo agotado",
-      description: "El tiempo para completar la transacción ha expirado. La solicitud ha sido marcada como expirada. Recargando la página...",
-      variant: "destructive",
-      duration: 3000,
-    })
+  sonnerToast.error('El tiempo para completar la transacción ha expirado. La solicitud ha sido marcada como expirada. Recargando la página...')
     
     // Recargar la página automáticamente después de un breve delay
     // para evitar errores y asegurar que el estado esté sincronizado
@@ -2121,6 +2088,22 @@ export function PurchaseCompletionPanel({
           animation: pulse-glow-orange-dark 2s ease-in-out infinite;
           border-color: rgb(251, 146, 60);
         }
+        .step-card-title,
+        .step-card-title * {
+          color: #000000 !important;
+        }
+        .dark .step-card-title,
+        .dark .step-card-title * {
+          color: #ffffff !important;
+        }
+        .step-card-description,
+        .step-card-description * {
+          color: #000000 !important;
+        }
+        .dark .step-card-description,
+        .dark .step-card-description * {
+          color: #ffffff !important;
+        }
       `}</style>
     <div 
       className={`fixed inset-0 bg-black/50 flex items-center justify-center z-50 py-0 ${!isOpen ? 'hidden' : ''}`} 
@@ -2510,11 +2493,7 @@ export function PurchaseCompletionPanel({
                       
                       if (step3Error) {
                         console.error('❌ Error actualizando paso 3:', step3Error)
-                        toast({
-                          title: "Error",
-                          description: "No se pudo completar la verificación. Inténtalo de nuevo.",
-                          variant: "destructive",
-                        })
+                    sonnerToast.error('No se pudo completar la verificación. Inténtalo de nuevo.')
                         return
                       }
                       
@@ -2525,29 +2504,33 @@ export function PurchaseCompletionPanel({
                         
                         console.log(`💰 Acreditando L.${transactionAmount} de HNLD al comprador ${buyerIdToCredit}`)
                         
+                        // Obtener el código único de la solicitud desde múltiples fuentes posibles
+                        const requestUniqueCode = transaction?.request?.unique_code || 
+                                                  requestData?.unique_code || 
+                                                  `NMHN-${new Date().toISOString().split('T')[0].replace(/-/g, '')}-${String(requestId).slice(-6).toUpperCase()}`
+                        
+                        const historyDescription = `Compra completada - Solicitud ${requestUniqueCode} - Pago verificado por vendedor`
+                        
+                        console.log('📝 Descripción del historial:', historyDescription)
+                        console.log('🔍 Código único usado:', requestUniqueCode)
+                        console.log('📋 transaction?.request?.unique_code:', transaction?.request?.unique_code)
+                        console.log('📋 requestData?.unique_code:', requestData?.unique_code)
+
                         const { data: emitResult, error: emitError } = await supabase.rpc('emit_hnld', {
                           p_user_id: buyerIdToCredit,
                           p_amount: transactionAmount,
-                          p_description: `Compra completada - Transacción ${transaction?.id?.substring(0, 8)}`
+                          p_description: historyDescription
                         })
                         
                         if (emitError) {
                           console.error('❌ Error acreditando HNLD:', emitError)
-                          toast({
-                            title: "Error al acreditar HNLD",
-                            description: "La verificación se completó pero hubo un error al acreditar los HNLD. Contacta al soporte.",
-                            variant: "destructive",
-                          })
+                          sonnerToast.error('La verificación se completó pero hubo un error al acreditar los HNLD. Contacta al soporte.')
                         } else {
                           console.log('✅ HNLD acreditado exitosamente:', emitResult)
                         }
                       } catch (hnldError) {
                         console.error('❌ Error en acreditación de HNLD:', hnldError)
-                        toast({
-                          title: "Error al acreditar HNLD",
-                          description: "La verificación se completó pero hubo un error al acreditar los HNLD. Contacta al soporte.",
-                          variant: "destructive",
-                        })
+                        sonnerToast.error('La verificación se completó pero hubo un error al acreditar los HNLD. Contacta al soporte.')
                       }
                       
                       // 3. Completar paso 4 automáticamente
@@ -2722,11 +2705,7 @@ export function PurchaseCompletionPanel({
                     }
                   } catch (error) {
                     console.error('Error en acción del paso:', error)
-                    toast({
-                      title: "Error",
-                      description: "Ocurrió un error al procesar la acción. Inténtalo de nuevo.",
-                      variant: "destructive",
-                    })
+                    sonnerToast.error('Ocurrió un error al procesar la acción. Inténtalo de nuevo.')
                   }
                 }
                 
@@ -2823,24 +2802,16 @@ export function PurchaseCompletionPanel({
                           </div>
                           <div className="flex-1">
                             <div className="flex items-center mb-1">
-                              <h4 className={`text-base sm:text-lg font-semibold ${textColor} flex-1`}>
+                              <h4 className="text-base sm:text-lg font-semibold flex-1 step-card-title">
                                 {config.title}
                                 {canPerformAction && (
-                                  <span className="ml-2 text-xs sm:text-sm font-normal opacity-75">
+                                  <span className="ml-2 text-xs sm:text-sm font-normal">
                                     (Haz clic para completar)
                                   </span>
                                 )}
                               </h4>
                             </div>
-                            <p className={`text-sm sm:text-base ${
-                              isCompleted 
-                                ? 'text-emerald-800 dark:text-emerald-300'
-                                : isInProgress || stepOrder === 1 || canPerformAction
-                                  ? (stepOrder === 1 
-                                      ? 'text-orange-900 dark:text-orange-200'
-                                      : 'text-blue-900 dark:text-blue-200 group-hover:text-blue-950 dark:group-hover:text-blue-100')
-                                  : 'text-gray-700 dark:text-gray-400'
-                            }`}>
+                            <p className="text-sm sm:text-base step-card-description">
                               {getStepDescription(config.descriptionIndex, stepStatus)}
                             </p>
                           </div>

@@ -555,6 +555,23 @@ export class NotificationCenter {
       return { success: false, error: 'Error inesperado' }
     }
   }
+
+  /**
+   * Limpiar suscripción realtime
+   */
+  cleanup() {
+    if (this.realtimeChannel) {
+      try {
+        this.realtimeChannel.unsubscribe()
+        this.realtimeChannel = null
+        console.log('✅ NotificationCenter - Canal realtime limpiado')
+      } catch (error) {
+        console.error('⚠️ Error limpiando canal realtime:', error)
+      }
+    }
+    this.listeners.clear()
+    this.statsListeners.clear()
+  }
 }
 
 // Instancia global del centro de notificaciones
