@@ -131,7 +131,8 @@ export default function SolicitudesPage() {
       
       toast({
         title: "Negociación iniciada",
-        description: "Puedes completar la transacción de forma segura.",
+        description: "Debes dar clic al botón 'Aceptar trato' para iniciar con el proceso de compra.",
+        variant: "info",
       })
     } catch (error) {
       console.error('❌ Error abriendo panel de compra:', error)
@@ -299,7 +300,7 @@ export default function SolicitudesPage() {
         schema: 'public',
         table: 'purchase_requests',
         filter: 'status=eq.active'
-      }, (payload) => {
+      }, async (payload) => {
         const newRequest = payload.new as PurchaseRequest
         console.log('✅ Nueva solicitud activa detectada:', newRequest)
         // Solo agregar si no es del usuario actual
@@ -309,9 +310,46 @@ export default function SolicitudesPage() {
             if (prev.some(req => req.id === newRequest.id)) return prev
             return [newRequest, ...prev]
           })
+          
+          // Obtener nombre del comprador
+          let buyerName = 'Comprador'
+          try {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('full_name')
+              .eq('id', newRequest.buyer_id)
+              .maybeSingle()
+            
+            if (profile?.full_name) {
+              buyerName = profile.full_name
+            } else {
+              // Fallback: intentar con user_profiles
+              try {
+                const { data: userProfile } = await supabase
+                  .from('user_profiles')
+                  .select('full_name')
+                  .eq('id', newRequest.buyer_id)
+                  .maybeSingle()
+                
+                if (userProfile?.full_name) {
+                  buyerName = userProfile.full_name
+                }
+              } catch (err2) {
+                console.log('⚠️ No se pudo obtener nombre desde user_profiles:', err2)
+              }
+            }
+          } catch (error) {
+            console.log('⚠️ No se pudo obtener el nombre del comprador:', error)
+          }
+          
+          // Construir descripción con código y nombre
+          const codeText = newRequest.unique_code ? `Código: ${newRequest.unique_code}` : ''
+          const description = `Se ha publicado una nueva solicitud de compra${codeText ? ` - ${codeText}` : ''} - Comprador: ${buyerName}`
+          
           toast({
             title: "Nueva solicitud disponible",
-            description: `Se ha publicado una nueva solicitud de compra`,
+            description: description,
+            variant: "created",
           })
         }
       })

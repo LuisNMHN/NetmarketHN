@@ -14,6 +14,8 @@ import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { useToast } from "@/hooks/use-toast"
+import { supabaseBrowser } from "@/lib/supabase/client"
 
 interface NotificationBellProps {
   className?: string
@@ -51,6 +53,7 @@ const getPriorityColor = (priority: string) => {
 
 export function NotificationBell({ className }: NotificationBellProps) {
   const router = useRouter()
+  const { toast: elegantToast } = useToast()
   const [isOpen, setIsOpen] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [stats, setStats] = useState<NotificationStats>({ total: 0, unread: 0, read: 0, archived: 0, high_priority: 0 })
@@ -59,7 +62,19 @@ export function NotificationBell({ className }: NotificationBellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const isMobile = useIsMobile()
-  const shownToastIds = useRef<Set<string>>(new Set()) // Rastrear toasts ya mostrados para evitar duplicados
+  
+  // Usar un Set compartido a nivel global para evitar duplicados entre múltiples instancias de NotificationBell
+  // Esto es necesario porque hay dos instancias en el layout (desktop y mobile)
+  // Usar useMemo para inicializar solo una vez
+  const shownToastIds = React.useMemo(() => {
+    if (typeof window !== 'undefined') {
+      if (!(window as any).__sharedShownToastIds) {
+        (window as any).__sharedShownToastIds = new Set<string>()
+      }
+      return (window as any).__sharedShownToastIds as Set<string>
+    }
+    return new Set<string>()
+  }, [])
   
   // Sincronizar drawerOpen con isOpen en móvil
   useEffect(() => {
@@ -115,29 +130,372 @@ export function NotificationBell({ className }: NotificationBellProps) {
       // Mostrar toast cuando se acepta una solicitud de compra (ORDER_ACCEPTED)
       // Evitar duplicados verificando si ya se mostró este toast
       if (notification.priority === 'high' && notification.topic === 'order' && notification.event === 'ORDER_ACCEPTED') {
-        // Verificar si ya se mostró este toast para evitar duplicados
-        if (!shownToastIds.current.has(notification.id)) {
-          shownToastIds.current.add(notification.id)
-          toast.success(notification.title, {
-            description: notification.body,
-            action: notification.cta_label ? {
-              label: notification.cta_label,
-              onClick: () => {
-                if (notification.cta_href) {
-                  router.push(notification.cta_href)
+        // Crear una clave única basada en el ID de la notificación y el request_id para evitar duplicados
+        const uniqueKey = notification.dedupe_key || `${notification.id}_${notification.payload?.request_id}`
+        
+        // Verificar si ya se mostró este toast para evitar duplicados (usando Set compartido)
+        if (!shownToastIds.has(uniqueKey)) {
+          shownToastIds.add(uniqueKey)
+          
+          console.log('✅ Mostrando toast ORDER_ACCEPTED con clave:', uniqueKey)
+          
+          // Obtener código de la solicitud y nombre del vendedor
+          const getToastData = async () => {
+            const uniqueCode = notification.payload?.unique_code || ''
+            let sellerName = 'Vendedor'
+            const requestId = notification.payload?.request_id
+            
+            if (requestId) {
+              try {
+                const supabase = supabaseBrowser()
+                // Obtener la solicitud para encontrar el seller_id
+                const { data: request } = await supabase
+                  .from('purchase_requests')
+                  .select('seller_id')
+                  .eq('id', requestId)
+                  .maybeSingle()
+                
+                if (request?.seller_id) {
+                  // Obtener nombre del vendedor desde profiles
+                  const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('full_name')
+                    .eq('id', request.seller_id)
+                    .maybeSingle()
+                  
+                  if (profile?.full_name) {
+                    sellerName = profile.full_name
+                  } else {
+                    // Fallback: intentar con user_profiles
+                    try {
+                      const { data: userProfile } = await supabase
+                        .from('user_profiles')
+                        .select('full_name')
+                        .eq('id', request.seller_id)
+                        .maybeSingle()
+                      
+                      if (userProfile?.full_name) {
+                        sellerName = userProfile.full_name
+                      }
+                    } catch (err2) {
+                      console.log('⚠️ No se pudo obtener nombre del vendedor desde user_profiles:', err2)
+                    }
+                  }
+                }
+              } catch (error) {
+                console.log('⚠️ No se pudo obtener información del vendedor:', error)
+              }
+            }
+            
+            // Construir descripción con código y nombre del vendedor
+            const codeText = uniqueCode ? `Código: ${uniqueCode}` : ''
+            const description = `Se ha aceptado el trato${codeText ? ` - ${codeText}` : ''} - Vendedor: ${sellerName}`
+            
+            elegantToast({
+              title: "Trato aceptado",
+              description: description,
+              variant: "info",
+            })
+          }
+          
+          getToastData()
+        }
+      }
+      
+      // Mostrar toast cuando se completa el paso 2 (STEP_2_COMPLETED)
+      // Evitar duplicados verificando si ya se mostró este toast
+      if (notification.priority === 'high' && notification.topic === 'order' && notification.event === 'STEP_2_COMPLETED') {
+        // Verificar si ya se mostró este toast para evitar duplicados (usando Set compartido)
+        if (!shownToastIds.has(notification.id)) {
+          shownToastIds.add(notification.id)
+          
+          // Obtener código de la solicitud y nombre del comprador
+          const getToastData = async () => {
+            const uniqueCode = notification.payload?.unique_code || ''
+            let buyerName = notification.payload?.buyer_name || 'El comprador'
+            
+            // Si no está en el payload, intentar obtenerlo
+            if (!buyerName || buyerName === 'El comprador') {
+              const requestId = notification.payload?.request_id
+              if (requestId) {
+                try {
+                  const supabase = supabaseBrowser()
+                  // Obtener la solicitud para encontrar el buyer_id
+                  const { data: request } = await supabase
+                    .from('purchase_requests')
+                    .select('buyer_id')
+                    .eq('id', requestId)
+                    .maybeSingle()
+                  
+                  if (request?.buyer_id) {
+                    // Obtener nombre del comprador desde profiles
+                    const { data: profile } = await supabase
+                      .from('profiles')
+                      .select('full_name')
+                      .eq('id', request.buyer_id)
+                      .maybeSingle()
+                    
+                    if (profile?.full_name) {
+                      buyerName = profile.full_name
+                    } else {
+                      // Fallback: intentar con user_profiles
+                      try {
+                        const { data: userProfile } = await supabase
+                          .from('user_profiles')
+                          .select('full_name')
+                          .eq('id', request.buyer_id)
+                          .maybeSingle()
+                        
+                        if (userProfile?.full_name) {
+                          buyerName = userProfile.full_name
+                        }
+                      } catch (err2) {
+                        console.log('⚠️ No se pudo obtener nombre del comprador desde user_profiles:', err2)
+                      }
+                    }
+                  }
+                } catch (error) {
+                  console.log('⚠️ No se pudo obtener información del comprador:', error)
                 }
               }
-            } : undefined,
-            duration: 5000,
+            }
+            
+            // Construir descripción con código y nombre del comprador
+            const codeText = uniqueCode ? `Código: ${uniqueCode}` : ''
+            const description = `Se ha completado el paso 2${codeText ? ` - ${codeText}` : ''} - Comprador: ${buyerName}`
+            
+            elegantToast({
+              title: "Paso 2 completado",
+              description: description,
+              variant: "success",
+            })
+          }
+          
+          getToastData()
+        }
+      }
+      
+      // Mostrar toast cuando se completa el paso 3 (STEP_3_COMPLETED) - al comprador
+      // Evitar duplicados verificando si ya se mostró este toast
+      if (notification.priority === 'high' && notification.topic === 'order' && notification.event === 'STEP_3_COMPLETED') {
+        // Verificar si ya se mostró este toast para evitar duplicados (usando Set compartido)
+        if (!shownToastIds.has(notification.id)) {
+          shownToastIds.add(notification.id)
+          
+          // Obtener código de la solicitud y nombre del vendedor
+          const getToastData = async () => {
+            const uniqueCode = notification.payload?.unique_code || ''
+            let sellerName = notification.payload?.seller_name || 'El vendedor'
+            
+            // Si no está en el payload, intentar obtenerlo
+            if (!sellerName || sellerName === 'El vendedor') {
+              const requestId = notification.payload?.request_id
+              if (requestId) {
+                try {
+                  const supabase = supabaseBrowser()
+                  // Obtener la solicitud para encontrar el seller_id
+                  const { data: request } = await supabase
+                    .from('purchase_requests')
+                    .select('seller_id')
+                    .eq('id', requestId)
+                    .maybeSingle()
+                  
+                  if (request?.seller_id) {
+                    // Obtener nombre del vendedor desde profiles
+                    const { data: profile } = await supabase
+                      .from('profiles')
+                      .select('full_name')
+                      .eq('id', request.seller_id)
+                      .maybeSingle()
+                    
+                    if (profile?.full_name) {
+                      sellerName = profile.full_name
+                    } else {
+                      // Fallback: intentar con user_profiles
+                      try {
+                        const { data: userProfile } = await supabase
+                          .from('user_profiles')
+                          .select('full_name')
+                          .eq('id', request.seller_id)
+                          .maybeSingle()
+                        
+                        if (userProfile?.full_name) {
+                          sellerName = userProfile.full_name
+                        }
+                      } catch (err2) {
+                        console.log('⚠️ No se pudo obtener nombre del vendedor desde user_profiles:', err2)
+                      }
+                    }
+                  }
+                } catch (error) {
+                  console.log('⚠️ No se pudo obtener información del vendedor:', error)
+                }
+              }
+            }
+            
+            // Construir descripción con código y nombre del vendedor
+            const codeText = uniqueCode ? `Código: ${uniqueCode}` : ''
+            const description = `Se ha completado el paso 3${codeText ? ` - ${codeText}` : ''} - Vendedor: ${sellerName}`
+            
+            const toastResult = elegantToast({
+              title: "Paso 3 completado",
+              description: description,
+              variant: "success",
+            })
+            
+            // Cerrar el toast después de 3 segundos
+            setTimeout(() => {
+              if (toastResult?.dismiss) {
+                toastResult.dismiss()
+              }
+            }, 3000)
+          }
+          
+          getToastData()
+        }
+      }
+      
+      // Mostrar toast cuando se completa la transacción (TRANSACTION_COMPLETED) - verde para ambos
+      // Evitar duplicados verificando si ya se mostró este toast
+      if (notification.priority === 'high' && notification.topic === 'order' && notification.event === 'TRANSACTION_COMPLETED') {
+        // Verificar si ya se mostró este toast para evitar duplicados (usando Set compartido)
+        if (!shownToastIds.has(notification.id)) {
+          shownToastIds.add(notification.id)
+          
+          // Obtener información según el role (comprador o vendedor)
+          const getToastData = async () => {
+            const uniqueCode = notification.payload?.unique_code || ''
+            const role = notification.payload?.role || 'buyer'
+            // Usar formatted_amount que ahora contiene el monto en HNLD
+            const formattedHnldAmount = notification.payload?.formatted_amount || ''
+            
+            let description = ''
+            let title = 'Transacción completada'
+            
+            if (role === 'buyer') {
+              // Mensaje para el comprador
+              const codeText = uniqueCode ? `Código: ${uniqueCode}` : ''
+              description = `Se acreditó exitosamente ${formattedHnldAmount} a tu cuenta${codeText ? ` - ${codeText}` : ''}. La transacción ha finalizado correctamente.`
+            } else if (role === 'seller') {
+              // Mensaje para el vendedor
+              const buyerName = notification.payload?.buyer_name || 'el comprador'
+              const codeText = uniqueCode ? `Código: ${uniqueCode}` : ''
+              description = `La transacción con ${buyerName} ha finalizado exitosamente${codeText ? ` - ${codeText}` : ''}. Los fondos han sido liberados.`
+            } else {
+              // Mensaje genérico si no hay role
+              const codeText = uniqueCode ? `Código: ${uniqueCode}` : ''
+              description = `La transacción ha finalizado exitosamente${codeText ? ` - ${codeText}` : ''}.`
+            }
+            
+            const toastResult = elegantToast({
+              title: title,
+              description: description,
+              variant: "created",
+            })
+            
+            // Cerrar el toast después de 5 segundos
+            setTimeout(() => {
+              if (toastResult?.dismiss) {
+                toastResult.dismiss()
+              }
+            }, 5000)
+          }
+          
+          getToastData()
+        }
+      }
+      
+      // Mostrar toast cuando se acepta una venta (SALE_ACCEPTED)
+      if (notification.priority === 'high' && notification.topic === 'order' && notification.event === 'SALE_ACCEPTED') {
+        const uniqueKey = notification.dedupe_key || `${notification.id}_${notification.payload?.request_id}`
+        
+        if (!shownToastIds.has(uniqueKey)) {
+          shownToastIds.add(uniqueKey)
+          
+          const uniqueCode = notification.payload?.unique_code || ''
+          const sellerName = notification.payload?.seller_name || 'El vendedor'
+          
+          elegantToast({
+            title: "Venta aceptada",
+            description: `${sellerName} ha aceptado tu compra de HNLD${uniqueCode ? ` - Código: ${uniqueCode}` : ''}`,
+            variant: "info",
           })
+        }
+      }
+      
+      // Mostrar toast cuando se inicia el pago en una venta (SALE_PAYMENT_STARTED)
+      if (notification.priority === 'high' && notification.topic === 'order' && notification.event === 'SALE_PAYMENT_STARTED') {
+        if (!shownToastIds.has(notification.id)) {
+          shownToastIds.add(notification.id)
+          
+          const uniqueCode = notification.payload?.unique_code || ''
+          const buyerName = notification.payload?.buyer_name || 'El comprador'
+          
+          elegantToast({
+            title: "Pago iniciado",
+            description: `${buyerName} ha iniciado el pago${uniqueCode ? ` - Código: ${uniqueCode}` : ''}`,
+            variant: "success",
+          })
+        }
+      }
+      
+      // Mostrar toast cuando se verifica el pago en una venta (SALE_PAYMENT_VERIFIED)
+      if (notification.priority === 'high' && notification.topic === 'order' && notification.event === 'SALE_PAYMENT_VERIFIED') {
+        if (!shownToastIds.has(notification.id)) {
+          shownToastIds.add(notification.id)
+          
+          const uniqueCode = notification.payload?.unique_code || ''
+          const sellerName = notification.payload?.seller_name || 'El vendedor'
+          
+          const toastResult = elegantToast({
+            title: "Pago verificado",
+            description: `${sellerName} ha verificado tu pago${uniqueCode ? ` - Código: ${uniqueCode}` : ''}`,
+            variant: "success",
+          })
+          
+          setTimeout(() => {
+            if (toastResult?.dismiss) {
+              toastResult.dismiss()
+            }
+          }, 3000)
+        }
+      }
+      
+      // Mostrar toast cuando se completa una venta (SALE_COMPLETED)
+      if (notification.priority === 'high' && notification.topic === 'order' && notification.event === 'SALE_COMPLETED') {
+        if (!shownToastIds.has(notification.id)) {
+          shownToastIds.add(notification.id)
+          
+          const uniqueCode = notification.payload?.unique_code || ''
+          const hnldAmount = notification.payload?.hnld_amount || 0
+          const role = notification.payload?.role || 'buyer'
+          
+          let description = ''
+          if (role === 'buyer') {
+            description = `Se acreditó exitosamente L.${hnldAmount.toFixed(2)} HNLD a tu cuenta${uniqueCode ? ` - Código: ${uniqueCode}` : ''}. La venta ha finalizado correctamente.`
+          } else {
+            description = `La venta ha finalizado exitosamente${uniqueCode ? ` - Código: ${uniqueCode}` : ''}. Los HNLD han sido liberados al comprador.`
+          }
+          
+          const toastResult = elegantToast({
+            title: "Venta completada",
+            description: description,
+            variant: "created",
+          })
+          
+          setTimeout(() => {
+            if (toastResult?.dismiss) {
+              toastResult.dismiss()
+            }
+          }, 5000)
         }
       }
       
       // Mostrar toast para notificaciones críticas del sistema (alta prioridad)
       if (notification.priority === 'high' && notification.topic === 'system') {
-        // Verificar si ya se mostró este toast para evitar duplicados
-        if (!shownToastIds.current.has(notification.id)) {
-          shownToastIds.current.add(notification.id)
+        // Verificar si ya se mostró este toast para evitar duplicados (usando Set compartido)
+        if (!shownToastIds.has(notification.id)) {
+          shownToastIds.add(notification.id)
           toast.success(notification.title, {
             description: notification.body,
             action: notification.cta_label ? {

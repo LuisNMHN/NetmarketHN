@@ -5,7 +5,7 @@ import type React from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { CreditCard, Gavel, Home, LogOut, Receipt, User, Menu, MoreVertical, Link2, Shield, Bell, Cat, Dog, Fish, Bird, Rabbit, Turtle, Heart, Star, Zap, Circle, AlertTriangle, X, Search, MessageSquare, HelpCircle } from "lucide-react"
+import { CreditCard, Gavel, Home, LogOut, Receipt, User, Menu, MoreVertical, Link2, Shield, Bell, Cat, Dog, Fish, Bird, Rabbit, Turtle, Heart, Star, Zap, Circle, AlertTriangle, X, Search, MessageSquare, HelpCircle, ShoppingCart } from "lucide-react"
 import { useState, useEffect } from "react"
 import { useTheme } from "next-themes"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
@@ -33,7 +33,8 @@ interface DashboardLayoutProps {
 const menuItems = [
   { id: "resumen", label: "Resumen", icon: Home, href: "/dashboard" },
   { id: "saldo", label: "Balance HNLD", icon: CreditCard, href: "/dashboard/saldo" },
-  { id: "solicitudes", label: "Solicitudes", icon: Search, href: "/dashboard/solicitudes" },
+  { id: "solicitudes", label: "Solicitudes de Compra", icon: Search, href: "/dashboard/solicitudes" },
+  { id: "ventas", label: "Solicitudes de Venta", icon: ShoppingCart, href: "/dashboard/ventas" },
   { id: "subastas", label: "Subastas", icon: Gavel, href: "/dashboard/subastas" },
   { id: "transacciones", label: "Transacciones", icon: Receipt, href: "/dashboard/transacciones" },
   { id: "links", label: "Links de Pago", icon: Link2, href: "/dashboard/links" },
@@ -330,7 +331,8 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
     if (pathname === "/dashboard") return "Resumen"
     if (pathname.startsWith("/dashboard/subastas")) return "Subastas"
     if (pathname.startsWith("/dashboard/saldo")) return "Balance HNLD"
-    if (pathname.startsWith("/dashboard/solicitudes")) return "Solicitudes"
+    if (pathname.startsWith("/dashboard/solicitudes")) return "Solicitudes de Compra"
+    if (pathname.startsWith("/dashboard/ventas")) return "Solicitudes de Venta"
     if (pathname.startsWith("/dashboard/transacciones")) return "Transacciones"
     if (pathname.startsWith("/dashboard/links")) return "Links de Pago"
     if (pathname.startsWith("/dashboard/verificacion")) return "Verificación"

@@ -12,6 +12,7 @@ import { AuthSpinner } from "@/components/ui/auth-spinner"
 import { Badge } from "@/components/ui/badge"
 import { formatCurrency } from "@/lib/utils"
 import { PurchaseHNLDModal } from "@/components/PurchaseHNLDModal"
+import { SaleHNLDModal } from "@/components/SaleHNLDModal"
 import {
   Dialog,
   DialogContent,
@@ -39,7 +40,6 @@ import { useToast } from "@/hooks/use-toast"
 import { 
   getUserHNLDBalance, 
   emitHNLD, 
-  burnHNLD, 
   transferHNLD, 
   getTransactionHistory,
   searchUserByEmail,
@@ -86,7 +86,6 @@ export default function SaldoPage() {
   const { toast } = useToast()
 
   // Form states
-  const [withdrawForm, setWithdrawForm] = useState({ amount: "", account: "", description: "" })
   const [transferForm, setTransferForm] = useState({ amount: "", recipient: "", description: "" })
   const [searchUser, setSearchUser] = useState({ email: "", user: null as any })
   const [processing, setProcessing] = useState(false)
@@ -128,64 +127,6 @@ export default function SaldoPage() {
     await loadHNLDData()
   }
 
-  const handleWithdraw = async () => {
-    if (!withdrawForm.amount || !withdrawForm.account) {
-      toast({
-        title: "Error",
-        description: "Todos los campos son requeridos",
-        variant: "destructive",
-      })
-      return
-    }
-
-    const amount = parseFloat(withdrawForm.amount)
-    if (amount <= 0) {
-      toast({
-        title: "Error",
-        description: "El monto debe ser mayor a 0",
-        variant: "destructive",
-      })
-      return
-    }
-
-    if (hnldBalance && amount > hnldBalance.available_balance) {
-      toast({
-        title: "Error",
-        description: `Balance insuficiente. Disponible: ${formatCurrency(hnldBalance.available_balance)}`,
-        variant: "destructive",
-      })
-      return
-    }
-
-    setProcessing(true)
-    try {
-      const result = await burnHNLD(amount, withdrawForm.description || `Retiro a ${withdrawForm.account}`)
-      
-      if (result.success) {
-        toast({
-          title: "✅ Venta exitosa",
-          description: `Se vendieron ${formatCurrency(amount)} HNLD de tu cuenta`,
-        })
-        setWithdrawForm({ amount: "", account: "", description: "" })
-        setWithdrawOpen(false)
-        await loadHNLDData()
-      } else {
-        toast({
-          title: "❌ Error en venta",
-          description: result.error || "No se pudo procesar la venta",
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
-        toast({
-          title: "❌ Error",
-          description: "Error inesperado al procesar la venta",
-          variant: "destructive",
-        })
-    } finally {
-      setProcessing(false)
-    }
-  }
 
   const handleSearchUser = async () => {
     if (!searchUser.email) {
@@ -472,61 +413,24 @@ export default function SaldoPage() {
               />
             </Dialog>
 
-            <Dialog open={withdrawOpen} onOpenChange={setWithdrawOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" className="h-16 flex-col space-y-2 bg-transparent" disabled={processing}>
-                  <Minus className="h-5 w-5" />
-                  <span>Vender HNLD</span>
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Vender HNLD</DialogTitle>
-                  <DialogDescription>Convierte HNLD digitales en lempiras físicos</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="withdraw-amount">Monto en HNLD</Label>
-                    <Input
-                      id="withdraw-amount"
-                      type="number"
-                      placeholder="0.00"
-                      value={withdrawForm.amount}
-                      onChange={(e) => setWithdrawForm((prev) => ({ ...prev, amount: e.target.value }))}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Disponible: {formatCurrency(hnldBalance.available_balance)}
-                    </p>
-                  </div>
-                  <div>
-                    <Label htmlFor="withdraw-account">Cuenta Destino</Label>
-                    <Input
-                      id="withdraw-account"
-                      placeholder="Número de cuenta bancaria"
-                      value={withdrawForm.account}
-                      onChange={(e) => setWithdrawForm((prev) => ({ ...prev, account: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="withdraw-description">Descripción (opcional)</Label>
-                    <Textarea
-                      id="withdraw-description"
-                      placeholder="Agregar una descripción..."
-                      value={withdrawForm.description}
-                      onChange={(e) => setWithdrawForm((prev) => ({ ...prev, description: e.target.value }))}
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setWithdrawOpen(false)} disabled={processing}>
-                    Cancelar
-                  </Button>
-                  <Button onClick={handleWithdraw} disabled={processing}>
-                    {processing ? "Procesando..." : "Vender HNLD"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+            <SaleHNLDModal
+              open={withdrawOpen}
+              onOpenChange={setWithdrawOpen}
+              onSuccess={() => {
+                setWithdrawOpen(false)
+                loadHNLDData()
+              }}
+              defaultMethod="local_transfer"
+            />
+            <Button 
+              variant="outline" 
+              className="h-16 flex-col space-y-2 bg-transparent" 
+              disabled={processing}
+              onClick={() => setWithdrawOpen(true)}
+            >
+              <Minus className="h-5 w-5" />
+              <span>Vender HNLD</span>
+            </Button>
 
             <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
               <DialogTrigger asChild>
