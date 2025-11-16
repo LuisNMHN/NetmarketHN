@@ -35,6 +35,14 @@ export function PurchaseHNLDModal({
   defaultMethod = "card" 
 }: PurchaseHNLDModalProps) {
   const [processing, setProcessing] = useState(false)
+  const [showHnlEquivalentModal, setShowHnlEquivalentModal] = useState(false)
+  const [hnlEquivalent, setHnlEquivalent] = useState("")
+  const [pendingAmount, setPendingAmount] = useState<number>(0)
+  const [editableAmount, setEditableAmount] = useState("") // Monto en USD/EUR editable
+  const [pendingCurrencyType, setPendingCurrencyType] = useState<'USD' | 'EUR'>('USD')
+  const [bchRate, setBchRate] = useState<number | null>(null)
+  const [nmhnRate, setNmhnRate] = useState<number | null>(null)
+  const [loadingExchangeRate, setLoadingExchangeRate] = useState(false)
   const [depositForm, setDepositForm] = useState({
     amount: "",
     method: undefined as "local_transfer" | "international_transfer" | "card" | "digital_balance" | undefined,
@@ -91,7 +99,6 @@ export function PurchaseHNLDModal({
       if (pageContent) {
         pageContent.style.filter = 'blur(20px)'
         pageContent.style.transition = 'filter 0.3s ease-out'
-        console.log('🌫️ Desenfoque aplicado al contenido de fondo:', pageContent)
       }
       
       // Asegurar que el modal NO tenga desenfoque
@@ -101,14 +108,12 @@ export function PurchaseHNLDModal({
           modal.style.filter = 'none !important'
           modal.style.backdropFilter = 'none !important'
           modal.style.zIndex = '9999'
-          console.log('🌫️ Modal sin desenfoque:', modal)
         }
         
         const overlay = document.querySelector('[data-radix-dialog-overlay]')
         if (overlay) {
           overlay.style.filter = 'none !important'
           overlay.style.backdropFilter = 'none !important'
-          console.log('🌫️ Overlay sin desenfoque:', overlay)
         }
       }, 100)
       
@@ -118,8 +123,6 @@ export function PurchaseHNLDModal({
       if (pageContent) {
         pageContent.style.filter = 'none'
       }
-      
-      console.log('🌫️ Desenfoque removido del contenido de la página')
     }
   }, [open])
 
@@ -221,7 +224,25 @@ export function PurchaseHNLDModal({
         // Procesar transferencia local
         await handleLocalTransfer(amount)
       } else if (depositForm.method === "international_transfer") {
-        // Procesar transferencia internacional
+        // Verificar si es USD o EUR para mostrar modal de equivalente en HNL
+        let currencyType: 'USD' | 'EUR' = 'USD'
+        if (depositForm.country === 'España' || depositForm.country === 'Otro de la zona euro') {
+          currencyType = 'EUR'
+        }
+        
+        // Si es USD o EUR, mostrar modal para solicitar equivalente en HNL
+        if (currencyType === 'USD' || currencyType === 'EUR') {
+          setPendingAmount(amount)
+          setPendingCurrencyType(currencyType)
+          setShowHnlEquivalentModal(true)
+          setProcessing(false)
+          
+          // Cargar tipo de cambio del Banco Central de Honduras
+          loadExchangeRate(currencyType, amount)
+          return
+        }
+        
+        // Si no es USD ni EUR, procesar directamente
         await handleInternationalTransfer(amount)
       } else if (depositForm.method === "digital_balance") {
         // Procesar compra con saldo digital
@@ -251,6 +272,7 @@ export function PurchaseHNLDModal({
       })
 
       if (result.success) {
+        setProcessing(false) // Liberar el estado antes de redirigir
         // Mostrar toast de redirección
         toast({
           title: "🔄 Redirigiendo a Stripe...",
@@ -333,10 +355,11 @@ export function PurchaseHNLDModal({
         }, 1500)
       } else {
         toast({
-          title: "❌ Error",
+          title: "Error",
           description: result.error || "Error creando la solicitud",
           variant: "destructive",
         })
+        setProcessing(false)
       }
     } catch (error) {
       toast({
@@ -344,6 +367,7 @@ export function PurchaseHNLDModal({
         description: "Error inesperado al procesar la compra",
         variant: "destructive",
       })
+      setProcessing(false)
     }
   }
 
@@ -361,14 +385,15 @@ export function PurchaseHNLDModal({
 
       if (result.success) {
         toast({
-          title: "✅ Solicitud Creada",
+          title: "Solicitud Creada",
           description: `Solicitud de transferencia local por L.${amount.toFixed(2)} HNLD creada exitosamente.${result.uniqueCode ? ` Código: ${result.uniqueCode}` : ''}`,
+          variant: "created",
         })
         resetForm()
         onSuccess?.()
       } else {
         toast({
-          title: "❌ Error",
+          title: "Error",
           description: result.error || "Error creando la solicitud",
           variant: "destructive",
         })
@@ -382,7 +407,7 @@ export function PurchaseHNLDModal({
     }
   }
 
-  const handleInternationalTransfer = async (amount: number) => {
+  const handleInternationalTransfer = async (amount: number, hnlAmount?: number) => {
     try {
       // Determinar el tipo de moneda según el país seleccionado
       let currencyType: 'USD' | 'EUR' = 'USD'
@@ -390,28 +415,46 @@ export function PurchaseHNLDModal({
         currencyType = 'EUR'
       }
 
-      const result = await createPurchaseRequest(amount, "international_transfer", {
+      // Calcular tasa de cambio si se proporciona el equivalente en HNL
+      let exchangeRate = 1.0
+      let finalAmountHnld = amount
+      
+      if (hnlAmount && hnlAmount > 0) {
+        finalAmountHnld = hnlAmount
+        exchangeRate = hnlAmount / amount
+      }
+
+      const result = await createPurchaseRequest(finalAmountHnld, "international_transfer", {
         country: depositForm.country,
         customCountry: depositForm.country === 'Otro de la zona euro' ? depositForm.customCountry : undefined,
         currencyType: currencyType,
         amountInOriginalCurrency: amount,
-        finalAmountHnld: amount,
+        exchangeRateApplied: exchangeRate,
+        finalAmountHnld: finalAmountHnld,
         description: `Transferencia internacional - ${depositForm.country === 'Otro de la zona euro' ? depositForm.customCountry : depositForm.country}`
       })
 
       if (result.success) {
+        const equivalentText = hnlAmount ? ` (Equivalente: L.${hnlAmount.toFixed(2)} HNLD)` : ''
         toast({
-          title: "✅ Solicitud Creada",
-          description: `Solicitud de transferencia internacional por ${currencyType === 'USD' ? '$' : '€'}${amount.toFixed(2)} creada exitosamente.${result.uniqueCode ? ` Código: ${result.uniqueCode}` : ''}`,
+          title: "Solicitud Creada",
+          description: `Solicitud de transferencia internacional por ${currencyType === 'USD' ? '$' : '€'}${amount.toFixed(2)}${equivalentText} creada exitosamente.${result.uniqueCode ? ` Código: ${result.uniqueCode}` : ''}`,
+          variant: "created",
         })
+        // Limpiar estados del modal secundario antes de resetear
+        setHnlEquivalent("")
+        setEditableAmount("")
+        setBchRate(null)
+        setNmhnRate(null)
         resetForm()
         onSuccess?.()
       } else {
         toast({
-          title: "❌ Error",
+          title: "Error",
           description: result.error || "Error creando la solicitud",
           variant: "destructive",
         })
+        setProcessing(false)
       }
     } catch (error) {
       toast({
@@ -419,6 +462,7 @@ export function PurchaseHNLDModal({
         description: "Error inesperado al crear la solicitud",
         variant: "destructive",
       })
+      setProcessing(false)
     }
   }
 
@@ -434,17 +478,19 @@ export function PurchaseHNLDModal({
 
       if (result.success) {
         toast({
-          title: "✅ Solicitud Creada",
+          title: "Solicitud Creada",
           description: `Solicitud de compra con ${depositForm.wallet} por L.${amount.toFixed(2)} HNLD creada exitosamente.${result.uniqueCode ? ` Código: ${result.uniqueCode}` : ''}`,
+          variant: "created",
         })
         resetForm()
         onSuccess?.()
       } else {
         toast({
-          title: "❌ Error",
+          title: "Error",
           description: result.error || "Error creando la solicitud",
           variant: "destructive",
         })
+        setProcessing(false)
       }
     } catch (error) {
       toast({
@@ -452,6 +498,7 @@ export function PurchaseHNLDModal({
         description: "Error inesperado al crear la solicitud",
         variant: "destructive",
       })
+      setProcessing(false)
     }
   }
 
@@ -470,6 +517,112 @@ export function PurchaseHNLDModal({
     // Deshabilitado para evitar cierre accidental
   }
 
+  // Función para cargar el tipo de cambio del Banco Central de Honduras
+  const loadExchangeRate = async (currency: 'USD' | 'EUR', amount: number) => {
+    setLoadingExchangeRate(true)
+    try {
+      const response = await fetch(`/api/exchange-rate?currency=${currency}`)
+      const data = await response.json()
+      
+      if (data.success && data.bchRate && data.nmhnRate) {
+        setBchRate(data.bchRate)
+        setNmhnRate(data.nmhnRate)
+        
+        // Establecer el monto editable en USD/EUR
+        setEditableAmount(formatWithCommas(amount.toFixed(2)))
+        
+        // Calcular automáticamente el equivalente en HNL usando la tasa NMHN
+        const calculatedHnl = amount * data.nmhnRate
+        setHnlEquivalent(formatWithCommas(calculatedHnl.toFixed(2)))
+      } else {
+        console.error('Error obteniendo tipo de cambio:', data.error)
+        // Usar valores por defecto si falla
+        // El margen del 1% se aplica restando, no sumando (a favor de la plataforma)
+        const defaultBchRate = currency === 'USD' ? 26.2214 : 28.50
+        const defaultNmhnRate = defaultBchRate * 0.99
+        setBchRate(defaultBchRate)
+        setNmhnRate(defaultNmhnRate)
+        setEditableAmount(formatWithCommas(amount.toFixed(2)))
+        const calculatedHnl = amount * defaultNmhnRate
+        setHnlEquivalent(formatWithCommas(calculatedHnl.toFixed(2)))
+      }
+    } catch (error) {
+      console.error('Error cargando tipo de cambio:', error)
+      // Usar valores por defecto si falla
+      // El margen del 1% se aplica restando, no sumando (a favor de la plataforma)
+      const defaultBchRate = currency === 'USD' ? 26.2214 : 28.50
+      const defaultNmhnRate = defaultBchRate * 0.99
+      setBchRate(defaultBchRate)
+      setNmhnRate(defaultNmhnRate)
+      setEditableAmount(formatWithCommas(amount.toFixed(2)))
+      const calculatedHnl = amount * defaultNmhnRate
+      setHnlEquivalent(formatWithCommas(calculatedHnl.toFixed(2)))
+    } finally {
+      setLoadingExchangeRate(false)
+    }
+  }
+
+  // Función para calcular automáticamente el equivalente usando la tasa NMHN
+  const calculateEquivalent = (amount: number, rate: number) => {
+    return amount * rate
+  }
+
+  // Función para recalcular el equivalente en HNL cuando cambia el monto en USD/EUR
+  const recalculateHnlEquivalent = (usdEurAmount: number) => {
+    if (nmhnRate) {
+      if (usdEurAmount > 0) {
+        const calculatedHnl = usdEurAmount * nmhnRate
+        setHnlEquivalent(formatWithCommas(calculatedHnl.toFixed(2)))
+      } else {
+        // Si el monto es 0 o menor, establecer el equivalente en 0
+        setHnlEquivalent("0.00")
+      }
+    }
+  }
+
+  const handleConfirmHnlEquivalent = async () => {
+    const editedAmount = parseAmountString(editableAmount)
+    
+    if (editedAmount <= 0) {
+      toast({
+        title: "Error",
+        description: `El monto en ${pendingCurrencyType === 'USD' ? 'USD' : 'EUR'} debe ser mayor a 0`,
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Calcular el equivalente en HNL con el monto editado
+    const hnlAmount = nmhnRate ? editedAmount * nmhnRate : parseAmountString(hnlEquivalent)
+    
+    if (hnlAmount <= 0) {
+      toast({
+        title: "Error",
+        description: "El monto equivalente en HNL debe ser mayor a 0",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Cerrar el modal secundario primero
+    setShowHnlEquivalentModal(false)
+    setProcessing(true)
+    
+    try {
+      await handleInternationalTransfer(editedAmount, hnlAmount)
+      // handleInternationalTransfer ya llama a resetForm() y onSuccess() si es exitoso
+      // También limpia los estados del modal secundario
+    } catch (error) {
+      toast({
+        title: "❌ Error",
+        description: "Error inesperado al crear la solicitud",
+        variant: "destructive",
+      })
+      setProcessing(false)
+      // No limpiar estados si hay error, para que el usuario pueda reintentar
+    }
+  }
+
   const resetForm = () => {
     setDepositForm({ 
       amount: "", 
@@ -480,11 +633,19 @@ export function PurchaseHNLDModal({
       customCountry: "",
       wallet: undefined
     })
+    setHnlEquivalent("")
+    setEditableAmount("")
+    setShowHnlEquivalentModal(false)
+    setBchRate(null)
+    setNmhnRate(null)
+    setLoadingExchangeRate(false)
     onOpenChange(false)
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+      {/* Modal principal */}
+      <Dialog open={open && !showHnlEquivalentModal} onOpenChange={onOpenChange}>
       <DialogContent 
         ref={modalRef}
         className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] sm:w-[28rem] bg-background border-border shadow-xl"
@@ -728,6 +889,163 @@ export function PurchaseHNLDModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    
+    {/* Modal secundario para equivalente en HNL (USD/EUR) */}
+    <Dialog open={showHnlEquivalentModal} onOpenChange={(open) => {
+      if (!open) {
+        // Al cancelar, solo cerrar el modal secundario y volver al principal
+        setShowHnlEquivalentModal(false)
+        setHnlEquivalent("")
+        setEditableAmount("")
+        setBchRate(null)
+        setNmhnRate(null)
+        setLoadingExchangeRate(false)
+        setProcessing(false)
+        // NO cerrar el modal principal, solo limpiar el secundario
+      }
+    }}>
+      <DialogContent 
+        className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] sm:w-[28rem] bg-background border-border shadow-xl"
+        style={{
+          maxHeight: '95vh',
+          overflowY: 'auto',
+          minWidth: '320px',
+          maxWidth: '28rem'
+        }}
+      >
+        <DialogHeader className="pb-3 sm:pb-4">
+          <DialogTitle className="text-lg sm:text-xl font-semibold text-center sm:text-left">
+            Equivalente en Lempiras (HNL)
+          </DialogTitle>
+          <DialogDescription className="text-muted-foreground text-sm sm:text-base text-center sm:text-left">
+            Recibirás el monto en HNLD equivalente a los {pendingCurrencyType === 'USD' ? 'USD' : 'EUR'} que ingreses, calculado con la tasa NMHN.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 sm:space-y-6">
+          {/* Información del tipo de cambio del Banco Central de Honduras y NMHN */}
+          {bchRate && nmhnRate && (
+            <div className="space-y-3">
+              {/* Tipo de Cambio Oficial BCH */}
+              <div className="p-3 rounded-lg border bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-sm font-semibold text-green-900 dark:text-green-100">
+                    Tipo de Cambio Oficial (BCH)
+                  </Label>
+                  {loadingExchangeRate && (
+                    <span className="text-xs text-green-600 dark:text-green-400">Cargando...</span>
+                  )}
+                </div>
+                <p className="text-sm text-green-800 dark:text-green-200">
+                  <span className="font-medium">{pendingCurrencyType === 'USD' ? 'USD' : 'EUR'}</span> a HNL (TCR): 
+                  <span className="font-bold ml-1">L. {bchRate.toFixed(4)}</span>
+                </p>
+                <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                  Tipo de Cambio de Referencia del Banco Central de Honduras
+                </p>
+              </div>
+
+              {/* Tasa NMHN con Spread */}
+              <div className="p-3 rounded-lg border bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-sm font-semibold text-blue-900 dark:text-blue-100">
+                    Tasa NMHN
+                  </Label>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm text-blue-800 dark:text-blue-200">
+                    <span className="font-medium">{pendingCurrencyType === 'USD' ? 'USD' : 'EUR'}</span> a HNL: 
+                    <span className="font-bold ml-1">L. {nmhnRate.toFixed(4)}</span>
+                  </p>
+                  <div className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
+                    <p className="font-medium">Margen aplicado: 1% (a favor de la plataforma)</p>
+                    <p className="text-xs">
+                      Para operación, seguridad y soporte de la red.
+                    </p>
+                  </div>
+                  <p className="text-sm text-blue-800 dark:text-blue-200 font-medium mt-2">
+                    Recibirás: L. {editableAmount && nmhnRate ? calculateEquivalent(parseAmountString(editableAmount), nmhnRate).toFixed(2) : '0.00'} HNLD
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          <div>
+            <Label htmlFor="currency-amount" className="text-base font-medium block mb-2">
+              Monto en {pendingCurrencyType === 'USD' ? 'Dólares (USD)' : 'Euros (EUR)'}
+            </Label>
+            <Input
+              id="currency-amount"
+              type="text"
+              inputMode="decimal"
+              placeholder="0.00"
+              value={editableAmount}
+              onChange={(e) => {
+                const formatted = formatWithCommas(e.target.value)
+                setEditableAmount(formatted)
+                const parsed = parseAmountString(formatted)
+                // Recalcular siempre, incluso si es 0
+                if (nmhnRate !== null) {
+                  recalculateHnlEquivalent(parsed)
+                }
+              }}
+              onBlur={() => {
+                const formatted = formatWithCommas(editableAmount)
+                setEditableAmount(formatted)
+                const parsed = parseAmountString(formatted)
+                // Recalcular siempre, incluso si es 0
+                if (nmhnRate !== null) {
+                  recalculateHnlEquivalent(parsed)
+                }
+              }}
+              className="h-12 text-base sm:text-lg"
+              style={{
+                fontSize: '16px',
+                minHeight: '48px'
+              }}
+              autoFocus
+            />
+            {nmhnRate && (
+              <div className="mt-3 p-3 rounded-lg border bg-muted/50 dark:bg-muted/30">
+                <p className="text-sm font-medium text-foreground">
+                  Recibirás: <span className="font-bold text-primary">L. {hnlEquivalent || '0.00'} HNLD</span>
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Calculado con la tasa NMHN (TCR del BCH menos 1% de margen a favor de la plataforma).
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+        <DialogFooter className="flex-col sm:flex-row gap-3 pt-4 px-0 sm:px-0">
+          <Button 
+            variant="outline" 
+            onClick={() => {
+              // Al cancelar, volver al modal principal sin cerrarlo
+              setShowHnlEquivalentModal(false)
+              setHnlEquivalent("")
+              setEditableAmount("")
+              setBchRate(null)
+              setNmhnRate(null)
+              setLoadingExchangeRate(false)
+              setProcessing(false)
+            }}
+            disabled={processing}
+            className="w-full sm:w-auto h-12 text-base font-medium"
+          >
+            Cancelar
+          </Button>
+          <Button 
+            onClick={handleConfirmHnlEquivalent}
+            disabled={processing || parseAmountString(editableAmount) <= 0}
+            className="w-full sm:w-auto h-12 text-base font-medium"
+          >
+            {processing ? "Procesando..." : "Confirmar"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }
 

@@ -243,8 +243,9 @@ export default function MisSolicitudesPage() {
       
       if (result.success) {
         toast({
-          title: "✅ Solicitud Cancelada",
+          title: "Solicitud Cancelada",
           description: "Tu solicitud de compra ha sido cancelada exitosamente.",
+          variant: "destructive",
         })
         setCancelOpen(false)
         setSelectedRequest(null)
@@ -1110,13 +1111,6 @@ export default function MisSolicitudesPage() {
                   <p className="text-sm text-muted-foreground mt-1">{selectedRequest.description}</p>
                 </div>
               )}
-              
-              <div>
-                <Label className="text-sm font-medium">Ofertas Recibidas</Label>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {selectedRequest.offers_count || 0} ofertas
-                </p>
-              </div>
             </div>
           )}
           
@@ -1124,11 +1118,6 @@ export default function MisSolicitudesPage() {
             <Button variant="outline" onClick={() => setDetailsOpen(false)}>
               Cerrar
             </Button>
-            {selectedRequest && (selectedRequest.offers_count || 0) > 0 && (
-              <Button>
-                Ver Ofertas
-              </Button>
-            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

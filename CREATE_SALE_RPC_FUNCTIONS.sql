@@ -1,99 +1,157 @@
 -- =========================================================
--- FUNCIONES RPC PARA SISTEMA DE VENTAS
--- =========================================================
--- Funciones para crear y gestionar solicitudes de venta
+-- FUNCIONES RPC PARA EL SISTEMA DE VENTA DE HNLD
 -- =========================================================
 
--- Función para generar código único (reutilizar si existe, sino crear)
-CREATE OR REPLACE FUNCTION generate_unique_sale_code()
-RETURNS TEXT AS $$
+-- Función para generar código único para solicitudes de venta
+-- Formato: NMHNV-YYMMDD-000000
+CREATE OR REPLACE FUNCTION generate_sale_unique_code()
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
-    new_code TEXT;
+    today_date TEXT;
+    next_number INTEGER;
+    generated_code TEXT;
+    max_attempts INTEGER := 1000;
+    attempt_count INTEGER := 0;
     code_exists BOOLEAN;
-    date_part TEXT;
-    random_part TEXT;
 BEGIN
-    -- Generar parte de fecha (YYYYMMDD)
-    date_part := TO_CHAR(NOW(), 'YYYYMMDD');
+    -- Obtener fecha actual en formato YYMMDD
+    today_date := TO_CHAR(NOW(), 'YYMMDD');
     
-    -- Generar parte aleatoria (6 caracteres)
-    random_part := UPPER(SUBSTRING(MD5(RANDOM()::TEXT || NOW()::TEXT) FROM 1 FOR 6));
+    -- Obtener el siguiente número disponible para hoy
+    -- Extraer solo la parte numérica después del último guion usando SPLIT_PART
+    SELECT COALESCE(
+        MAX(
+            CASE 
+                WHEN sr.unique_code ~ '^NMHNV-[0-9]{6}-[0-9]{6}$' THEN
+                    -- Extraer la parte numérica (después del último guion)
+                    CAST(SPLIT_PART(sr.unique_code, '-', 3) AS INTEGER)
+                ELSE
+                    NULL
+            END
+        ), 
+        0
+    ) + 1
+    INTO next_number
+    FROM sale_requests sr
+    WHERE sr.unique_code LIKE 'NMHNV-' || today_date || '-%'
+    AND sr.unique_code ~ '^NMHNV-[0-9]{6}-[0-9]{6}$';
     
-    -- Combinar: NMHN-VENTA-YYYYMMDD-XXXXXX
-    new_code := 'NMHN-VENTA-' || date_part || '-' || random_part;
+    -- Generar código único inicial
+    generated_code := 'NMHNV-' || today_date || '-' || LPAD(next_number::TEXT, 6, '0');
     
-    -- Verificar si ya existe
-    SELECT EXISTS(SELECT 1 FROM sale_requests WHERE unique_code = new_code) INTO code_exists;
-    
-    -- Si existe, generar uno nuevo (máximo 10 intentos)
-    FOR i IN 1..10 LOOP
-        IF NOT code_exists THEN
-            EXIT;
-        END IF;
-        random_part := UPPER(SUBSTRING(MD5(RANDOM()::TEXT || NOW()::TEXT || i::TEXT) FROM 1 FOR 6));
-        new_code := 'NMHN-VENTA-' || date_part || '-' || random_part;
-        SELECT EXISTS(SELECT 1 FROM sale_requests WHERE unique_code = new_code) INTO code_exists;
+    -- Verificar que el código no existe
+    LOOP
+        SELECT EXISTS(SELECT 1 FROM sale_requests WHERE unique_code = generated_code)
+        INTO code_exists;
+        
+        EXIT WHEN NOT code_exists;
+        
+        next_number := next_number + 1;
+        generated_code := 'NMHNV-' || today_date || '-' || LPAD(next_number::TEXT, 6, '0');
+        attempt_count := attempt_count + 1;
+        
+        EXIT WHEN attempt_count >= max_attempts;
     END LOOP;
     
-    RETURN new_code;
+    -- Si se agotaron los intentos, usar timestamp como fallback
+    IF attempt_count >= max_attempts THEN
+        generated_code := 'NMHNV-' || today_date || '-' || LPAD(EXTRACT(EPOCH FROM NOW())::INTEGER % 1000000, 6, '0');
+    END IF;
+    
+    RETURN generated_code;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 -- Función para crear solicitud de venta
 CREATE OR REPLACE FUNCTION create_sale_request(
     p_seller_id UUID,
-    p_amount DECIMAL(15,2), -- Monto en HNLD que se quiere vender
+    p_amount DECIMAL(15,2),
+    p_payment_method VARCHAR(50),
     p_description TEXT DEFAULT NULL,
     p_expires_in_days INTEGER DEFAULT 7,
-    p_payment_method TEXT DEFAULT NULL,
-    p_bank_name TEXT DEFAULT NULL,
-    p_custom_bank_name TEXT DEFAULT NULL,
-    p_country TEXT DEFAULT NULL,
-    p_custom_country TEXT DEFAULT NULL,
-    p_digital_wallet TEXT DEFAULT NULL,
-    p_currency_type TEXT DEFAULT 'L',
+    p_bank_name VARCHAR(255) DEFAULT NULL,
+    p_custom_bank_name VARCHAR(255) DEFAULT NULL,
+    p_country VARCHAR(100) DEFAULT NULL,
+    p_custom_country VARCHAR(255) DEFAULT NULL,
+    p_digital_wallet VARCHAR(50) DEFAULT NULL,
+    p_currency_type VARCHAR(10) DEFAULT 'L',
     p_amount_in_original_currency DECIMAL(15,2) DEFAULT NULL,
     p_exchange_rate_applied DECIMAL(10,4) DEFAULT 1.0000,
-    p_processing_fee_percentage DECIMAL(5,2) DEFAULT NULL,
-    p_processing_fee_amount DECIMAL(15,2) DEFAULT NULL,
-    p_final_amount_hnld DECIMAL(15,2) DEFAULT NULL,
-    p_payment_reference TEXT DEFAULT NULL,
-    p_payment_status TEXT DEFAULT 'pending'
+    p_final_amount_hnld DECIMAL(15,2) DEFAULT NULL
 )
 RETURNS TABLE (
     success BOOLEAN,
-    id UUID,
+    request_id UUID,
     unique_code TEXT,
-    message TEXT,
-    debug_info TEXT
+    message TEXT
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-    new_request_id UUID;
+    new_request_id UUID := gen_random_uuid();
     generated_code TEXT;
-    expires_at TIMESTAMP WITH TIME ZONE;
-    v_final_amount DECIMAL(15,2);
+    current_user_id UUID;
+    v_balance DECIMAL(15,2);
+    v_available_balance DECIMAL(15,2);
 BEGIN
-    -- Validar que el usuario tenga suficiente saldo HNLD
-    -- (esto se puede verificar después, por ahora solo creamos la solicitud)
+    -- Obtener usuario actual
+    current_user_id := auth.uid();
+    
+    -- Verificar que el usuario está autenticado
+    IF current_user_id IS NULL THEN
+        RETURN QUERY SELECT false, NULL::UUID, NULL::TEXT, 'Usuario no autenticado'::TEXT;
+        RETURN;
+    END IF;
+    
+    -- Verificar que el seller_id coincide con el usuario autenticado
+    IF current_user_id != p_seller_id THEN
+        RETURN QUERY SELECT false, NULL::UUID, NULL::TEXT, 'No tienes permisos para crear esta solicitud'::TEXT;
+        RETURN;
+    END IF;
+    
+    -- Verificar que el monto es válido
+    IF p_amount <= 0 OR (p_final_amount_hnld IS NOT NULL AND p_final_amount_hnld <= 0) THEN
+        RETURN QUERY SELECT false, NULL::UUID, NULL::TEXT, 'El monto debe ser mayor a 0'::TEXT;
+        RETURN;
+    END IF;
+    
+    -- Verificar balance disponible del vendedor
+    SELECT COALESCE(balance, 0) - COALESCE(reserved_balance, 0) INTO v_available_balance
+    FROM hnld_balances
+    WHERE user_id = p_seller_id;
+    
+    -- Si no existe balance, crear registro con 0
+    IF v_available_balance IS NULL THEN
+        INSERT INTO hnld_balances (user_id, balance, reserved_balance)
+        VALUES (p_seller_id, 0, 0)
+        ON CONFLICT (user_id) DO NOTHING;
+        v_available_balance := 0;
+    END IF;
+    
+    -- Verificar que tiene suficiente balance disponible
+    IF v_available_balance < COALESCE(p_final_amount_hnld, p_amount) THEN
+        RETURN QUERY SELECT false, NULL::UUID, NULL::TEXT, 
+            format('Balance insuficiente. Disponible: L. %s, Solicitado: L. %s', 
+                v_available_balance, COALESCE(p_final_amount_hnld, p_amount))::TEXT;
+        RETURN;
+    END IF;
     
     -- Generar código único
-    generated_code := generate_unique_sale_code();
+    generated_code := generate_sale_unique_code();
     
-    -- Calcular fecha de expiración
-    expires_at := NOW() + (p_expires_in_days || ' days')::INTERVAL;
-    
-    -- Determinar monto final en HNLD
-    v_final_amount := COALESCE(p_final_amount_hnld, p_amount);
-    
-    -- Insertar nueva solicitud de venta
+    -- Crear la solicitud
     INSERT INTO sale_requests (
+        id,
         seller_id,
         amount,
+        currency,
         description,
-        expires_at,
+        status,
         payment_method,
         bank_name,
         custom_bank_name,
@@ -103,18 +161,18 @@ BEGIN
         currency_type,
         amount_in_original_currency,
         exchange_rate_applied,
-        processing_fee_percentage,
-        processing_fee_amount,
         final_amount_hnld,
-        payment_reference,
-        payment_status,
         unique_code,
-        status
-    ) VALUES (
-        p_seller_id,
-        p_amount,
-        p_description,
         expires_at,
+        created_at,
+        updated_at
+    ) VALUES (
+        new_request_id,
+        p_seller_id,
+        COALESCE(p_final_amount_hnld, p_amount),
+        'HNLD',
+        p_description,
+        'active',
         p_payment_method,
         p_bank_name,
         p_custom_bank_name,
@@ -124,104 +182,125 @@ BEGIN
         p_currency_type,
         p_amount_in_original_currency,
         p_exchange_rate_applied,
-        p_processing_fee_percentage,
-        p_processing_fee_amount,
-        v_final_amount,
-        p_payment_reference,
-        p_payment_status,
+        COALESCE(p_final_amount_hnld, p_amount),
         generated_code,
-        'active'
-    ) RETURNING id INTO new_request_id;
+        NOW() + (p_expires_in_days || ' days')::INTERVAL,
+        NOW(),
+        NOW()
+    );
     
-    -- Retornar resultado exitoso
-    RETURN QUERY SELECT 
-        TRUE,
-        new_request_id,
-        generated_code,
-        'Solicitud de venta creada exitosamente'::TEXT,
-        ('Request ID: ' || new_request_id || ', Code: ' || generated_code)::TEXT;
-    
-EXCEPTION
-    WHEN OTHERS THEN
-        -- En caso de error, retornar información del error
-        RETURN QUERY SELECT 
-            FALSE, 
-            NULL::UUID, 
-            NULL::TEXT, 
-            ('Error: ' || SQLERRM)::TEXT,
-            ('Error code: ' || SQLSTATE)::TEXT;
+    RETURN QUERY SELECT true, new_request_id, generated_code, 'Solicitud de venta creada exitosamente'::TEXT;
 END;
 $$;
 
 -- Función para obtener solicitudes de venta activas (para compradores)
 CREATE OR REPLACE FUNCTION get_active_sale_requests(
-    p_user_id UUID
+    p_limit INTEGER DEFAULT 50,
+    p_offset INTEGER DEFAULT 0
 )
 RETURNS TABLE (
     id UUID,
     seller_id UUID,
     amount DECIMAL(15,2),
     final_amount_hnld DECIMAL(15,2),
-    currency_type TEXT,
-    payment_method TEXT,
-    bank_name TEXT,
-    country TEXT,
-    unique_code TEXT,
-    status TEXT,
+    description TEXT,
+    status VARCHAR(20),
+    buyer_id UUID,
+    accepted_at TIMESTAMP WITH TIME ZONE,
+    payment_method VARCHAR(50),
+    bank_name VARCHAR(255),
+    custom_bank_name VARCHAR(255),
+    country VARCHAR(100),
+    custom_country VARCHAR(100),
+    digital_wallet VARCHAR(50),
+    currency_type VARCHAR(10),
+    amount_in_original_currency DECIMAL(15,2),
+    exchange_rate_applied DECIMAL(10,4),
+    unique_code VARCHAR(50),
     expires_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE,
     seller_name TEXT,
     seller_email TEXT
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
+DECLARE
+    current_user_id UUID;
 BEGIN
+    -- Obtener usuario actual
+    current_user_id := auth.uid();
+    
+    -- Si no hay usuario autenticado, retornar vacío
+    IF current_user_id IS NULL THEN
+        RETURN;
+    END IF;
+    
     RETURN QUERY
     SELECT 
-        sr.id,
-        sr.seller_id,
-        sr.amount,
-        sr.final_amount_hnld,
-        sr.currency_type,
-        sr.payment_method,
-        sr.bank_name,
-        sr.country,
-        sr.unique_code,
-        sr.status,
-        sr.expires_at,
-        sr.created_at,
-        COALESCE(p.full_name, u.email) as seller_name,
-        u.email as seller_email
+        sr.id::UUID,
+        sr.seller_id::UUID,
+        sr.amount::DECIMAL(15,2),
+        sr.final_amount_hnld::DECIMAL(15,2),
+        sr.description::TEXT,
+        sr.status::VARCHAR(20),
+        sr.buyer_id::UUID,
+        sr.accepted_at::TIMESTAMP WITH TIME ZONE,
+        sr.payment_method::VARCHAR(50),
+        sr.bank_name::VARCHAR(255),
+        sr.custom_bank_name::VARCHAR(255),
+        sr.country::VARCHAR(100),
+        sr.custom_country::VARCHAR(100),
+        sr.digital_wallet::VARCHAR(50),
+        sr.currency_type::VARCHAR(10),
+        sr.amount_in_original_currency::DECIMAL(15,2),
+        sr.exchange_rate_applied::DECIMAL(10,4),
+        sr.unique_code::VARCHAR(50),
+        sr.expires_at::TIMESTAMP WITH TIME ZONE,
+        sr.created_at::TIMESTAMP WITH TIME ZONE,
+        sr.updated_at::TIMESTAMP WITH TIME ZONE,
+        COALESCE(p.full_name, SPLIT_PART(au.email, '@', 1), 'Usuario')::TEXT as seller_name,
+        au.email::TEXT as seller_email
     FROM sale_requests sr
-    JOIN auth.users u ON u.id = sr.seller_id
-    LEFT JOIN profiles p ON p.id = sr.seller_id
-    WHERE sr.status = 'active'
-      AND sr.expires_at > NOW()
-      AND sr.seller_id != p_user_id -- Excluir propias solicitudes
-      AND sr.payment_method != 'card' -- Excluir tarjetas (similar a compras)
-    ORDER BY sr.created_at DESC;
+    JOIN auth.users au ON au.id = sr.seller_id
+    LEFT JOIN public.profiles p ON p.id = sr.seller_id
+    WHERE sr.status = 'active' 
+    AND sr.expires_at > NOW()
+    AND sr.seller_id != current_user_id -- Excluir las propias solicitudes
+    ORDER BY sr.created_at DESC
+    LIMIT p_limit OFFSET p_offset;
 END;
 $$;
 
 -- Función para obtener solicitudes de venta del usuario
 CREATE OR REPLACE FUNCTION get_user_sale_requests(
-    p_user_id UUID
+    p_user_id UUID,
+    p_status VARCHAR(20) DEFAULT NULL,
+    p_limit INTEGER DEFAULT 50,
+    p_offset INTEGER DEFAULT 0
 )
 RETURNS TABLE (
     id UUID,
-    seller_id UUID,
-    buyer_id UUID,
     amount DECIMAL(15,2),
     final_amount_hnld DECIMAL(15,2),
-    currency_type TEXT,
-    payment_method TEXT,
-    bank_name TEXT,
-    country TEXT,
-    unique_code TEXT,
-    status TEXT,
+    description TEXT,
+    status VARCHAR(20),
+    payment_method VARCHAR(50),
+    bank_name VARCHAR(255),
+    custom_bank_name VARCHAR(255),
+    country VARCHAR(100),
+    custom_country VARCHAR(100),
+    digital_wallet VARCHAR(50),
+    currency_type VARCHAR(10),
+    amount_in_original_currency DECIMAL(15,2),
+    exchange_rate_applied DECIMAL(10,4),
+    unique_code VARCHAR(50),
     expires_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE,
+    buyer_id UUID,
     accepted_at TIMESTAMP WITH TIME ZONE
 )
 LANGUAGE plpgsql
@@ -231,29 +310,36 @@ BEGIN
     RETURN QUERY
     SELECT 
         sr.id,
-        sr.seller_id,
-        sr.buyer_id,
         sr.amount,
         sr.final_amount_hnld,
-        sr.currency_type,
+        sr.description,
+        sr.status,
         sr.payment_method,
         sr.bank_name,
+        sr.custom_bank_name,
         sr.country,
+        sr.custom_country,
+        sr.digital_wallet,
+        sr.currency_type,
+        sr.amount_in_original_currency,
+        sr.exchange_rate_applied,
         sr.unique_code,
-        sr.status,
         sr.expires_at,
         sr.created_at,
+        sr.updated_at,
+        sr.buyer_id,
         sr.accepted_at
     FROM sale_requests sr
     WHERE sr.seller_id = p_user_id
-    ORDER BY sr.created_at DESC;
+    AND (p_status IS NULL OR sr.status = p_status)
+    ORDER BY sr.created_at DESC
+    LIMIT p_limit OFFSET p_offset;
 END;
 $$;
 
 -- Función para cancelar solicitud de venta
 CREATE OR REPLACE FUNCTION cancel_sale_request(
-    p_request_id UUID,
-    p_user_id UUID
+    p_request_id UUID
 )
 RETURNS BOOLEAN
 LANGUAGE plpgsql
@@ -262,108 +348,146 @@ AS $$
 DECLARE
     v_seller_id UUID;
 BEGIN
-    -- Verificar que la solicitud pertenece al usuario
+    -- Obtener el seller_id de la solicitud
     SELECT seller_id INTO v_seller_id
     FROM sale_requests
     WHERE id = p_request_id;
     
     IF NOT FOUND THEN
-        RETURN FALSE;
+        RAISE EXCEPTION 'Solicitud no encontrada';
     END IF;
     
-    IF v_seller_id != p_user_id THEN
-        RETURN FALSE;
+    -- Verificar que el usuario es el vendedor
+    IF v_seller_id != auth.uid() THEN
+        RAISE EXCEPTION 'No tienes permisos para cancelar esta solicitud';
     END IF;
     
-    -- Solo se puede cancelar si está activa o negociando
+    -- Verificar que la solicitud puede ser cancelada
+    IF NOT EXISTS (
+        SELECT 1 FROM sale_requests 
+        WHERE id = p_request_id 
+        AND status IN ('active', 'negotiating')
+    ) THEN
+        RAISE EXCEPTION 'La solicitud no puede ser cancelada en su estado actual';
+    END IF;
+    
+    -- Actualizar estado
     UPDATE sale_requests
     SET status = 'cancelled',
         updated_at = NOW()
-    WHERE id = p_request_id
-      AND status IN ('active', 'negotiating');
+    WHERE id = p_request_id;
     
-    RETURN FOUND;
+    RETURN true;
 END;
 $$;
 
 -- Función para aceptar solicitud de venta (crear transacción)
 CREATE OR REPLACE FUNCTION accept_sale_request(
     p_request_id UUID,
-    p_buyer_id UUID
+    p_buyer_id UUID,
+    p_payment_method VARCHAR(50),
+    p_payment_details JSONB DEFAULT NULL
 )
-RETURNS TABLE (
-    success BOOLEAN,
-    transaction_id UUID,
-    message TEXT
-)
+RETURNS UUID
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
-    v_request sale_requests%ROWTYPE;
-    v_transaction_id UUID;
-    v_seller_id UUID;
+    v_transaction_id UUID := gen_random_uuid();
+    v_request_data RECORD;
+    v_payment_deadline TIMESTAMP WITH TIME ZONE;
+    v_current_user_id UUID;
+    v_buyer_name TEXT;
+    v_seller_name TEXT;
+    v_formatted_amount TEXT;
 BEGIN
-    -- Obtener la solicitud
-    SELECT * INTO v_request
+    -- Obtener usuario actual
+    v_current_user_id := auth.uid();
+    
+    -- Verificar autenticación
+    IF v_current_user_id IS NULL THEN
+        RAISE EXCEPTION 'Usuario no autenticado';
+    END IF;
+    
+    -- Verificar que el buyer_id coincide
+    IF v_current_user_id != p_buyer_id THEN
+        RAISE EXCEPTION 'No tienes permisos para aceptar esta solicitud';
+    END IF;
+    
+    -- Obtener datos de la solicitud
+    SELECT * INTO v_request_data
     FROM sale_requests
-    WHERE id = p_request_id
-      AND status = 'active'
-      AND expires_at > NOW();
+    WHERE id = p_request_id;
     
     IF NOT FOUND THEN
-        RETURN QUERY SELECT FALSE, NULL::UUID, 'Solicitud no encontrada o no disponible'::TEXT;
-        RETURN;
+        RAISE EXCEPTION 'Solicitud no encontrada';
     END IF;
     
-    -- Verificar que no sea el mismo usuario
-    IF v_request.seller_id = p_buyer_id THEN
-        RETURN QUERY SELECT FALSE, NULL::UUID, 'No puedes comprar tu propia solicitud'::TEXT;
-        RETURN;
+    IF v_request_data.status != 'active' THEN
+        RAISE EXCEPTION 'La solicitud no está disponible para transacción';
     END IF;
     
-    v_seller_id := v_request.seller_id;
+    -- Verificar que el comprador no es el mismo que el vendedor
+    IF v_request_data.seller_id = p_buyer_id THEN
+        RAISE EXCEPTION 'No puedes comprar tu propia solicitud de venta';
+    END IF;
     
-    -- Crear transacción de venta
+    -- Obtener nombres para la notificación
+    SELECT COALESCE(p.full_name, SPLIT_PART(au.email, '@', 1), 'Usuario') INTO v_buyer_name
+    FROM auth.users au
+    LEFT JOIN public.profiles p ON p.id = au.id
+    WHERE au.id = p_buyer_id;
+    
+    SELECT COALESCE(p.full_name, SPLIT_PART(au.email, '@', 1), 'Usuario') INTO v_seller_name
+    FROM auth.users au
+    LEFT JOIN public.profiles p ON p.id = au.id
+    WHERE au.id = v_request_data.seller_id;
+    
+    -- Formatear monto
+    v_formatted_amount := CASE 
+        WHEN v_request_data.currency_type = 'USD' THEN '$' || COALESCE(v_request_data.amount_in_original_currency::TEXT, v_request_data.final_amount_hnld::TEXT)
+        WHEN v_request_data.currency_type = 'EUR' THEN '€' || COALESCE(v_request_data.amount_in_original_currency::TEXT, v_request_data.final_amount_hnld::TEXT)
+        ELSE 'L.' || COALESCE(v_request_data.final_amount_hnld::TEXT, '0')
+    END;
+    
+    -- Calcular deadline de pago (24 horas por defecto)
+    v_payment_deadline := NOW() + INTERVAL '24 hours';
+    
+    -- Crear la transacción
     INSERT INTO sale_transactions (
+        id,
         request_id,
         seller_id,
         buyer_id,
         amount,
         currency,
         exchange_rate,
-        hnld_amount,
+        final_amount_hnld,
         payment_method,
+        payment_details,
         status,
-        escrow_amount,
-        escrow_status,
         payment_deadline,
-        verification_deadline
+        created_at,
+        updated_at
     ) VALUES (
+        v_transaction_id,
         p_request_id,
-        v_seller_id,
+        v_request_data.seller_id,
         p_buyer_id,
-        COALESCE(v_request.amount_in_original_currency, v_request.amount),
-        v_request.currency_type,
-        v_request.exchange_rate_applied,
-        v_request.final_amount_hnld,
-        v_request.payment_method,
-        'pending',
-        v_request.final_amount_hnld, -- HNLD bloqueados en escrow
-        'protected',
-        NOW() + INTERVAL '24 hours', -- Deadline para pago
-        NOW() + INTERVAL '48 hours'  -- Deadline para verificación
-    ) RETURNING id INTO v_transaction_id;
+        COALESCE(v_request_data.amount_in_original_currency, v_request_data.amount),
+        COALESCE(v_request_data.currency_type, 'L'),
+        COALESCE(v_request_data.exchange_rate_applied, 1.0),
+        v_request_data.final_amount_hnld,
+        p_payment_method,
+        p_payment_details,
+        'pending', -- Pendiente de que el vendedor acepte y bloquee HNLD
+        v_payment_deadline,
+        NOW(),
+        NOW()
+    );
     
-    -- Crear pasos de la transacción
-    INSERT INTO sale_transaction_steps (transaction_id, step_order, step_name, status)
-    VALUES
-        (v_transaction_id, 1, 'Trato aceptado', 'completed'),
-        (v_transaction_id, 2, 'Pago iniciado', 'pending'),
-        (v_transaction_id, 3, 'Pago verificado', 'pending'),
-        (v_transaction_id, 4, 'HNLD liberados', 'pending');
-    
-    -- Actualizar solicitud
+    -- Actualizar estado de la solicitud
     UPDATE sale_requests
     SET status = 'accepted',
         buyer_id = p_buyer_id,
@@ -371,18 +495,40 @@ BEGIN
         updated_at = NOW()
     WHERE id = p_request_id;
     
-    RETURN QUERY SELECT TRUE, v_transaction_id, 'Transacción creada exitosamente'::TEXT;
+    -- Crear pasos de la transacción
+    INSERT INTO sale_transaction_steps (transaction_id, step_name, step_order, step_description, status, created_at, updated_at) VALUES
+    (v_transaction_id, 'seller_accepts_deal', 1, 'Vendedor acepta el trato y bloquea HNLD en escrow', 'pending', NOW(), NOW()),
+    (v_transaction_id, 'buyer_pays', 2, 'Comprador realiza el pago y sube comprobante', 'pending', NOW(), NOW()),
+    (v_transaction_id, 'seller_verifies_payment', 3, 'Vendedor verifica el comprobante de pago', 'pending', NOW(), NOW()),
+    (v_transaction_id, 'hnld_released', 4, 'HNLD liberados al comprador', 'pending', NOW(), NOW());
     
-EXCEPTION
-    WHEN OTHERS THEN
-        RETURN QUERY SELECT FALSE, NULL::UUID, ('Error: ' || SQLERRM)::TEXT;
+    -- Enviar notificación al vendedor (comprador aceptó su solicitud)
+    PERFORM emit_notification(
+        v_request_data.seller_id,
+        'order',
+        'SALE_REQUEST_ACCEPTED',
+        'Solicitud Aceptada',
+        v_buyer_name || ' aceptó tu solicitud de venta por ' || v_formatted_amount || ' HNLD.' ||
+        CASE WHEN v_request_data.unique_code IS NOT NULL THEN ' Código: ' || v_request_data.unique_code ELSE '' END,
+        'Ver Transacción',
+        '/dashboard/mis-ventas',
+        'high',
+        jsonb_build_object(
+            'transaction_id', v_transaction_id,
+            'request_id', p_request_id,
+            'seller_id', v_request_data.seller_id,
+            'buyer_id', p_buyer_id,
+            'amount', v_request_data.final_amount_hnld,
+            'formatted_amount', v_formatted_amount,
+            'currency_type', v_request_data.currency_type,
+            'unique_code', v_request_data.unique_code,
+            'buyer_name', v_buyer_name
+        ),
+        'sale_request_accepted_' || p_request_id::TEXT || '_' || v_request_data.seller_id::TEXT,
+        NULL
+    );
+    
+    RETURN v_transaction_id;
 END;
 $$;
-
--- Comentarios
-COMMENT ON FUNCTION create_sale_request IS 'Crear nueva solicitud de venta HNLD';
-COMMENT ON FUNCTION get_active_sale_requests IS 'Obtener solicitudes de venta activas para compradores';
-COMMENT ON FUNCTION get_user_sale_requests IS 'Obtener solicitudes de venta del usuario';
-COMMENT ON FUNCTION cancel_sale_request IS 'Cancelar solicitud de venta';
-COMMENT ON FUNCTION accept_sale_request IS 'Aceptar solicitud de venta y crear transacción';
 

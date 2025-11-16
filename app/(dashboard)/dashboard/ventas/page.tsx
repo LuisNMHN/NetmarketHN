@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
+import Link from "next/link"
 import { supabaseBrowser } from "@/lib/supabase/client"
 import { 
   getActiveSaleRequests,
@@ -17,12 +18,14 @@ import {
   Search, 
   Clock, 
   User, 
+  Eye,
   RefreshCw,
-  ShoppingCart,
-  X
+  ShoppingBag,
+  MessageSquare
 } from "lucide-react"
 import LoadingSpinner from "@/components/ui/loading-spinner"
 import { SaleCompletionPanel } from "@/components/SaleCompletionPanel"
+import { notificationCenter } from "@/lib/notifications/center"
 
 export default function VentasPage() {
   const [requests, setRequests] = useState<SaleRequest[]>([])
@@ -30,49 +33,88 @@ export default function VentasPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedRequest, setSelectedRequest] = useState<SaleRequest | null>(null)
+  const [selectedTransactionId, setSelectedTransactionId] = useState<string | undefined>(undefined)
   const [completionPanelOpen, setCompletionPanelOpen] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
   const { toast } = useToast()
 
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      const supabase = supabaseBrowser()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        setUserId(user.id)
+      }
+    }
+    getCurrentUser()
+  }, [])
+
   const loadRequests = async () => {
     try {
+      setLoading(true)
+      // Cargar solicitudes activas
       const result = await getActiveSaleRequests(50, 0)
       if (result && result.success && result.data) {
         let requestsToShow = result.data
         
-        // Si hay usuario autenticado, también cargar solicitudes "accepted"
+        // Si hay usuario autenticado, también cargar solicitudes "accepted" (donde el comprador puede estar involucrado)
+        // IMPORTANTE: Excluir las solicitudes del usuario actual y las canceladas
         if (userId) {
           const supabase = supabaseBrowser()
           
+          // Cargar solicitudes aceptadas (donde el comprador puede estar involucrado)
+          // IMPORTANTE: Excluir las solicitudes del usuario actual y las canceladas
           const { data: acceptedRequests } = await supabase
             .from('sale_requests')
             .select('*')
             .eq('status', 'accepted')
-            .neq('seller_id', userId) // Excluir ventas del usuario actual
+            .neq('seller_id', userId) // ⭐ Excluir solicitudes del usuario actual ⭐
           
+          // Combinar todas las solicitudes
           const allRequests = [...requestsToShow]
-          if (acceptedRequests) allRequests.push(...acceptedRequests as SaleRequest[])
+          if (acceptedRequests) {
+            // Filtrar solo las que no están canceladas, completadas o expiradas
+            const validAccepted = acceptedRequests.filter(
+              req => req.status !== 'cancelled' && 
+                    req.status !== 'completed' && 
+                    req.status !== 'expired'
+            )
+            allRequests.push(...validAccepted as SaleRequest[])
+          }
           
+          // Eliminar duplicados por ID y filtrar canceladas, completadas y expiradas
           const uniqueRequests = Array.from(
             new Map(allRequests.map(req => [req.id, req])).values()
+          ).filter(req => 
+            req.status !== 'cancelled' && 
+            req.status !== 'completed' && 
+            req.status !== 'expired'
           )
           
           requestsToShow = uniqueRequests
+        } else {
+          // Si no hay usuario, también filtrar canceladas, completadas y expiradas
+          requestsToShow = requestsToShow.filter(req => 
+            req.status !== 'cancelled' && 
+            req.status !== 'completed' && 
+            req.status !== 'expired'
+          )
         }
         
         setRequests(requestsToShow)
       } else {
+        console.error('❌ Error en loadRequests:', result?.error)
         toast({
           title: "Error",
-          description: result?.error || "No se pudieron cargar las ventas",
+          description: result?.error || "No se pudieron cargar las solicitudes de venta",
           variant: "destructive",
         })
       }
-    } catch (error) {
-      console.error('❌ Error cargando ventas:', error)
+    } catch (error: any) {
+      console.error('❌ Error cargando solicitudes de venta:', error)
       toast({
         title: "Error",
-        description: "Error inesperado al cargar ventas",
+        description: error?.message || "Error inesperado al cargar solicitudes",
         variant: "destructive",
       })
     } finally {
@@ -86,9 +128,14 @@ export default function VentasPage() {
     await loadRequests()
   }
 
-  const handleBuy = async (request: SaleRequest) => {
-    console.log('🖱️ Comprador haciendo clic en "Comprar" para venta:', request.id)
-    
+  const handleAcceptSale = async (request: SaleRequest) => {
+    // Mostrar toast naranja al comprador indicando que se inicia la compra
+    toast({
+      title: "Iniciando compra de HNLD",
+      description: "Se está procesando tu solicitud de compra...",
+      variant: "info",
+    })
+
     if (!userId) {
       toast({
         title: "Error",
@@ -100,30 +147,39 @@ export default function VentasPage() {
 
     try {
       // Aceptar la solicitud de venta (crear transacción)
-      const result = await acceptSaleRequest(request.id)
-      
+      const result = await acceptSaleRequest(
+        request.id,
+        request.payment_method,
+        {
+          bank_name: request.bank_name,
+          custom_bank_name: request.custom_bank_name,
+          country: request.country,
+          custom_country: request.custom_country,
+          digital_wallet: request.digital_wallet
+        }
+      )
+
       if (result.success && result.transactionId) {
-        toast({
-          title: "Venta aceptada",
-          description: "Se ha iniciado el proceso de compra. Debes dar clic al botón 'Aceptar trato' para continuar.",
-          variant: "info",
-        })
-        
+        // El toast naranja ya se mostró al inicio, no mostrar otro toast verde
         // Abrir panel de completar venta
         setSelectedRequest(request)
+        setSelectedTransactionId(result.transactionId)
         setCompletionPanelOpen(true)
+        
+        // Recargar solicitudes
+        await loadRequests()
       } else {
         toast({
           title: "Error",
-          description: result.error || "Error al aceptar la venta",
+          description: result.error || "Error aceptando la solicitud",
           variant: "destructive",
         })
       }
     } catch (error) {
-      console.error('❌ Error aceptando venta:', error)
+      console.error('❌ Error aceptando solicitud de venta:', error)
       toast({
         title: "Error",
-        description: "Error inesperado al aceptar venta",
+        description: "Error inesperado al aceptar la solicitud",
         variant: "destructive",
       })
     }
@@ -135,14 +191,12 @@ export default function VentasPage() {
     switch (status) {
       case 'active':
         return <Badge variant="default" className="bg-green-100 text-green-800">Activa</Badge>
-      case 'negotiating':
-        return <Badge variant="default" className="bg-orange-100 text-orange-800">Negociando</Badge>
       case 'accepted':
         return <Badge variant="default" className="bg-purple-100 text-purple-800">Aceptada</Badge>
       case 'completed':
         return <Badge variant="default" className="bg-emerald-100 text-emerald-800">Completada</Badge>
       case 'cancelled':
-        return <Badge variant="secondary">Cancelada</Badge>
+        return <Badge variant="destructive" className="animate-pulse">Cancelada</Badge>
       case 'expired':
         return <Badge variant="secondary">Expirada</Badge>
       default:
@@ -156,32 +210,22 @@ export default function VentasPage() {
         return {
           method: 'Transferencia Local',
           currency: 'L.',
-          amount: request.amount_in_original_currency || request.final_amount_hnld,
-          details: request.bank_name || 'Banco no especificado'
-        }
-      case 'international_transfer':
-        const country = request.country === 'Otro de la zona euro' ? request.custom_country : request.country
-        const currency = request.currency_type === 'USD' ? 'USD' : 'EUR'
-        const currencySymbol = currency === 'USD' ? '$' : '€'
-        return {
-          method: 'Transferencia Internacional',
-          currency: currencySymbol,
-          amount: request.amount_in_original_currency || request.final_amount_hnld,
-          details: country || 'País no especificado'
+          amount: request.final_amount_hnld,
+          details: request.bank_name === 'Otros' ? request.custom_bank_name : request.bank_name || 'Banco no especificado'
         }
       case 'digital_balance':
         return {
           method: 'Saldo Digital',
           currency: 'L.',
-          amount: request.amount_in_original_currency || request.final_amount_hnld,
+          amount: request.final_amount_hnld,
           details: request.digital_wallet || 'Billetera no especificada'
         }
-      case 'cash':
+      case 'card':
         return {
-          method: 'Efectivo',
+          method: 'Tarjeta de Crédito/Débito',
           currency: 'L.',
-          amount: request.amount_in_original_currency || request.final_amount_hnld,
-          details: 'Pago en efectivo'
+          amount: request.final_amount_hnld,
+          details: 'Compra directa'
         }
       default:
         return {
@@ -205,12 +249,12 @@ export default function VentasPage() {
   }
 
   const filteredRequests = requests.filter(request => {
-    // Excluir ventas del usuario actual
+    // Excluir solicitudes del usuario actual
     if (userId && request.seller_id === userId) {
       return false
     }
     
-    // No mostrar completed, expired o cancelled
+    // No mostrar completed, expired o cancelled (igual que en compras)
     if (request.status === 'completed' || request.status === 'expired' || request.status === 'cancelled') {
       return false
     }
@@ -219,7 +263,7 @@ export default function VentasPage() {
     return (
       request.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       request.seller_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      request.final_amount_hnld?.toString().includes(searchTerm) ||
+      request.final_amount_hnld.toString().includes(searchTerm) ||
       request.unique_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       paymentInfo.method.toLowerCase().includes(searchTerm.toLowerCase()) ||
       paymentInfo.details.toLowerCase().includes(searchTerm.toLowerCase())
@@ -243,15 +287,17 @@ export default function VentasPage() {
   }, [])
 
   useEffect(() => {
-    if (userId) {
-      loadRequests()
+    if (!userId) {
+      console.log('⏳ Esperando userId para configurar Realtime...')
+      return
     }
     
-    // Configurar suscripción realtime para sale_requests
+    console.log('🚀 Configurando Realtime para userId:', userId)
+    loadRequests()
+    
     const supabase = supabaseBrowser()
     
-    console.log('🔌 Configurando suscripción realtime para sale_requests...')
-    
+    // Canal para INSERT y UPDATE de solicitudes activas
     const channelActive = supabase
       .channel('sale_requests_active_changes')
       .on('postgres_changes', {
@@ -261,36 +307,15 @@ export default function VentasPage() {
         filter: 'status=eq.active'
       }, async (payload) => {
         const newRequest = payload.new as SaleRequest
-        console.log('✅ Nueva venta activa detectada:', newRequest)
+        console.log('✅ Nueva solicitud activa detectada:', newRequest)
+        // Solo agregar si no es del usuario actual
         if (userId && newRequest.seller_id !== userId) {
           setRequests(prev => {
+            // Evitar duplicados
             if (prev.some(req => req.id === newRequest.id)) return prev
             return [newRequest, ...prev]
           })
-          
-          let sellerName = 'Vendedor'
-          try {
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('full_name')
-              .eq('id', newRequest.seller_id)
-              .maybeSingle()
-            
-            if (profile?.full_name) {
-              sellerName = profile.full_name
-            }
-          } catch (error) {
-            console.log('⚠️ No se pudo obtener el nombre del vendedor:', error)
-          }
-          
-          const codeText = newRequest.unique_code ? `Código: ${newRequest.unique_code}` : ''
-          const description = `Se ha publicado una nueva venta de HNLD${codeText ? ` - ${codeText}` : ''} - Vendedor: ${sellerName}`
-          
-          toast({
-            title: "Nueva venta disponible",
-            description: description,
-            variant: "created",
-          })
+          // El toast se muestra desde NotificationBell, no aquí para evitar duplicados
         }
       })
       .on('postgres_changes', {
@@ -300,19 +325,25 @@ export default function VentasPage() {
         filter: 'status=eq.active'
       }, (payload) => {
         const updatedRequest = payload.new as SaleRequest
+        console.log('🔄 Solicitud activa actualizada:', updatedRequest)
+        // Solo actualizar si no es del usuario actual
         if (userId && updatedRequest.seller_id !== userId) {
           setRequests(prev => prev.map(req => req.id === updatedRequest.id ? updatedRequest : req))
         } else {
+          // Si ahora es del usuario actual, removerla de la lista
           setRequests(prev => prev.filter(req => req.id !== updatedRequest.id))
         }
       })
       .subscribe((status, error) => {
         console.log('📡 Estado de suscripción realtime (active):', status)
-        if (status === 'CHANNEL_ERROR') {
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Suscripción realtime (active) activa')
+        } else if (status === 'CHANNEL_ERROR') {
           console.warn('⚠️ Error en la suscripción realtime (active):', error)
         }
       })
     
+    // Canal separado para DELETE
     const channelDelete = supabase
       .channel('sale_requests_deletes')
       .on('postgres_changes', {
@@ -321,16 +352,25 @@ export default function VentasPage() {
         table: 'sale_requests'
       }, (payload) => {
         const deletedId = payload.old?.id
+        console.log('🗑️ Solicitud eliminada detectada:', deletedId)
         if (deletedId) {
-          setRequests(prev => prev.filter(req => req.id !== deletedId))
+          setRequests(prev => {
+            const filtered = prev.filter(req => req.id !== deletedId)
+            console.log(`🗑️ Solicitud ${deletedId} removida. Quedan ${filtered.length} solicitudes`)
+            return filtered
+          })
         }
       })
       .subscribe((status, error) => {
-        if (status === 'CHANNEL_ERROR') {
+        console.log('📡 Estado de suscripción realtime (delete):', status)
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Suscripción realtime (delete) activa')
+        } else if (status === 'CHANNEL_ERROR') {
           console.warn('⚠️ Error en la suscripción realtime (delete):', error)
         }
       })
     
+    // Canal para detectar cambios de estado - CRÍTICO PARA ELIMINAR CANCELADAS
     const channelStatusChanges = supabase
       .channel('sale_requests_status_changes')
       .on('postgres_changes', {
@@ -341,29 +381,46 @@ export default function VentasPage() {
         const updatedRequest = payload.new as SaleRequest
         const oldRequest = payload.old as SaleRequest
         
+        console.log('🔔 UPDATE RECIBIDO:', {
+          id: updatedRequest.id,
+          oldStatus: oldRequest?.status,
+          newStatus: updatedRequest.status
+        })
+        
+        // Si la solicitud cambió a 'cancelled', removerla inmediatamente
         if (updatedRequest.status === 'cancelled') {
-          if (completionPanelOpen && selectedRequest?.id === updatedRequest.id) {
-            setCompletionPanelOpen(false)
-            setSelectedRequest(null)
-          }
-          
-          setRequests(prev => prev.filter(req => req.id !== updatedRequest.id))
-          
+          console.log('🚫 REMOVIENDO SOLICITUD CANCELADA:', updatedRequest.id)
+          setRequests(prev => {
+            const filtered = prev.filter(req => req.id !== updatedRequest.id)
+            console.log('✅ Removida. Antes:', prev.length, 'Después:', filtered.length)
+            return filtered
+          })
+          setCompletionPanelOpen(false)
+          setSelectedRequest(null)
           toast({
-            title: "Venta Cancelada",
-            description: `El vendedor ha cancelado la venta de HNLD.`,
+            title: "Solicitud Cancelada",
+            description: `El vendedor ha cancelado la solicitud de venta.`,
             variant: "destructive",
             duration: 5000,
           })
-        } else if (
+          return
+        }
+        
+        // Si cambió de 'active' o 'accepted' a otro estado, removerla
+        if (
           (oldRequest?.status === 'active' || oldRequest?.status === 'accepted') &&
           !['active', 'accepted'].includes(updatedRequest.status)
         ) {
           setRequests(prev => prev.filter(req => req.id !== updatedRequest.id))
-        } else if (['active', 'accepted'].includes(updatedRequest.status)) {
+          return
+        }
+        
+        // Si cambió a 'active' o 'accepted', actualizar o agregar
+        if (['active', 'accepted'].includes(updatedRequest.status)) {
           if (userId && updatedRequest.seller_id !== userId) {
             setRequests(prev => {
-              if (prev.some(req => req.id === updatedRequest.id)) {
+              const exists = prev.some(req => req.id === updatedRequest.id)
+              if (exists) {
                 return prev.map(req => req.id === updatedRequest.id ? updatedRequest : req)
               } else {
                 return [updatedRequest, ...prev]
@@ -374,168 +431,243 @@ export default function VentasPage() {
           }
         }
       })
-      .subscribe((status, error) => {
-        if (status === 'CHANNEL_ERROR') {
-          console.warn('⚠️ Error en la suscripción realtime (status changes):', error)
+      .subscribe((status, err) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Suscripción realtime activa - Escuchando UPDATE en sale_requests')
+        } else if (status === 'CHANNEL_ERROR') {
+          // Solo loggear si hay un error real, no si es undefined (desconexión temporal)
+          if (err) {
+            console.warn('⚠️ Error en suscripción realtime:', err)
+          }
+        } else if (status === 'TIMED_OUT' || status === 'CLOSED') {
+          // Estados normales de desconexión, no son errores críticos
+          console.log('📡 Canal realtime:', status)
         }
       })
     
-    return () => {
-      console.log('🧹 Limpiando suscripciones realtime...')
-      try {
-        const channels = [
-          supabase.channel('sale_requests_active_changes'),
-          supabase.channel('sale_requests_deletes'),
-          supabase.channel('sale_requests_status_changes')
-        ]
-        channels.forEach(channel => {
-          channel.unsubscribe().catch(err => console.error('Error desuscribiendo:', err))
+    // Escuchar notificaciones de cancelación (ya que Realtime UPDATE no funciona)
+    const unsubscribeNotification = notificationCenter.addListener((notification) => {
+      if (notification.event === 'SALE_REQUEST_CANCELLED' && notification.payload?.request_id) {
+        const requestId = notification.payload.request_id
+        console.log('🔔 Notificación de cancelación recibida, removiendo solicitud:', requestId)
+        setRequests(prev => {
+          const filtered = prev.filter(req => req.id !== requestId)
+          console.log('✅ Solicitud removida por notificación. Antes:', prev.length, 'Después:', filtered.length)
+          return filtered
         })
+        setCompletionPanelOpen(false)
+        setSelectedRequest(null)
+      }
+    })
+
+    return () => {
+      console.log('🧹 Limpiando suscripciones realtime...', { userId })
+      try {
+        if (channelActive) {
+          channelActive.unsubscribe()
+        }
+        if (channelDelete) {
+          channelDelete.unsubscribe()
+        }
+        if (channelStatusChanges) {
+          channelStatusChanges.unsubscribe()
+        }
+        unsubscribeNotification()
       } catch (error) {
         console.error('⚠️ Error desuscribiendo canales Realtime:', error)
       }
     }
-  }, [userId, toast, completionPanelOpen, selectedRequest])
+  }, [userId, toast])
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <LoadingSpinner />
+      <div className="max-w-6xl mx-auto p-4 md:p-6">
+        <LoadingSpinner message="Cargando solicitudes..." />
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+    <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold">Solicitudes de Venta</h1>
-          <p className="text-muted-foreground mt-1">
-            Compra HNLD de otros usuarios
+          <h1 className="text-2xl md:text-3xl font-bold">Solicitudes de otros usuarios</h1>
+          <p className="text-muted-foreground">Oportunidades para comprar HNLD de otros usuarios</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            💡 Solo puedes ver solicitudes de otros usuarios. Tus propias solicitudes aparecen en "Mis Ventas"
+          </p>
+          <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+            🔒 Tus solicitudes están ocultas aquí para evitar conflictos de interés
           </p>
         </div>
-        <Button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          variant="outline"
-          size="sm"
-          className="w-full sm:w-auto"
-        >
-          <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-          Actualizar
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-2">
+          <Button asChild variant="outline" size="sm" className="w-full sm:w-auto">
+            <Link href="/dashboard/mis-ventas">
+              <User className="mr-2 h-4 w-4" />
+              Mis Ventas
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing} className="w-full sm:w-auto">
+            <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            Actualizar
+          </Button>
+        </div>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-        <Input
-          placeholder="Buscar por código, vendedor, monto o método de pago..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-10"
-        />
-      </div>
+      {/* Search */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por monto, método de pago, banco, billetera o código..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+        </CardContent>
+      </Card>
 
-      {filteredRequests.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <ShoppingCart className="h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground text-center">
-              {searchTerm ? "No se encontraron ventas que coincidan con tu búsqueda" : "No hay ventas de HNLD disponibles en este momento"}
+      {/* Requests Grid */}
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {filteredRequests.length === 0 ? (
+          <div className="col-span-full text-center py-12">
+            <ShoppingBag className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No hay solicitudes disponibles</h3>
+            <p className="text-muted-foreground mb-2">
+              {searchTerm ? "No se encontraron solicitudes que coincidan con tu búsqueda" : "No hay solicitudes de venta activas de otros usuarios en este momento"}
             </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredRequests.map((request) => {
+            <p className="text-xs text-muted-foreground">
+              💡 Recuerda que solo ves solicitudes de otros usuarios. Las tuyas aparecen en "Mis Ventas"
+            </p>
+          </div>
+        ) : (
+          filteredRequests.map((request) => {
             const paymentInfo = getPaymentMethodInfo(request)
-            const expiresAt = new Date(request.expires_at)
-            const isExpired = expiresAt < new Date()
-            
             return (
-              <Card key={request.id} className="hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1">
-                      <CardTitle className="text-lg">
-                        {formatCurrency(request.final_amount_hnld || request.amount)} HNLD
-                      </CardTitle>
-                      <CardDescription className="mt-1">
-                        {request.unique_code || 'Sin código'}
-                      </CardDescription>
-                    </div>
-                    {getStatusBadge(request)}
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Card key={request.id} className="hover:shadow-md transition-shadow">
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <CardTitle className="text-lg flex items-center space-x-2">
+                      <span className="text-lg">💱</span>
+                      <span>{formatCurrency(request.final_amount_hnld)} HNLD</span>
+                    </CardTitle>
+                    <CardDescription className="flex items-center space-x-1 mt-1">
                       <User className="h-4 w-4" />
-                      <span>{request.seller_name || 'Vendedor'}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Clock className="h-4 w-4" />
-                      <span>{formatTimeAgo(request.created_at)}</span>
-                    </div>
-                    <div className="text-sm">
-                      <span className="font-medium">Método:</span> {paymentInfo.method}
-                    </div>
-                    <div className="text-sm">
-                      <span className="font-medium">Recibirás:</span> {paymentInfo.currency}{formatAmount(paymentInfo.amount)}
-                    </div>
-                    {paymentInfo.details && (
-                      <div className="text-sm text-muted-foreground">
-                        {paymentInfo.details}
+                      <span>{request.seller_name || request.seller_email || "Vendedor"}</span>
+                    </CardDescription>
+                    <div className="mt-2 space-y-1">
+                      <div className="text-xs text-muted-foreground">
+                        <span className="font-medium">{paymentInfo.method}</span>
+                        {paymentInfo.details && (
+                          <span className="ml-1">• {paymentInfo.details}</span>
+                        )}
                       </div>
-                    )}
+                      {request.unique_code && (
+                        <div>
+                          <span className="text-xs font-mono bg-muted px-2 py-1 rounded">
+                            {request.unique_code}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  
-                  {request.status === 'active' && !isExpired && (
-                    <Button
-                      onClick={() => handleBuy(request)}
-                      className="w-full"
+                  {getStatusBadge(request)}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                  <div className="flex items-center space-x-1">
+                    <Clock className="h-4 w-4" />
+                    <span>{formatTimeAgo(request.created_at)}</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <Eye className="h-4 w-4" />
+                    <span>Expira: {new Date(request.expires_at).toLocaleDateString()}</span>
+                  </div>
+                </div>
+
+                <div className="flex space-x-2">
+                  {request.status === 'active' && (
+                    <Button 
+                      onClick={() => handleAcceptSale(request)}
+                      className="flex-1"
                       size="sm"
                     >
-                      <ShoppingCart className="mr-2 h-4 w-4" />
+                      <ShoppingBag className="mr-2 h-4 w-4" />
                       Comprar HNLD
                     </Button>
                   )}
                   
-                  {request.status === 'accepted' && (
-                    <Button
-                      onClick={() => {
-                        setSelectedRequest(request)
-                        setCompletionPanelOpen(true)
+                  {request.status === 'accepted' && request.buyer_id && (
+                    <Button 
+                      onClick={async () => {
+                        try {
+                          const supabase = supabaseBrowser()
+                          const { data: transaction } = await supabase
+                            .from('sale_transactions')
+                            .select('id')
+                            .eq('request_id', request.id)
+                            .single()
+
+                          if (transaction) {
+                            setSelectedRequest(request)
+                            setSelectedTransactionId(transaction.id)
+                            setCompletionPanelOpen(true)
+                          } else {
+                            toast({
+                              title: "Transacción no encontrada",
+                              description: "No se encontró una transacción asociada a esta solicitud",
+                              variant: "destructive",
+                            })
+                          }
+                        } catch (error) {
+                          console.error('Error cargando transacción:', error)
+                          toast({
+                            title: "Error",
+                            description: "Error cargando la transacción",
+                            variant: "destructive",
+                          })
+                        }
                       }}
-                      variant="outline"
-                      className="w-full"
+                      className="flex-1 bg-purple-600 hover:bg-purple-700"
                       size="sm"
                     >
+                      <MessageSquare className="mr-2 h-4 w-4" />
                       Ver Transacción
                     </Button>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              </CardContent>
+            </Card>
             )
-          })}
-        </div>
-      )}
+          })
+        )}
+      </div>
 
-      {/* Panel de completar venta */}
-      {selectedRequest && (
+      {/* Sale Completion Panel */}
+      {selectedRequest && userId && (
         <SaleCompletionPanel
           requestId={selectedRequest.id}
+          transactionId={selectedTransactionId}
           sellerId={selectedRequest.seller_id}
-          buyerId={userId || ''}
-          amount={selectedRequest.amount_in_original_currency || selectedRequest.final_amount_hnld || selectedRequest.amount}
-          currency={selectedRequest.currency_type || 'L'}
-          paymentMethod={selectedRequest.payment_method || 'local_transfer'}
+          buyerId={userId}
+          amount={selectedRequest.final_amount_hnld}
+          currency={selectedRequest.currency_type}
+          paymentMethod={selectedRequest.payment_method}
           isOpen={completionPanelOpen}
           onClose={() => {
             setCompletionPanelOpen(false)
             setSelectedRequest(null)
+            setSelectedTransactionId(undefined)
+            loadRequests()
           }}
-          onTransactionCreated={() => {
+          onTransactionCreated={(transactionId) => {
+            console.log('✅ Transacción creada:', transactionId)
+            setSelectedTransactionId(transactionId)
             loadRequests()
           }}
         />
@@ -543,4 +675,3 @@ export default function VentasPage() {
     </div>
   )
 }
-

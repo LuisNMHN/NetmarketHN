@@ -511,10 +511,10 @@ export default function SolicitudesPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">Solicitudes de Compra</h1>
+          <h1 className="text-2xl md:text-3xl font-bold">Solicitudes de otros usuarios</h1>
           <p className="text-muted-foreground">Oportunidades para vender HNLD a otros usuarios</p>
           <p className="text-sm text-muted-foreground mt-1">
-            💡 Solo puedes ver solicitudes de otros usuarios. Tus propias solicitudes aparecen en "Mis Solicitudes"
+            💡 Solo puedes ver solicitudes de otros usuarios. Tus propias solicitudes aparecen en "Mis Compras"
           </p>
           <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
             🔒 Tus solicitudes están ocultas aquí para evitar conflictos de interés
@@ -524,7 +524,7 @@ export default function SolicitudesPage() {
           <Button asChild variant="outline" size="sm" className="w-full sm:w-auto">
             <Link href="/dashboard/mis-solicitudes">
               <User className="mr-2 h-4 w-4" />
-              Mis Solicitudes
+              Mis Compras
             </Link>
           </Button>
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing} className="w-full sm:w-auto">
@@ -560,7 +560,7 @@ export default function SolicitudesPage() {
               {searchTerm ? "No se encontraron solicitudes que coincidan con tu búsqueda" : "No hay solicitudes de compra activas de otros usuarios en este momento"}
             </p>
             <p className="text-xs text-muted-foreground">
-              💡 Recuerda que solo ves solicitudes de otros usuarios. Las tuyas aparecen en "Mis Solicitudes"
+              💡 Recuerda que solo ves solicitudes de otros usuarios. Las tuyas aparecen en "Mis Compras"
             </p>
           </div>
         ) : (

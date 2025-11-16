@@ -214,7 +214,7 @@ export function useTransactionalChat(params: UseTransactionalChatParams): UseTra
       initializedRef.current = null
       if (channelRef.current) {
         try {
-          channelRef.current.unsubscribe()
+        channelRef.current.unsubscribe()
         } catch (error) {
           console.error('⚠️ Error desuscribiendo canal realtime:', error)
         }

@@ -79,7 +79,7 @@ export default function SaldoPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [depositOpen, setDepositOpen] = useState(false)
-  const [withdrawOpen, setWithdrawOpen] = useState(false)
+  const [saleOpen, setSaleOpen] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
@@ -413,24 +413,20 @@ export default function SaldoPage() {
               />
             </Dialog>
 
-            <SaleHNLDModal
-              open={withdrawOpen}
-              onOpenChange={setWithdrawOpen}
-              onSuccess={() => {
-                setWithdrawOpen(false)
-                loadHNLDData()
-              }}
-              defaultMethod="local_transfer"
-            />
-            <Button 
-              variant="outline" 
-              className="h-16 flex-col space-y-2 bg-transparent" 
-              disabled={processing}
-              onClick={() => setWithdrawOpen(true)}
-            >
-              <Minus className="h-5 w-5" />
-              <span>Vender HNLD</span>
-            </Button>
+            <Dialog open={saleOpen} onOpenChange={setSaleOpen}>
+              <DialogTrigger asChild>
+                <Button variant="destructive" className="h-16 flex-col space-y-2" disabled={processing}>
+                  <Minus className="h-5 w-5" />
+                  <span>Vender HNLD</span>
+                </Button>
+              </DialogTrigger>
+              <SaleHNLDModal
+                open={saleOpen}
+                onOpenChange={setSaleOpen}
+                onSuccess={loadHNLDData}
+                defaultMethod="local_transfer"
+              />
+            </Dialog>
 
             <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
               <DialogTrigger asChild>

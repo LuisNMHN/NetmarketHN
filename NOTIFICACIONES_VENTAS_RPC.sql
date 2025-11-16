@@ -1,8 +1,20 @@
 -- =========================================================
--- FUNCIONES PARA BLOQUEAR/DEBITAR HNLD Y ACREDITAR AL COMPRADOR
+-- NOTIFICACIONES EN FUNCIONES RPC DE VENTAS
+-- =========================================================
+-- Agrega notificaciones a las funciones RPC del sistema de ventas
 -- =========================================================
 
--- Función para bloquear HNLD del vendedor en escrow
+-- =========================================================
+-- 1. ACTUALIZAR accept_sale_request PARA ENVIAR NOTIFICACIÓN
+-- =========================================================
+
+-- Primero necesitamos ver la función actual para actualizarla
+-- Esta función se actualizará para enviar notificación SALE_ACCEPTED al vendedor
+
+-- =========================================================
+-- 2. ACTUALIZAR lock_hnld_in_escrow_sale PARA ENVIAR NOTIFICACIÓN
+-- =========================================================
+
 CREATE OR REPLACE FUNCTION lock_hnld_in_escrow_sale(
     p_transaction_id UUID
 )
@@ -158,7 +170,10 @@ BEGIN
 END;
 $$;
 
--- Función para debitar HNLD del vendedor y acreditar al comprador
+-- =========================================================
+-- 3. ACTUALIZAR debit_hnld_from_seller PARA ENVIAR NOTIFICACIÓN
+-- =========================================================
+
 CREATE OR REPLACE FUNCTION debit_hnld_from_seller(
     p_transaction_id UUID
 )
@@ -331,17 +346,26 @@ BEGIN
 END;
 $$;
 
--- Función para marcar transacción de venta como completada
+-- =========================================================
+-- 4. ACTUALIZAR mark_sale_request_completed PARA ENVIAR NOTIFICACIÓN
+-- =========================================================
+
 CREATE OR REPLACE FUNCTION mark_sale_request_completed(
     p_transaction_id UUID
 )
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
     v_transaction RECORD;
+    v_request RECORD;
     v_current_user_id UUID;
+    v_buyer_name TEXT;
+    v_seller_name TEXT;
+    v_formatted_amount TEXT;
+    v_unique_code TEXT;
 BEGIN
     -- Obtener usuario actual
     v_current_user_id := auth.uid();
@@ -351,18 +375,31 @@ BEGIN
         RAISE EXCEPTION 'Usuario no autenticado';
     END IF;
     
-    -- Obtener información de la transacción
-    SELECT * INTO v_transaction
-    FROM sale_transactions
-    WHERE id = p_transaction_id;
+    -- Obtener información de la transacción y solicitud
+    SELECT 
+        st.*,
+        sr.unique_code,
+        sr.final_amount_hnld,
+        sr.currency_type
+    INTO v_transaction
+    FROM sale_transactions st
+    JOIN sale_requests sr ON sr.id = st.request_id
+    WHERE st.id = p_transaction_id;
     
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Transacción no encontrada';
     END IF;
     
-    -- Verificar que el usuario es parte de la transacción
-    IF v_transaction.seller_id != v_current_user_id AND v_transaction.buyer_id != v_current_user_id THEN
-        RAISE EXCEPTION 'No tienes permisos para completar esta transacción';
+    -- Obtener información de la solicitud
+    SELECT * INTO v_request
+    FROM sale_requests
+    WHERE id = v_transaction.request_id;
+    
+    v_unique_code := v_request.unique_code;
+    
+    -- Verificar que el usuario es el comprador o vendedor
+    IF v_transaction.buyer_id != v_current_user_id AND v_transaction.seller_id != v_current_user_id THEN
+        RAISE EXCEPTION 'Solo el comprador o vendedor pueden completar la transacción';
     END IF;
     
     -- Verificar que los HNLD han sido liberados
@@ -370,9 +407,28 @@ BEGIN
         RAISE EXCEPTION 'Los HNLD deben ser liberados antes de completar la transacción';
     END IF;
     
+    -- Obtener nombres para la notificación
+    SELECT COALESCE(p.full_name, SPLIT_PART(au.email, '@', 1), 'Usuario') INTO v_buyer_name
+    FROM auth.users au
+    LEFT JOIN public.profiles p ON p.id = au.id
+    WHERE au.id = v_transaction.buyer_id;
+    
+    SELECT COALESCE(p.full_name, SPLIT_PART(au.email, '@', 1), 'Usuario') INTO v_seller_name
+    FROM auth.users au
+    LEFT JOIN public.profiles p ON p.id = au.id
+    WHERE au.id = v_transaction.seller_id;
+    
+    -- Formatear monto
+    v_formatted_amount := CASE 
+        WHEN v_transaction.currency_type = 'USD' THEN '$' || COALESCE(v_transaction.final_amount_hnld::TEXT, '0')
+        WHEN v_transaction.currency_type = 'EUR' THEN '€' || COALESCE(v_transaction.final_amount_hnld::TEXT, '0')
+        ELSE 'L.' || COALESCE(v_transaction.final_amount_hnld::TEXT, '0')
+    END;
+    
     -- Actualizar transacción
     UPDATE sale_transactions
     SET status = 'completed',
+        completed_at = NOW(),
         updated_at = NOW()
     WHERE id = p_transaction_id;
     
@@ -382,40 +438,85 @@ BEGIN
         updated_at = NOW()
     WHERE id = v_transaction.request_id;
     
+    -- Enviar notificación al comprador (SALE_COMPLETED)
+    PERFORM emit_notification(
+        v_transaction.buyer_id,
+        'order',
+        'SALE_COMPLETED',
+        'Venta Completada',
+        'La transacción con ' || v_seller_name || ' por ' || v_formatted_amount || ' HNLD ha sido completada exitosamente.' ||
+        CASE WHEN v_unique_code IS NOT NULL THEN ' Código: ' || v_unique_code ELSE '' END,
+        'Ver Transacción',
+        '/dashboard/ventas',
+        'high',
+        jsonb_build_object(
+            'transaction_id', p_transaction_id,
+            'request_id', v_transaction.request_id,
+            'seller_id', v_transaction.seller_id,
+            'buyer_id', v_transaction.buyer_id,
+            'amount', v_transaction.final_amount_hnld,
+            'formatted_amount', v_formatted_amount,
+            'currency_type', v_transaction.currency_type,
+            'unique_code', v_unique_code,
+            'seller_name', v_seller_name
+        ),
+        'sale_completed_' || v_transaction.request_id::TEXT || '_buyer_' || v_transaction.buyer_id::TEXT,
+        NULL
+    );
+    
+    -- Enviar notificación al vendedor (SALE_COMPLETED)
+    PERFORM emit_notification(
+        v_transaction.seller_id,
+        'order',
+        'SALE_COMPLETED',
+        'Venta Completada',
+        'La transacción con ' || v_buyer_name || ' por ' || v_formatted_amount || ' HNLD ha sido completada exitosamente.' ||
+        CASE WHEN v_unique_code IS NOT NULL THEN ' Código: ' || v_unique_code ELSE '' END,
+        'Ver Transacción',
+        '/dashboard/mis-ventas',
+        'high',
+        jsonb_build_object(
+            'transaction_id', p_transaction_id,
+            'request_id', v_transaction.request_id,
+            'seller_id', v_transaction.seller_id,
+            'buyer_id', v_transaction.buyer_id,
+            'amount', v_transaction.final_amount_hnld,
+            'formatted_amount', v_formatted_amount,
+            'currency_type', v_transaction.currency_type,
+            'unique_code', v_unique_code,
+            'buyer_name', v_buyer_name
+        ),
+        'sale_completed_' || v_transaction.request_id::TEXT || '_seller_' || v_transaction.seller_id::TEXT,
+        NULL
+    );
+    
     RETURN true;
 END;
 $$;
 
--- Función para obtener transacción de venta con detalles
-CREATE OR REPLACE FUNCTION get_sale_transaction(
-    p_transaction_id UUID
+-- =========================================================
+-- 5. ACTUALIZAR accept_sale_request PARA ENVIAR NOTIFICACIÓN
+-- =========================================================
+
+CREATE OR REPLACE FUNCTION accept_sale_request(
+    p_request_id UUID,
+    p_buyer_id UUID,
+    p_payment_method VARCHAR(50),
+    p_payment_details JSONB DEFAULT NULL
 )
-RETURNS TABLE (
-    id UUID,
-    request_id UUID,
-    seller_id UUID,
-    buyer_id UUID,
-    amount DECIMAL(15,2),
-    currency VARCHAR(10),
-    final_amount_hnld DECIMAL(15,2),
-    payment_method VARCHAR(50),
-    status VARCHAR(30),
-    escrow_amount DECIMAL(15,2),
-    escrow_status VARCHAR(20),
-    payment_deadline TIMESTAMP WITH TIME ZONE,
-    verification_deadline TIMESTAMP WITH TIME ZONE,
-    payment_proof_url TEXT,
-    created_at TIMESTAMP WITH TIME ZONE,
-    updated_at TIMESTAMP WITH TIME ZONE,
-    seller_name TEXT,
-    buyer_name TEXT,
-    unique_code VARCHAR(50)
-)
+RETURNS UUID
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
+    v_transaction_id UUID := gen_random_uuid();
+    v_request_data RECORD;
+    v_payment_deadline TIMESTAMP WITH TIME ZONE;
     v_current_user_id UUID;
+    v_buyer_name TEXT;
+    v_seller_name TEXT;
+    v_formatted_amount TEXT;
 BEGIN
     -- Obtener usuario actual
     v_current_user_id := auth.uid();
@@ -425,35 +526,143 @@ BEGIN
         RAISE EXCEPTION 'Usuario no autenticado';
     END IF;
     
-    RETURN QUERY
-    SELECT 
-        st.id,
-        st.request_id,
-        st.seller_id,
-        st.buyer_id,
-        st.amount,
-        st.currency,
-        st.final_amount_hnld,
-        st.payment_method,
-        st.status,
-        st.escrow_amount,
-        st.escrow_status,
-        st.payment_deadline,
-        st.verification_deadline,
-        st.payment_proof_url,
-        st.created_at,
-        st.updated_at,
-        COALESCE(sp.full_name, su.email) as seller_name,
-        COALESCE(bp.full_name, bu.email) as buyer_name,
-        sr.unique_code
-    FROM sale_transactions st
-    JOIN sale_requests sr ON sr.id = st.request_id
-    JOIN auth.users su ON su.id = st.seller_id
-    JOIN auth.users bu ON bu.id = st.buyer_id
-    LEFT JOIN profiles sp ON sp.id = st.seller_id
-    LEFT JOIN profiles bp ON bp.id = st.buyer_id
-    WHERE st.id = p_transaction_id
-    AND (st.seller_id = v_current_user_id OR st.buyer_id = v_current_user_id);
+    -- Verificar que el buyer_id coincide
+    IF v_current_user_id != p_buyer_id THEN
+        RAISE EXCEPTION 'No tienes permisos para aceptar esta solicitud';
+    END IF;
+    
+    -- Obtener datos de la solicitud
+    SELECT * INTO v_request_data
+    FROM sale_requests
+    WHERE id = p_request_id;
+    
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Solicitud no encontrada';
+    END IF;
+    
+    IF v_request_data.status != 'active' THEN
+        RAISE EXCEPTION 'La solicitud no está disponible para transacción';
+    END IF;
+    
+    -- Verificar que el comprador no es el mismo que el vendedor
+    IF v_request_data.seller_id = p_buyer_id THEN
+        RAISE EXCEPTION 'No puedes comprar tu propia solicitud de venta';
+    END IF;
+    
+    -- Obtener nombres para la notificación
+    SELECT COALESCE(p.full_name, SPLIT_PART(au.email, '@', 1), 'Usuario') INTO v_buyer_name
+    FROM auth.users au
+    LEFT JOIN public.profiles p ON p.id = au.id
+    WHERE au.id = p_buyer_id;
+    
+    SELECT COALESCE(p.full_name, SPLIT_PART(au.email, '@', 1), 'Usuario') INTO v_seller_name
+    FROM auth.users au
+    LEFT JOIN public.profiles p ON p.id = au.id
+    WHERE au.id = v_request_data.seller_id;
+    
+    -- Formatear monto
+    v_formatted_amount := CASE 
+        WHEN v_request_data.currency_type = 'USD' THEN '$' || COALESCE(v_request_data.amount_in_original_currency::TEXT, v_request_data.final_amount_hnld::TEXT)
+        WHEN v_request_data.currency_type = 'EUR' THEN '€' || COALESCE(v_request_data.amount_in_original_currency::TEXT, v_request_data.final_amount_hnld::TEXT)
+        ELSE 'L.' || COALESCE(v_request_data.final_amount_hnld::TEXT, '0')
+    END;
+    
+    -- Calcular deadline de pago (24 horas por defecto)
+    v_payment_deadline := NOW() + INTERVAL '24 hours';
+    
+    -- Crear la transacción
+    INSERT INTO sale_transactions (
+        id,
+        request_id,
+        seller_id,
+        buyer_id,
+        amount,
+        currency,
+        exchange_rate,
+        final_amount_hnld,
+        payment_method,
+        payment_details,
+        status,
+        payment_deadline,
+        created_at,
+        updated_at
+    ) VALUES (
+        v_transaction_id,
+        p_request_id,
+        v_request_data.seller_id,
+        p_buyer_id,
+        COALESCE(v_request_data.amount_in_original_currency, v_request_data.amount),
+        COALESCE(v_request_data.currency_type, 'L'),
+        COALESCE(v_request_data.exchange_rate_applied, 1.0),
+        v_request_data.final_amount_hnld,
+        p_payment_method,
+        p_payment_details,
+        'pending', -- Pendiente de que el vendedor acepte y bloquee HNLD
+        v_payment_deadline,
+        NOW(),
+        NOW()
+    );
+    
+    -- Actualizar estado de la solicitud
+    UPDATE sale_requests
+    SET status = 'accepted',
+        buyer_id = p_buyer_id,
+        accepted_at = NOW(),
+        updated_at = NOW()
+    WHERE id = p_request_id;
+    
+    -- Crear pasos de la transacción
+    INSERT INTO sale_transaction_steps (transaction_id, step_name, step_order, step_description, status, created_at, updated_at) VALUES
+    (v_transaction_id, 'seller_accepts_deal', 1, 'Vendedor acepta el trato y bloquea HNLD en escrow', 'pending', NOW(), NOW()),
+    (v_transaction_id, 'buyer_pays', 2, 'Comprador realiza el pago y sube comprobante', 'pending', NOW(), NOW()),
+    (v_transaction_id, 'seller_verifies_payment', 3, 'Vendedor verifica el comprobante de pago', 'pending', NOW(), NOW()),
+    (v_transaction_id, 'hnld_released', 4, 'HNLD liberados al comprador', 'pending', NOW(), NOW());
+    
+    -- Enviar notificación al vendedor (comprador aceptó su solicitud)
+    PERFORM emit_notification(
+        v_request_data.seller_id,
+        'order',
+        'SALE_REQUEST_ACCEPTED',
+        'Solicitud Aceptada',
+        v_buyer_name || ' aceptó tu solicitud de venta por ' || v_formatted_amount || ' HNLD.' ||
+        CASE WHEN v_request_data.unique_code IS NOT NULL THEN ' Código: ' || v_request_data.unique_code ELSE '' END,
+        'Ver Transacción',
+        '/dashboard/mis-ventas',
+        'high',
+        jsonb_build_object(
+            'transaction_id', v_transaction_id,
+            'request_id', p_request_id,
+            'seller_id', v_request_data.seller_id,
+            'buyer_id', p_buyer_id,
+            'amount', v_request_data.final_amount_hnld,
+            'formatted_amount', v_formatted_amount,
+            'currency_type', v_request_data.currency_type,
+            'unique_code', v_request_data.unique_code,
+            'buyer_name', v_buyer_name
+        ),
+        'sale_request_accepted_' || p_request_id::TEXT || '_' || v_request_data.seller_id::TEXT,
+        NULL
+    );
+    
+    RETURN v_transaction_id;
 END;
 $$;
+
+-- =========================================================
+-- 6. VERIFICAR CONFIGURACIÓN
+-- =========================================================
+
+-- Verificar que las funciones se actualizaron correctamente
+SELECT 
+    routine_name,
+    routine_type
+FROM information_schema.routines 
+WHERE routine_name IN (
+    'lock_hnld_in_escrow_sale',
+    'debit_hnld_from_seller',
+    'mark_sale_request_completed'
+)
+AND routine_schema = 'public';
+
+SELECT 'Sistema de notificaciones para funciones RPC de ventas configurado correctamente' as resultado;
 

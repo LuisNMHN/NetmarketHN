@@ -62,8 +62,8 @@ export async function GET(request: Request) {
       success: true,
       currency: currency,
       bchRate: bchRate, // Tipo de Cambio de Referencia oficial del BCH
-      nmhnRate: nmhnRate, // Tasa NMHN con spread del 0.8%
-      spread: NMHN_SPREAD, // Spread aplicado (0.8%)
+      nmhnRate: nmhnRate, // Tasa NMHN con spread del 1%
+      spread: NMHN_SPREAD, // Spread aplicado (1%)
       source: 'Banco Central de Honduras (TCR)',
       lastUpdated: new Date().toISOString()
     })

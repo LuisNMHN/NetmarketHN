@@ -726,14 +726,8 @@ export function PurchaseCompletionPanel({
                 }
                 updateRequestStatus()
                 
-                // Mostrar notificación de éxito (para ambos usuarios)
-                setTimeout(() => {
-                  toast({
-                    title: "✅ Transacción completada",
-                    description: `Se acreditó exitosamente el saldo de L.${prev.amount || amount} de HNLD al comprador. La transacción ha finalizado correctamente.`,
-                    duration: 5000,
-                  })
-                }, 500)
+                // Nota: El toast de "Transacción completada" se muestra vía NotificationBell
+                // cuando se recibe la notificación TRANSACTION_COMPLETED
                 
                 // Cerrar el panel después de 3 segundos (para ambos usuarios)
                 setTimeout(() => {
@@ -839,14 +833,8 @@ export function PurchaseCompletionPanel({
                 }
                 updateRequestStatus()
                 
-                // Mostrar notificación de éxito (para ambos usuarios)
-                setTimeout(() => {
-                  toast({
-                    title: "✅ Transacción completada",
-                    description: `Se acreditó exitosamente el saldo de L.${updatedTransaction?.amount || prev.amount || amount} de HNLD al comprador. La transacción ha finalizado correctamente.`,
-                    duration: 5000,
-                  })
-                }, 500)
+                // Nota: El toast de "Transacción completada" se muestra vía NotificationBell
+                // cuando se recibe la notificación TRANSACTION_COMPLETED
                 
                 // Cerrar el panel después de 3 segundos (para ambos usuarios)
                 setTimeout(() => {
@@ -1193,9 +1181,6 @@ export function PurchaseCompletionPanel({
           
           // Cerrar el panel
           onClose()
-          
-          // Mostrar toast informativo
-          sonnerToast.error('El comprador ha cancelado esta solicitud de compra. El panel se ha cerrado.')
         }
       })
       .subscribe((status) => {
@@ -1205,10 +1190,10 @@ export function PurchaseCompletionPanel({
     return () => {
       console.log('🧹 Limpiando suscripción de cambios de status')
       try {
-        channel.unsubscribe()
+      channel.unsubscribe()
       } catch (error) {
         console.error('⚠️ Error desuscribiendo canal de cambios de status:', error)
-      }
+    }
     }
   }, [isOpen, requestId, onClose])
 
@@ -2156,7 +2141,7 @@ export function PurchaseCompletionPanel({
                   <span className="text-[10px] sm:text-xs font-medium text-muted-foreground">Código</span>
                 </div>
                 <div className="text-xs sm:text-sm font-mono font-bold text-foreground">
-                  {requestData?.unique_code || `NMHN-${new Date().toISOString().split('T')[0].replace(/-/g, '')}-${String(requestId.slice(-6)).toUpperCase()}`}
+                  {requestData?.unique_code || `NMHNC-${new Date().toISOString().split('T')[0].replace(/-/g, '').slice(2)}-${String(requestId.slice(-6)).toUpperCase()}`}
                 </div>
               </div>
 
@@ -2348,6 +2333,7 @@ export function PurchaseCompletionPanel({
                             p_priority: 'high',
                             p_cta_label: 'Ver transacción',
                             p_cta_href: `/dashboard/mis-solicitudes`,
+                            p_dedupe_key: `order_accepted_${requestId}_${transaction?.id}`, // Evitar duplicados
                             p_payload: {
                               transaction_id: transaction?.id,
                               request_id: requestId,
@@ -2474,6 +2460,85 @@ export function PurchaseCompletionPanel({
                         }
                         setTransaction(transactionWithUsers)
                       }
+                      
+                      // 5. Enviar notificación al vendedor cuando se completa el paso 2
+                      try {
+                        const sellerIdToNotify = transaction?.seller_id || sellerId
+                        if (sellerIdToNotify) {
+                          // Obtener información de la solicitud y comprador
+                          let buyerName = 'El comprador'
+                          let uniqueCode = ''
+                          
+                          // Intentar obtener desde requestData primero
+                          if (requestData) {
+                            buyerName = requestData.buyer?.full_name || 'El comprador'
+                            uniqueCode = requestData.unique_code || ''
+                          }
+                          
+                          // Si no está disponible en requestData, obtener desde la BD
+                          if (!buyerName || buyerName === 'El comprador' || !uniqueCode) {
+                            try {
+                              const { data: request } = await supabase
+                                .from('purchase_requests')
+                                .select('unique_code, buyer_id')
+                                .eq('id', requestId)
+                                .maybeSingle()
+                              
+                              if (request) {
+                                if (!uniqueCode && request.unique_code) {
+                                  uniqueCode = request.unique_code
+                                }
+                                
+                                if ((!buyerName || buyerName === 'El comprador') && request.buyer_id) {
+                                  // Obtener nombre del comprador
+                                  const { data: profile } = await supabase
+                                    .from('profiles')
+                                    .select('full_name')
+                                    .eq('id', request.buyer_id)
+                                    .maybeSingle()
+                                  
+                                  if (profile?.full_name) {
+                                    buyerName = profile.full_name
+                                  } else {
+                                    // Fallback: intentar con user_profiles
+                                    const { data: userProfile } = await supabase
+                                      .from('user_profiles')
+                                      .select('full_name')
+                                      .eq('id', request.buyer_id)
+                                      .maybeSingle()
+                                    
+                                    if (userProfile?.full_name) {
+                                      buyerName = userProfile.full_name
+                                    }
+                                  }
+                                }
+                              }
+                            } catch (dbErr) {
+                              console.error('Error obteniendo datos de BD para notificación:', dbErr)
+                            }
+                          }
+                          
+                          await supabase.rpc('emit_notification', {
+                            p_user_id: sellerIdToNotify,
+                            p_topic: 'order',
+                            p_event: 'STEP_2_COMPLETED',
+                            p_title: 'Paso 2 completado',
+                            p_body: `${buyerName} ha completado el paso 2 (pago realizado)`,
+                            p_priority: 'high',
+                            p_cta_label: 'Ver transacción',
+                            p_cta_href: `/dashboard/solicitudes`,
+                            p_payload: {
+                              transaction_id: transaction?.id,
+                              request_id: requestId,
+                              step_order: 2,
+                              unique_code: uniqueCode,
+                              buyer_name: buyerName
+                            }
+                          })
+                        }
+                      } catch (notificationErr) {
+                        console.error('Error en envío de notificación paso 2:', notificationErr)
+                      }
                     } else if (stepOrder === 3 && userRole === 'seller') {
                       // Acción Paso 3: Verificar Depósito
                       console.log('✅ Vendedor verificando depósito')
@@ -2497,7 +2562,86 @@ export function PurchaseCompletionPanel({
                         return
                       }
                       
-                      // 2. Acreditar HNLD al comprador automáticamente
+                      // 2. Enviar notificación al comprador cuando se completa el paso 3
+                      try {
+                        const buyerIdToNotify = transaction?.buyer_id || buyerId
+                        if (buyerIdToNotify) {
+                          // Obtener información de la solicitud y vendedor
+                          let sellerName = 'El vendedor'
+                          let uniqueCode = ''
+                          
+                          // Intentar obtener desde requestData primero
+                          if (requestData) {
+                            sellerName = requestData.seller?.full_name || 'El vendedor'
+                            uniqueCode = requestData.unique_code || ''
+                          }
+                          
+                          // Si no está disponible en requestData, obtener desde la BD
+                          if (!sellerName || sellerName === 'El vendedor' || !uniqueCode) {
+                            try {
+                              const { data: request } = await supabase
+                                .from('purchase_requests')
+                                .select('unique_code, seller_id')
+                                .eq('id', requestId)
+                                .maybeSingle()
+                              
+                              if (request) {
+                                if (!uniqueCode && request.unique_code) {
+                                  uniqueCode = request.unique_code
+                                }
+                                
+                                if ((!sellerName || sellerName === 'El vendedor') && request.seller_id) {
+                                  // Obtener nombre del vendedor
+                                  const { data: profile } = await supabase
+                                    .from('profiles')
+                                    .select('full_name')
+                                    .eq('id', request.seller_id)
+                                    .maybeSingle()
+                                  
+                                  if (profile?.full_name) {
+                                    sellerName = profile.full_name
+                                  } else {
+                                    // Fallback: intentar con user_profiles
+                                    const { data: userProfile } = await supabase
+                                      .from('user_profiles')
+                                      .select('full_name')
+                                      .eq('id', request.seller_id)
+                                      .maybeSingle()
+                                    
+                                    if (userProfile?.full_name) {
+                                      sellerName = userProfile.full_name
+                                    }
+                                  }
+                                }
+                              }
+                            } catch (dbErr) {
+                              console.error('Error obteniendo datos de BD para notificación paso 3:', dbErr)
+                            }
+                          }
+                          
+                          await supabase.rpc('emit_notification', {
+                            p_user_id: buyerIdToNotify,
+                            p_topic: 'order',
+                            p_event: 'STEP_3_COMPLETED',
+                            p_title: 'Paso 3 completado',
+                            p_body: `${sellerName} ha verificado el pago`,
+                            p_priority: 'high',
+                            p_cta_label: 'Ver transacción',
+                            p_cta_href: `/dashboard/mis-solicitudes`,
+                            p_payload: {
+                              transaction_id: transaction?.id,
+                              request_id: requestId,
+                              step_order: 3,
+                              unique_code: uniqueCode,
+                              seller_name: sellerName
+                            }
+                          })
+                        }
+                      } catch (notificationErr) {
+                        console.error('Error en envío de notificación paso 3:', notificationErr)
+                      }
+                      
+                      // 3. Acreditar HNLD al comprador automáticamente
                       try {
                         const buyerIdToCredit = transaction?.buyer_id || buyerId
                         const transactionAmount = transaction?.amount || amount
@@ -2507,7 +2651,7 @@ export function PurchaseCompletionPanel({
                         // Obtener el código único de la solicitud desde múltiples fuentes posibles
                         const requestUniqueCode = transaction?.request?.unique_code || 
                                                   requestData?.unique_code || 
-                                                  `NMHN-${new Date().toISOString().split('T')[0].replace(/-/g, '')}-${String(requestId).slice(-6).toUpperCase()}`
+                                                  `NMHNC-${new Date().toISOString().split('T')[0].replace(/-/g, '').slice(2)}-${String(requestId).slice(-6).toUpperCase()}`
                         
                         const historyDescription = `Compra completada - Solicitud ${requestUniqueCode} - Pago verificado por vendedor`
                         
@@ -2515,7 +2659,7 @@ export function PurchaseCompletionPanel({
                         console.log('🔍 Código único usado:', requestUniqueCode)
                         console.log('📋 transaction?.request?.unique_code:', transaction?.request?.unique_code)
                         console.log('📋 requestData?.unique_code:', requestData?.unique_code)
-
+                        
                         const { data: emitResult, error: emitError } = await supabase.rpc('emit_hnld', {
                           p_user_id: buyerIdToCredit,
                           p_amount: transactionAmount,
@@ -2533,7 +2677,7 @@ export function PurchaseCompletionPanel({
                         sonnerToast.error('La verificación se completó pero hubo un error al acreditar los HNLD. Contacta al soporte.')
                       }
                       
-                      // 3. Completar paso 4 automáticamente
+                      // 4. Completar paso 4 automáticamente
                       const { error: step4Error } = await supabase
                         .from('transaction_steps')
                         .update({
@@ -2545,9 +2689,154 @@ export function PurchaseCompletionPanel({
                       
                       if (step4Error) {
                         console.error('❌ Error actualizando paso 4:', step4Error)
+                      } else {
+                        // Enviar notificaciones cuando se completa el paso 4 (transacción completada)
+                        // Retrasar 3 segundos para que aparezca después del toast del paso 3
+                        setTimeout(async () => {
+                          try {
+                          const buyerIdToNotify = transaction?.buyer_id || buyerId
+                          const sellerIdToNotify = transaction?.seller_id || sellerId
+                          
+                          // Obtener el monto en HNLD (final_amount_hnld) de la transacción o del request
+                          let hnldAmount = transaction?.final_amount_hnld || 
+                                          requestData?.final_amount_hnld || 
+                                          requestData?.amount || 
+                                          transaction?.amount || 
+                                          amount
+                          
+                          // Obtener información de la solicitud
+                          let uniqueCode = ''
+                          let buyerName = 'El comprador'
+                          let sellerName = 'El vendedor'
+                          
+                          if (requestData) {
+                            uniqueCode = requestData.unique_code || ''
+                            buyerName = requestData.buyer?.full_name || 'El comprador'
+                            sellerName = requestData.seller?.full_name || 'El vendedor'
+                          }
+                          
+                          // Si no está disponible, obtener desde la BD
+                          if (!uniqueCode || buyerName === 'El comprador' || sellerName === 'El vendedor' || !hnldAmount) {
+                            try {
+                              const { data: request } = await supabase
+                                .from('purchase_requests')
+                                .select('unique_code, buyer_id, seller_id, final_amount_hnld')
+                                .eq('id', requestId)
+                                .maybeSingle()
+                              
+                              if (request) {
+                                if (!uniqueCode && request.unique_code) {
+                                  uniqueCode = request.unique_code
+                                }
+                                
+                                // Obtener monto en HNLD si no está disponible
+                                if (!hnldAmount && request.final_amount_hnld) {
+                                  hnldAmount = request.final_amount_hnld
+                                }
+                                
+                                // Obtener nombres si no están disponibles
+                                if (request.buyer_id && buyerName === 'El comprador') {
+                                  const { data: buyerProfile } = await supabase
+                                    .from('profiles')
+                                    .select('full_name')
+                                    .eq('id', request.buyer_id)
+                                    .maybeSingle()
+                                  
+                                  if (buyerProfile?.full_name) {
+                                    buyerName = buyerProfile.full_name
+                                  }
+                                }
+                                
+                                if (request.seller_id && sellerName === 'El vendedor') {
+                                  const { data: sellerProfile } = await supabase
+                                    .from('profiles')
+                                    .select('full_name')
+                                    .eq('id', request.seller_id)
+                                    .maybeSingle()
+                                  
+                                  if (sellerProfile?.full_name) {
+                                    sellerName = sellerProfile.full_name
+                                  }
+                                }
+                              }
+                              
+                              // Si aún no tenemos el monto en HNLD, obtenerlo de la transacción
+                              if (!hnldAmount && transaction?.id) {
+                                const { data: transData } = await supabase
+                                  .from('purchase_transactions')
+                                  .select('final_amount_hnld')
+                                  .eq('id', transaction.id)
+                                  .maybeSingle()
+                                
+                                if (transData?.final_amount_hnld) {
+                                  hnldAmount = transData.final_amount_hnld
+                                }
+                              }
+                            } catch (dbErr) {
+                              console.error('Error obteniendo datos de BD para notificación paso 4:', dbErr)
+                            }
+                          }
+                          
+                          // Formatear el monto en HNLD
+                          const formattedHnldAmount = 'L. ' + 
+                            new Intl.NumberFormat('es-HN', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2
+                            }).format(hnldAmount || 0) + ' HNLD'
+                          
+                          // Notificación al comprador
+                          if (buyerIdToNotify) {
+                            await supabase.rpc('emit_notification', {
+                              p_user_id: buyerIdToNotify,
+                              p_topic: 'order',
+                              p_event: 'TRANSACTION_COMPLETED',
+                              p_title: 'Transacción completada',
+                              p_body: `Se acreditó exitosamente ${formattedHnldAmount} a tu cuenta. La transacción ha finalizado correctamente.`,
+                              p_priority: 'high',
+                              p_cta_label: 'Ver transacción',
+                              p_cta_href: `/dashboard/mis-solicitudes`,
+                              p_payload: {
+                                transaction_id: transaction?.id,
+                                request_id: requestId,
+                                step_order: 4,
+                                unique_code: uniqueCode,
+                                amount: hnldAmount,
+                                formatted_amount: formattedHnldAmount,
+                                role: 'buyer'
+                              }
+                            })
+                          }
+                          
+                          // Notificación al vendedor
+                          if (sellerIdToNotify) {
+                            await supabase.rpc('emit_notification', {
+                              p_user_id: sellerIdToNotify,
+                              p_topic: 'order',
+                              p_event: 'TRANSACTION_COMPLETED',
+                              p_title: 'Transacción completada',
+                              p_body: `La transacción con ${buyerName} ha finalizado exitosamente. Los fondos han sido liberados.`,
+                              p_priority: 'high',
+                              p_cta_label: 'Ver transacción',
+                              p_cta_href: `/dashboard/solicitudes`,
+                              p_payload: {
+                                transaction_id: transaction?.id,
+                                request_id: requestId,
+                                step_order: 4,
+                                unique_code: uniqueCode,
+                                amount: hnldAmount,
+                                formatted_amount: formattedHnldAmount,
+                                buyer_name: buyerName,
+                                role: 'seller'
+                              }
+                            })
+                          }
+                          } catch (notificationErr) {
+                            console.error('Error en envío de notificaciones paso 4:', notificationErr)
+                          }
+                        }, 3000) // Retraso de 3 segundos
                       }
                       
-                      // 4. Marcar transacción como completada
+                      // 5. Marcar transacción como completada
                       const transactionUpdatePayload: any = {
                         status: 'completed'
                       }
@@ -2690,12 +2979,8 @@ export function PurchaseCompletionPanel({
                       // 9. Marcar que la finalización fue manejada (para evitar duplicados en realtime)
                       transactionCompletionHandledRef.current = true
                       
-                      // 10. Mostrar notificación de éxito con mensaje de acreditación
-                      toast({
-                        title: "✅ Transacción completada",
-                        description: `Se acreditó exitosamente el saldo de L.${transaction?.amount || amount} de HNLD al comprador. La transacción ha finalizado correctamente.`,
-                        duration: 5000,
-                      })
+                      // 10. Nota: El toast de "Transacción completada" se muestra vía NotificationBell
+                      // cuando se recibe la notificación TRANSACTION_COMPLETED (con retraso de 3 segundos)
                       
                       // 11. Cerrar el panel después de 3 segundos
                       setTimeout(() => {
