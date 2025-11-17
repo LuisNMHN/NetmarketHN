@@ -863,16 +863,20 @@ export function SaleCompletionPanel({
       } else if (stepOrder === 3 && userRole === 'seller') {
         // Paso 3: Vendedor verifica pago
         // Verificar que el paso 3 aún no esté completado para evitar doble procesamiento
-        const { data: currentStep } = await supabase
+        const { data: currentStep, error: checkError } = await supabase
           .from('sale_transaction_steps')
           .select('status')
           .eq('transaction_id', transaction.id)
           .eq('step_order', 3)
           .single()
         
+        if (checkError && checkError.code !== 'PGRST116') {
+          // PGRST116 es "no rows returned", que es normal si el paso no existe aún
+          throw checkError
+        }
+        
         if (currentStep?.status === 'completed') {
           console.log('⚠️ Paso 3 ya está completado, evitando doble procesamiento')
-          setLoading(false)
           return
         }
         
@@ -1342,16 +1346,18 @@ export function SaleCompletionPanel({
               {stepOrder === 3 && userRole === 'seller' && isInProgress && (
                 <div className="space-y-3 mt-3">
                   {transaction?.payment_proof_url && (
-                    <a
-                      href={transaction.payment_proof_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => setPaymentProofViewed(true)}
-                      className="text-sm text-blue-600 hover:underline flex items-center gap-2"
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        setPaymentProofViewed(true)
+                        window.open(transaction.payment_proof_url, '_blank', 'noopener,noreferrer')
+                      }}
+                      className="text-sm text-blue-600 hover:underline flex items-center gap-2 cursor-pointer"
                     >
                       <FileText className="h-4 w-4" />
                       Ver comprobante de pago
-                    </a>
+                    </button>
                   )}
                   {!paymentProofViewed && transaction?.payment_proof_url && (
                     <p className="text-xs text-muted-foreground">

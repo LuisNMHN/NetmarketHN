@@ -418,15 +418,15 @@ export default function MisSolicitudesPage() {
       case 'active':
         return <Badge variant="default" className="bg-green-100 text-green-800">Activa</Badge>
       case 'negotiating':
-        return <Badge variant="default" className="bg-blue-100 text-blue-800">Negociando</Badge>
+        return <Badge variant="default" className="bg-orange-100 text-orange-800">Negociando</Badge>
       case 'accepted':
-        return <Badge variant="default" className="bg-orange-100 text-orange-800">Aceptada</Badge>
+        return <Badge variant="default" className="bg-purple-100 text-purple-800">Aceptada</Badge>
       case 'completed':
-        return <Badge variant="default" className="bg-gray-100 text-gray-800">Completada</Badge>
+        return <Badge variant="default" className="bg-emerald-100 text-emerald-800">Completada</Badge>
       case 'cancelled':
-        return <Badge variant="secondary">Cancelada</Badge>
+        return <Badge variant="destructive">Cancelada</Badge>
       case 'expired':
-        return <Badge variant="outline">Expirada</Badge>
+        return <Badge variant="secondary">Expirada</Badge>
       default:
         return <Badge variant="outline">{status}</Badge>
     }

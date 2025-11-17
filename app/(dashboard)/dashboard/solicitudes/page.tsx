@@ -157,7 +157,7 @@ export default function SolicitudesPage() {
       case 'completed':
         return <Badge variant="default" className="bg-emerald-100 text-emerald-800">Completada</Badge>
       case 'cancelled':
-        return <Badge variant="secondary">Cancelada</Badge>
+        return <Badge variant="destructive">Cancelada</Badge>
       case 'expired':
         return <Badge variant="secondary">Expirada</Badge>
       default:

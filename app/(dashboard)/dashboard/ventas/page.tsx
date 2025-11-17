@@ -196,7 +196,7 @@ export default function VentasPage() {
       case 'completed':
         return <Badge variant="default" className="bg-emerald-100 text-emerald-800">Completada</Badge>
       case 'cancelled':
-        return <Badge variant="destructive" className="animate-pulse">Cancelada</Badge>
+        return <Badge variant="destructive">Cancelada</Badge>
       case 'expired':
         return <Badge variant="secondary">Expirada</Badge>
       default:

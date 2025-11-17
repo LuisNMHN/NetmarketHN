@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -40,12 +40,15 @@ import { useToast } from "@/hooks/use-toast"
 import { 
   getUserHNLDBalance, 
   emitHNLD, 
-  transferHNLD, 
   getTransactionHistory,
-  searchUserByEmail,
   type HNLDBalance,
   type HNLDTransaction
 } from "@/lib/actions/hnld"
+import {
+  createDirectTransfer,
+  findUserByEmail,
+  type DirectTransfer
+} from "@/lib/actions/direct_transfers"
 import {
   createPurchaseRequest,
   processCardPurchase,
@@ -70,7 +73,8 @@ import {
   Clock,
   Info,
   Shield,
-  HelpCircle
+  HelpCircle,
+  User
 } from "lucide-react"
 
 export default function SaldoPage() {
@@ -86,9 +90,17 @@ export default function SaldoPage() {
   const { toast } = useToast()
 
   // Form states
-  const [transferForm, setTransferForm] = useState({ amount: "", recipient: "", description: "" })
-  const [searchUser, setSearchUser] = useState({ email: "", user: null as any })
+  const [transferForm, setTransferForm] = useState({ 
+    email: "", 
+    amount: "", 
+    description: "" 
+  })
+  const [selectedUser, setSelectedUser] = useState<{ id: string; email: string; full_name?: string } | null>(null)
+  const [validatingEmail, setValidatingEmail] = useState(false)
+  const [emailError, setEmailError] = useState<string | null>(null)
   const [processing, setProcessing] = useState(false)
+  const modalRef = useRef<HTMLDivElement>(null)
+  const emailTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const loadHNLDData = async () => {
     try {
@@ -128,53 +140,105 @@ export default function SaldoPage() {
   }
 
 
-  const handleSearchUser = async () => {
-    if (!searchUser.email) {
-      toast({
-        title: "Error",
-        description: "Ingresa un email válido",
-        variant: "destructive",
-      })
+  // Validar formato de email
+  const isValidEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    return emailRegex.test(email)
+  }
+
+  // Buscar usuario por email con debounce
+  const handleEmailChange = (email: string) => {
+    setTransferForm(prev => ({ ...prev, email }))
+    setSelectedUser(null)
+    setEmailError(null)
+
+    // Limpiar timeout anterior
+    if (emailTimeoutRef.current) {
+      clearTimeout(emailTimeoutRef.current)
+    }
+
+    // Si el email está vacío, no hacer nada
+    if (!email || email.trim() === '') {
       return
     }
 
-    try {
-      const result = await searchUserByEmail(searchUser.email)
-      if (result.success && result.data) {
-        setSearchUser(prev => ({ ...prev, user: result.data }))
-        toast({
-          title: "✅ Usuario encontrado",
-          description: `${result.data.name || result.data.email}`,
-        })
-      } else {
-        setSearchUser(prev => ({ ...prev, user: null }))
-        toast({
-          title: "❌ Usuario no encontrado",
-          description: result.error || "No se encontró el usuario",
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
-      toast({
-        title: "❌ Error",
-        description: "Error buscando usuario",
-        variant: "destructive",
-      })
+    // Validar formato de email
+    if (!isValidEmail(email)) {
+      setEmailError('Formato de email inválido')
+      return
     }
+
+    // Buscar usuario después de 500ms de inactividad (debounce)
+    setValidatingEmail(true)
+    emailTimeoutRef.current = setTimeout(async () => {
+      try {
+        const result = await findUserByEmail(email.trim().toLowerCase())
+        if (result && result.success && result.data) {
+          setSelectedUser(result.data)
+          setEmailError(null)
+        } else {
+          setSelectedUser(null)
+          setEmailError(result.error || 'Usuario no encontrado')
+        }
+      } catch (error) {
+        console.error('Error buscando usuario:', error)
+        setSelectedUser(null)
+        setEmailError('Error al buscar usuario')
+      } finally {
+        setValidatingEmail(false)
+      }
+    }, 500)
   }
 
   const handleTransfer = async () => {
-    if (!transferForm.amount || !searchUser.user) {
+    // Validar email si no hay usuario seleccionado
+    if (!selectedUser) {
+      if (!transferForm.email || !isValidEmail(transferForm.email)) {
+        toast({
+          title: "Error",
+          description: "Debes ingresar un email válido",
+          variant: "destructive",
+        })
+        return
+      }
+      
+      // Intentar buscar el usuario una vez más
+      setValidatingEmail(true)
+      try {
+        const result = await findUserByEmail(transferForm.email.trim().toLowerCase())
+        if (result && result.success && result.data) {
+          setSelectedUser(result.data)
+        } else {
+          toast({
+            title: "Error",
+            description: result.error || "Usuario no encontrado",
+            variant: "destructive",
+          })
+          return
+        }
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Error al buscar usuario",
+          variant: "destructive",
+        })
+        return
+      } finally {
+        setValidatingEmail(false)
+      }
+    }
+
+    if (!selectedUser) {
       toast({
         title: "Error",
-        description: "Todos los campos son requeridos",
+        description: "Debes ingresar un email válido de un usuario registrado",
         variant: "destructive",
       })
       return
     }
 
     const amount = parseFloat(transferForm.amount)
-    if (amount <= 0) {
+    if (isNaN(amount) || amount <= 0) {
       toast({
         title: "Error",
         description: "El monto debe ser mayor a 0",
@@ -186,7 +250,7 @@ export default function SaldoPage() {
     if (hnldBalance && amount > hnldBalance.available_balance) {
       toast({
         title: "Error",
-        description: `Balance insuficiente. Disponible: ${formatCurrency(hnldBalance.available_balance)}`,
+        description: `Balance insuficiente. Disponible: ${formatCurrency(hnldBalance.available_balance, 'HNLD')}`,
         variant: "destructive",
       })
       return
@@ -194,38 +258,58 @@ export default function SaldoPage() {
 
     setProcessing(true)
     try {
-      const result = await transferHNLD(
-        searchUser.user.id, 
-        amount, 
-        transferForm.description || `Transferencia a ${searchUser.user.name || searchUser.user.email}`
+      const result = await createDirectTransfer(
+        selectedUser.id,
+        amount,
+        transferForm.description || undefined
       )
-      
+
       if (result.success) {
         toast({
-          title: "✅ Transferencia exitosa",
-          description: `Se transfirieron ${formatCurrency(amount)} HNLD a ${searchUser.user.name || searchUser.user.email}`,
+          title: "Transferencia completada",
+          description: `Has transferido ${formatCurrency(amount, 'HNLD')} a ${selectedUser.full_name || selectedUser.email}`,
+          variant: "success",
         })
-        setTransferForm({ amount: "", recipient: "", description: "" })
-        setSearchUser({ email: "", user: null })
+        
+        // Limpiar formulario
+        setSelectedUser(null)
+        setTransferForm({ email: "", amount: "", description: "" })
+        setEmailError(null)
         setTransferOpen(false)
+        
+        // Limpiar timeout si existe
+        if (emailTimeoutRef.current) {
+          clearTimeout(emailTimeoutRef.current)
+        }
+        
+        // Recargar datos
         await loadHNLDData()
       } else {
         toast({
-          title: "❌ Error en transferencia",
-          description: result.error || "No se pudo procesar la transferencia",
+          title: "Error",
+          description: result.error || "Error procesando transferencia",
           variant: "destructive",
         })
       }
-    } catch (error) {
+    } catch (error: any) {
       toast({
-        title: "❌ Error",
-        description: "Error inesperado al procesar la transferencia",
+        title: "Error",
+        description: error.message || "Error inesperado",
         variant: "destructive",
       })
     } finally {
       setProcessing(false)
     }
   }
+
+  // Limpiar timeout al desmontar
+  useEffect(() => {
+    return () => {
+      if (emailTimeoutRef.current) {
+        clearTimeout(emailTimeoutRef.current)
+      }
+    }
+  }, [])
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -269,6 +353,37 @@ export default function SaldoPage() {
   useEffect(() => {
     loadHNLDData()
   }, [])
+
+  // Efecto para desenfoque del contenido de fondo cuando se abre el modal
+  useEffect(() => {
+    if (transferOpen) {
+      const pageContent = document.querySelector('main') || document.querySelector('#__next') || document.querySelector('.min-h-screen')
+      if (pageContent) {
+        pageContent.style.filter = 'blur(20px)'
+        pageContent.style.transition = 'filter 0.3s ease-out'
+      }
+      
+      setTimeout(() => {
+        const modal = document.querySelector('[data-radix-dialog-content]')
+        if (modal) {
+          modal.style.filter = 'none !important'
+          modal.style.backdropFilter = 'none !important'
+          modal.style.zIndex = '9999'
+        }
+        
+        const overlay = document.querySelector('[data-radix-dialog-overlay]')
+        if (overlay) {
+          overlay.style.filter = 'none !important'
+          overlay.style.backdropFilter = 'none !important'
+        }
+      }, 100)
+    } else {
+      const pageContent = document.querySelector('main') || document.querySelector('#__next') || document.querySelector('.min-h-screen')
+      if (pageContent) {
+        pageContent.style.filter = 'none'
+      }
+    }
+  }, [transferOpen])
 
   if (loading) {
     return (
@@ -335,7 +450,7 @@ export default function SaldoPage() {
               <Coins className="h-5 w-5 text-green-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{formatCurrency(hnldBalance.balance)}</div>
+              <div className="text-2xl font-bold text-green-600">{formatCurrency(hnldBalance.balance, 'HNLD')}</div>
               <p className="text-xs text-muted-foreground">HNLD en tu cuenta</p>
             </CardContent>
           </Card>
@@ -359,7 +474,7 @@ export default function SaldoPage() {
               <DollarSign className="h-5 w-5 text-blue-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-600">{formatCurrency(hnldBalance.available_balance)}</div>
+              <div className="text-2xl font-bold text-blue-600">{formatCurrency(hnldBalance.available_balance, 'HNLD')}</div>
               <p className="text-xs text-muted-foreground">Listo para usar</p>
             </CardContent>
           </Card>
@@ -383,7 +498,7 @@ export default function SaldoPage() {
               <Banknote className="h-5 w-5 text-orange-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-orange-600">{formatCurrency(hnldBalance.reserved_balance)}</div>
+              <div className="text-2xl font-bold text-orange-600">{formatCurrency(hnldBalance.reserved_balance, 'HNLD')}</div>
               <p className="text-xs text-muted-foreground">En transacciones pendientes</p>
             </CardContent>
           </Card>
@@ -435,64 +550,203 @@ export default function SaldoPage() {
                   <span>Transferir HNLD</span>
                 </Button>
               </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Transferir HNLD</DialogTitle>
-                  <DialogDescription>Transfiere HNLD a otro usuario de la plataforma</DialogDescription>
+              <DialogContent 
+                ref={modalRef}
+                className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] sm:w-[28rem] bg-background border-border shadow-xl"
+                style={{
+                  maxHeight: '95vh',
+                  overflowY: 'auto',
+                  touchAction: 'none',
+                  WebkitOverflowScrolling: 'touch',
+                  transition: 'transform 0.2s ease-out',
+                  minWidth: '320px',
+                  maxWidth: '28rem'
+                }}
+              >
+                <DialogHeader className="pb-3 sm:pb-4">
+                  <DialogTitle className="text-lg sm:text-xl font-semibold text-center sm:text-left flex items-center gap-2">
+                    <Send className="h-5 w-5 text-blue-600" />
+                    Transferir HNLD
+                  </DialogTitle>
+                  <DialogDescription className="text-muted-foreground text-sm sm:text-base text-center sm:text-left">
+                    Transfiere HNLD directamente a otro usuario de la plataforma
+                  </DialogDescription>
                 </DialogHeader>
-                <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="transfer-amount">Monto en HNLD</Label>
-                    <Input
-                      id="transfer-amount"
-                      type="number"
-                      placeholder="0.00"
-                      value={transferForm.amount}
-                      onChange={(e) => setTransferForm((prev) => ({ ...prev, amount: e.target.value }))}
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Disponible: {formatCurrency(hnldBalance.available_balance)}
-                    </p>
-                  </div>
-                  <div>
-                    <Label htmlFor="search-email">Buscar Usuario</Label>
-                    <div className="flex space-x-2">
-                      <Input
-                        id="search-email"
-                        type="email"
-                        placeholder="Email del destinatario"
-                        value={searchUser.email}
-                        onChange={(e) => setSearchUser((prev) => ({ ...prev, email: e.target.value }))}
-                      />
-                      <Button type="button" onClick={handleSearchUser} size="sm">
-                        <Search className="h-4 w-4" />
-                      </Button>
+                
+                <div className="space-y-4 sm:space-y-6 py-2">
+                  {/* Balance disponible destacado */}
+                  {hnldBalance && (
+                    <div className="bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-950/20 dark:to-green-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Balance disponible</p>
+                          <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                            {formatCurrency(hnldBalance.available_balance, 'HNLD')}
+                          </p>
+                        </div>
+                        <DollarSign className="h-8 w-8 text-blue-600 dark:text-blue-400 opacity-50" />
+                      </div>
                     </div>
-                    {searchUser.user && (
-                      <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded">
-                        <p className="text-sm font-medium text-green-800">
-                          ✅ {searchUser.user.name || searchUser.user.email}
-                        </p>
+                  )}
+
+                  {/* Email del destinatario */}
+                  <div className="space-y-2">
+                    <Label htmlFor="transfer-email" className="text-sm font-medium flex items-center gap-2">
+                      <User className="h-4 w-4" />
+                      Correo electrónico del destinatario
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        id="transfer-email"
+                        type="email"
+                        placeholder="usuario@ejemplo.com"
+                        value={transferForm.email}
+                        onChange={(e) => handleEmailChange(e.target.value)}
+                        className={`h-11 pr-10 ${
+                          emailError ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : 
+                          selectedUser ? 'border-green-500 focus:border-green-500 focus:ring-green-500' : ''
+                        }`}
+                        disabled={processing}
+                      />
+                      {validatingEmail && (
+                        <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
+                      {!validatingEmail && selectedUser && (
+                        <CheckCircle className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-green-600" />
+                      )}
+                      {!validatingEmail && emailError && (
+                        <XCircle className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-red-600" />
+                      )}
+                    </div>
+                    
+                    {/* Mensaje de error o éxito */}
+                    {emailError && (
+                      <p className="text-xs text-red-600 flex items-center gap-1">
+                        <XCircle className="h-3 w-3" />
+                        {emailError}
+                      </p>
+                    )}
+                    
+                    {selectedUser && !emailError && (
+                      <div className="border-2 border-green-200 dark:border-green-800 rounded-lg p-3 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/20 dark:to-emerald-950/20 shadow-sm">
+                        <div className="flex items-center gap-3">
+                          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                            <User className="h-5 w-5 text-green-600 dark:text-green-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm text-green-800 dark:text-green-300 truncate">
+                              {selectedUser.full_name || 'Usuario'}
+                            </p>
+                            <p className="text-xs text-green-600 dark:text-green-400 truncate">
+                              {selectedUser.email}
+                            </p>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedUser(null)
+                              setTransferForm(prev => ({ ...prev, email: "" }))
+                              setEmailError(null)
+                            }}
+                            className="flex-shrink-0 h-8"
+                          >
+                            Cambiar
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>
-                  <div>
-                    <Label htmlFor="transfer-description">Descripción (opcional)</Label>
+
+                  {/* Monto */}
+                  <div className="space-y-2">
+                    <Label htmlFor="transfer-amount" className="text-sm font-medium flex items-center gap-2">
+                      <Coins className="h-4 w-4" />
+                      Monto (HNLD)
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        id="transfer-amount"
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        placeholder="0.00"
+                        value={transferForm.amount}
+                        onChange={(e) => setTransferForm((prev) => ({ ...prev, amount: e.target.value }))}
+                        disabled={!selectedUser}
+                        className="h-11 text-lg font-semibold pr-4"
+                      />
+                      {transferForm.amount && !isNaN(parseFloat(transferForm.amount)) && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                          = {formatCurrency(parseFloat(transferForm.amount), 'HNLD')}
+                        </div>
+                      )}
+                    </div>
+                    {transferForm.amount && !isNaN(parseFloat(transferForm.amount)) && hnldBalance && (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Disponible:</span>
+                        <span className={`font-medium ${
+                          parseFloat(transferForm.amount) > hnldBalance.available_balance 
+                            ? 'text-red-600' 
+                            : 'text-green-600'
+                        }`}>
+                          {formatCurrency(hnldBalance.available_balance, 'HNLD')}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Descripción */}
+                  <div className="space-y-2">
+                    <Label htmlFor="transfer-description" className="text-sm font-medium">
+                      Descripción (opcional)
+                    </Label>
                     <Textarea
                       id="transfer-description"
-                      placeholder="Agregar una descripción..."
+                      placeholder="Mensaje o motivo de la transferencia..."
                       value={transferForm.description}
                       onChange={(e) => setTransferForm((prev) => ({ ...prev, description: e.target.value }))}
+                      disabled={!selectedUser}
+                      rows={3}
+                      className="resize-none"
                     />
                   </div>
                 </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setTransferOpen(false)} disabled={processing}>
-                    Cancelar
-                  </Button>
-                  <Button onClick={handleTransfer} disabled={processing || !searchUser.user}>
-                    {processing ? "Procesando..." : "Transferir HNLD"}
-                  </Button>
+
+                <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0 pt-4 border-t">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setTransferOpen(false)
+                        setSelectedUser(null)
+                        setTransferForm({ email: "", amount: "", description: "" })
+                        setEmailError(null)
+                        if (emailTimeoutRef.current) {
+                          clearTimeout(emailTimeoutRef.current)
+                        }
+                      }}
+                      disabled={processing}
+                      className="w-full sm:w-auto"
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      onClick={handleTransfer}
+                      disabled={!selectedUser || !transferForm.amount || processing || validatingEmail}
+                      className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
+                    >
+                      {processing || validatingEmail ? (
+                        <>
+                          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                          {validatingEmail ? "Verificando..." : "Procesando..."}
+                        </>
+                      ) : (
+                        <>
+                          <Send className="mr-2 h-4 w-4" />
+                          Transferir HNLD
+                        </>
+                      )}
+                    </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>

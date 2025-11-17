@@ -177,9 +177,9 @@ export default function MisVentasPage() {
       case 'completed':
         return <Badge variant="default" className="bg-emerald-100 text-emerald-800">Completada</Badge>
       case 'cancelled':
-        return <Badge variant="secondary">Cancelada</Badge>
+        return <Badge variant="destructive">Cancelada</Badge>
       case 'expired':
-        return <Badge variant="outline">Expirada</Badge>
+        return <Badge variant="secondary">Expirada</Badge>
       default:
         return <Badge variant="outline">{status}</Badge>
     }

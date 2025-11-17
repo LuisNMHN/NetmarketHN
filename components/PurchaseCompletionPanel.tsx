@@ -854,15 +854,18 @@ export function PurchaseCompletionPanel({
             console.error('❌ Error procesando cambio en purchase_transactions:', error)
           }
         })
-        .subscribe((status) => {
-          console.log('🔌 Estado de suscripción transacción realtime:', status)
+        .subscribe((status, err) => {
           if (status === 'SUBSCRIBED') {
             console.log('✅ Suscripción realtime activa para transacción:', transactionId)
             currentSubscribedTransactionIdRef.current = transactionId
           } else if (status === 'CHANNEL_ERROR') {
-            console.error('❌ Error en canal realtime de transacción:', transactionId)
-          } else if (status === 'TIMED_OUT') {
-            console.warn('⚠️ Timeout en suscripción realtime de transacción:', transactionId)
+            // Solo loggear si hay un error real, no si es undefined (desconexión temporal)
+            if (err) {
+              console.warn('⚠️ Error en canal realtime de transacción:', transactionId, err)
+            }
+          } else if (status === 'TIMED_OUT' || status === 'CLOSED') {
+            // Estados normales de desconexión, no son errores críticos
+            console.log('📡 Canal realtime de transacción:', status, transactionId)
           }
         })
       
