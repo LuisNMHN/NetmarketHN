@@ -44,6 +44,7 @@ import {
   type HNLDBalance,
   type HNLDTransaction
 } from "@/lib/actions/hnld"
+import { supabaseBrowser } from "@/lib/supabase/client"
 import {
   createDirectTransfer,
   findUserByEmail,
@@ -99,8 +100,25 @@ export default function SaldoPage() {
   const [validatingEmail, setValidatingEmail] = useState(false)
   const [emailError, setEmailError] = useState<string | null>(null)
   const [processing, setProcessing] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const modalRef = useRef<HTMLDivElement>(null)
   const emailTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Obtener usuario actual
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      try {
+        const supabase = supabaseBrowser()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          setCurrentUserId(user.id)
+        }
+      } catch (error) {
+        console.error('Error obteniendo usuario:', error)
+      }
+    }
+    getCurrentUser()
+  }, [])
 
   const loadHNLDData = async () => {
     try {
@@ -268,7 +286,7 @@ export default function SaldoPage() {
         toast({
           title: "Transferencia completada",
           description: `Has transferido ${formatCurrency(amount, 'HNLD')} a ${selectedUser.full_name || selectedUser.email}`,
-          variant: "success",
+          variant: "created",
         })
         
         // Limpiar formulario
@@ -348,6 +366,53 @@ export default function SaldoPage() {
       default:
         return <ArrowRightLeft className="h-4 w-4 text-gray-500" />
     }
+  }
+
+  const getTransactionTypeLabel = (type: string): string => {
+    switch (type) {
+      case 'deposit':
+        return 'Compra de HNLD'
+      case 'withdrawal':
+        return 'Venta de HNLD'
+      case 'transfer':
+        return 'Transferencia directa de HNLD'
+      default:
+        return type
+    }
+  }
+
+  const getTransactionTitle = (transaction: HNLDTransaction): string => {
+    switch (transaction.transaction_type) {
+      case 'deposit':
+        return 'Compra de HNLD'
+      case 'withdrawal':
+        return 'Venta de HNLD'
+      case 'transfer':
+        return 'Transferencia de HNLD'
+      default:
+        return 'Transacción HNLD'
+    }
+  }
+
+  const formatAmountWithHNLD = (amount: number): string => {
+    const formattedAmount = amount.toLocaleString('es-HN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })
+    return `HNLD ${formattedAmount}`
+  }
+
+  // Determinar si el monto debe mostrarse en rojo (débito)
+  const isDebit = (transaction: HNLDTransaction): boolean => {
+    // Ventas (withdrawal) siempre son débitos
+    if (transaction.transaction_type === 'withdrawal') {
+      return true
+    }
+    // Transferencias salientes (cuando el usuario es el remitente) son débitos
+    if (transaction.transaction_type === 'transfer' && currentUserId && transaction.from_user_id === currentUserId) {
+      return true
+    }
+    return false
   }
 
   useEffect(() => {
@@ -450,7 +515,13 @@ export default function SaldoPage() {
               <Coins className="h-5 w-5 text-green-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{formatCurrency(hnldBalance.balance, 'HNLD')}</div>
+              <div className="text-2xl font-bold text-green-600">
+                <span className="text-lg mr-2">HNLD</span>
+                {hnldBalance.balance.toLocaleString('es-HN', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2
+                })}
+              </div>
               <p className="text-xs text-muted-foreground">HNLD en tu cuenta</p>
             </CardContent>
           </Card>
@@ -474,7 +545,13 @@ export default function SaldoPage() {
               <DollarSign className="h-5 w-5 text-blue-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-600">{formatCurrency(hnldBalance.available_balance, 'HNLD')}</div>
+              <div className="text-2xl font-bold text-blue-600">
+                <span className="text-lg mr-2">HNLD</span>
+                {hnldBalance.available_balance.toLocaleString('es-HN', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2
+                })}
+              </div>
               <p className="text-xs text-muted-foreground">Listo para usar</p>
             </CardContent>
           </Card>
@@ -498,7 +575,13 @@ export default function SaldoPage() {
               <Banknote className="h-5 w-5 text-orange-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-orange-600">{formatCurrency(hnldBalance.reserved_balance, 'HNLD')}</div>
+              <div className="text-2xl font-bold text-orange-600">
+                <span className="text-lg mr-2">HNLD</span>
+                {hnldBalance.reserved_balance.toLocaleString('es-HN', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2
+                })}
+              </div>
               <p className="text-xs text-muted-foreground">En transacciones pendientes</p>
             </CardContent>
           </Card>
@@ -545,14 +628,14 @@ export default function SaldoPage() {
 
             <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
               <DialogTrigger asChild>
-                <Button variant="outline" className="h-16 flex-col space-y-2 bg-transparent" disabled={processing}>
+                <Button className="h-16 flex-col space-y-2 bg-blue-600 hover:bg-blue-700 text-white" disabled={processing}>
                   <ArrowRightLeft className="h-5 w-5" />
                   <span>Transferir HNLD</span>
                 </Button>
               </DialogTrigger>
               <DialogContent 
                 ref={modalRef}
-                className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] sm:w-[28rem] bg-background border-border shadow-xl"
+                className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] sm:w-[28rem] bg-white dark:bg-slate-900 backdrop-blur-sm border border-slate-200 dark:border-slate-700 shadow-xl dark:shadow-2xl"
                 style={{
                   maxHeight: '95vh',
                   overflowY: 'auto',
@@ -563,12 +646,12 @@ export default function SaldoPage() {
                   maxWidth: '28rem'
                 }}
               >
-                <DialogHeader className="pb-3 sm:pb-4">
-                  <DialogTitle className="text-lg sm:text-xl font-semibold text-center sm:text-left flex items-center gap-2">
-                    <Send className="h-5 w-5 text-blue-600" />
+                <DialogHeader className="pb-3 sm:pb-4 border-b border-slate-200 dark:border-slate-700">
+                  <DialogTitle className="text-lg sm:text-xl font-semibold text-center sm:text-left flex items-center gap-2 text-slate-900 dark:text-slate-100">
+                    <Send className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                     Transferir HNLD
                   </DialogTitle>
-                  <DialogDescription className="text-muted-foreground text-sm sm:text-base text-center sm:text-left">
+                  <DialogDescription className="text-slate-600 dark:text-slate-400 text-sm sm:text-base text-center sm:text-left">
                     Transfiere HNLD directamente a otro usuario de la plataforma
                   </DialogDescription>
                 </DialogHeader>
@@ -576,23 +659,24 @@ export default function SaldoPage() {
                 <div className="space-y-4 sm:space-y-6 py-2">
                   {/* Balance disponible destacado */}
                   {hnldBalance && (
-                    <div className="bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-950/20 dark:to-green-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Balance disponible</p>
-                          <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                            {formatCurrency(hnldBalance.available_balance, 'HNLD')}
-                          </p>
-                        </div>
-                        <DollarSign className="h-8 w-8 text-blue-600 dark:text-blue-400 opacity-50" />
+                    <div className="p-4 border border-blue-200 dark:border-blue-700/50 rounded-lg bg-transparent dark:bg-transparent">
+                      <div>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Balance disponible</p>
+                        <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                          <span className="text-lg mr-2">HNLD</span>
+                          {hnldBalance.available_balance.toLocaleString('es-HN', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                          })}
+                        </p>
                       </div>
                     </div>
                   )}
 
                   {/* Email del destinatario */}
                   <div className="space-y-2">
-                    <Label htmlFor="transfer-email" className="text-sm font-medium flex items-center gap-2">
-                      <User className="h-4 w-4" />
+                    <Label htmlFor="transfer-email" className="text-sm font-medium flex items-center gap-2 text-slate-900 dark:text-slate-200">
+                      <User className="h-4 w-4 text-slate-500 dark:text-slate-400" />
                       Correo electrónico del destinatario
                     </Label>
                     <div className="relative">
@@ -602,42 +686,42 @@ export default function SaldoPage() {
                         placeholder="usuario@ejemplo.com"
                         value={transferForm.email}
                         onChange={(e) => handleEmailChange(e.target.value)}
-                        className={`h-11 pr-10 ${
-                          emailError ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : 
-                          selectedUser ? 'border-green-500 focus:border-green-500 focus:ring-green-500' : ''
+                        className={`h-11 pr-10 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:bg-white dark:focus:bg-slate-800 focus:border-blue-500 dark:focus:border-blue-500 ${
+                          emailError ? 'border-red-500 dark:border-red-500 focus:border-red-500 dark:focus:border-red-500 focus:ring-red-500 dark:focus:ring-red-500/30' : 
+                          selectedUser ? 'border-green-500 dark:border-green-500 focus:border-green-500 dark:focus:border-green-500 focus:ring-green-500 dark:focus:ring-green-500/30' : ''
                         }`}
                         disabled={processing}
                       />
                       {validatingEmail && (
-                        <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                        <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground dark:text-slate-400" />
                       )}
                       {!validatingEmail && selectedUser && (
-                        <CheckCircle className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-green-600" />
+                        <CheckCircle className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-green-600 dark:text-green-400" />
                       )}
                       {!validatingEmail && emailError && (
-                        <XCircle className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-red-600" />
+                        <XCircle className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-red-600 dark:text-red-400" />
                       )}
                     </div>
                     
                     {/* Mensaje de error o éxito */}
                     {emailError && (
-                      <p className="text-xs text-red-600 flex items-center gap-1">
+                      <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
                         <XCircle className="h-3 w-3" />
                         {emailError}
                       </p>
                     )}
                     
                     {selectedUser && !emailError && (
-                      <div className="border-2 border-green-200 dark:border-green-800 rounded-lg p-3 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/20 dark:to-emerald-950/20 shadow-sm">
+                      <div className="border-2 border-green-200 dark:border-green-700/50 rounded-lg p-3 bg-green-50/50 dark:bg-slate-800/50 shadow-sm">
                         <div className="flex items-center gap-3">
                           <div className="flex-shrink-0 w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
                             <User className="h-5 w-5 text-green-600 dark:text-green-400" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm text-green-800 dark:text-green-300 truncate">
+                            <p className="font-semibold text-sm text-green-900 dark:text-green-200 truncate">
                               {selectedUser.full_name || 'Usuario'}
                             </p>
-                            <p className="text-xs text-green-600 dark:text-green-400 truncate">
+                            <p className="text-xs text-green-700 dark:text-green-300 truncate">
                               {selectedUser.email}
                             </p>
                           </div>
@@ -649,7 +733,7 @@ export default function SaldoPage() {
                               setTransferForm(prev => ({ ...prev, email: "" }))
                               setEmailError(null)
                             }}
-                            className="flex-shrink-0 h-8"
+                            className="flex-shrink-0 h-8 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300"
                           >
                             Cambiar
                           </Button>
@@ -660,8 +744,8 @@ export default function SaldoPage() {
 
                   {/* Monto */}
                   <div className="space-y-2">
-                    <Label htmlFor="transfer-amount" className="text-sm font-medium flex items-center gap-2">
-                      <Coins className="h-4 w-4" />
+                    <Label htmlFor="transfer-amount" className="text-sm font-medium flex items-center gap-2 text-slate-900 dark:text-slate-200">
+                      <Coins className="h-4 w-4 text-slate-500 dark:text-slate-400" />
                       Monto (HNLD)
                     </Label>
                     <div className="relative">
@@ -674,21 +758,16 @@ export default function SaldoPage() {
                         value={transferForm.amount}
                         onChange={(e) => setTransferForm((prev) => ({ ...prev, amount: e.target.value }))}
                         disabled={!selectedUser}
-                        className="h-11 text-lg font-semibold pr-4"
+                        className="h-11 text-lg font-semibold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:bg-white dark:focus:bg-slate-800 focus:border-blue-500 dark:focus:border-blue-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                       />
-                      {transferForm.amount && !isNaN(parseFloat(transferForm.amount)) && (
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                          = {formatCurrency(parseFloat(transferForm.amount), 'HNLD')}
-                        </div>
-                      )}
                     </div>
                     {transferForm.amount && !isNaN(parseFloat(transferForm.amount)) && hnldBalance && (
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">Disponible:</span>
+                        <span className="text-muted-foreground dark:text-slate-400">Disponible:</span>
                         <span className={`font-medium ${
                           parseFloat(transferForm.amount) > hnldBalance.available_balance 
-                            ? 'text-red-600' 
-                            : 'text-green-600'
+                            ? 'text-red-600 dark:text-red-400' 
+                            : 'text-green-600 dark:text-green-400'
                         }`}>
                           {formatCurrency(hnldBalance.available_balance, 'HNLD')}
                         </span>
@@ -698,7 +777,7 @@ export default function SaldoPage() {
 
                   {/* Descripción */}
                   <div className="space-y-2">
-                    <Label htmlFor="transfer-description" className="text-sm font-medium">
+                    <Label htmlFor="transfer-description" className="text-sm font-medium text-slate-900 dark:text-slate-200">
                       Descripción (opcional)
                     </Label>
                     <Textarea
@@ -708,12 +787,12 @@ export default function SaldoPage() {
                       onChange={(e) => setTransferForm((prev) => ({ ...prev, description: e.target.value }))}
                       disabled={!selectedUser}
                       rows={3}
-                      className="resize-none"
+                      className="resize-none bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:bg-white dark:focus:bg-slate-800 focus:border-blue-500 dark:focus:border-blue-500"
                     />
                   </div>
                 </div>
 
-                <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0 pt-4 border-t">
+                <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
                     <Button
                       variant="outline"
                       onClick={() => {
@@ -726,14 +805,14 @@ export default function SaldoPage() {
                         }
                       }}
                       disabled={processing}
-                      className="w-full sm:w-auto"
+                      className="w-full sm:w-auto border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-900 dark:text-slate-200"
                     >
                       Cancelar
                     </Button>
                     <Button
                       onClick={handleTransfer}
                       disabled={!selectedUser || !transferForm.amount || processing || validatingEmail}
-                      className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
+                      className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white dark:text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-sm dark:shadow-md"
                     >
                       {processing || validatingEmail ? (
                         <>
@@ -780,12 +859,16 @@ export default function SaldoPage() {
                   <div className="flex items-center space-x-3">
                     {getTransactionIcon(transaction.transaction_type)}
                     <div>
-                      <p className="font-medium capitalize">{transaction.transaction_type}</p>
-                      <p className="text-sm text-muted-foreground">{transaction.description}</p>
+                      <p className="font-medium">{getTransactionTitle(transaction)}</p>
+                      {transaction.description && (
+                        <p className="text-sm text-muted-foreground font-mono">{transaction.description}</p>
+                      )}
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold">{formatCurrency(transaction.amount)}</p>
+                    <p className={`font-semibold ${isDebit(transaction) ? 'text-red-500' : 'text-green-500'}`}>
+                      {isDebit(transaction) ? '-' : '+'}{formatAmountWithHNLD(transaction.amount)}
+                    </p>
                     {getStatusBadge(transaction.status)}
                   </div>
                 </div>
@@ -813,7 +896,7 @@ export default function SaldoPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Tipo</TableHead>
-                    <TableHead>Descripción</TableHead>
+                    <TableHead>Código</TableHead>
                     <TableHead>Monto</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead>Fecha</TableHead>
@@ -825,11 +908,13 @@ export default function SaldoPage() {
                       <TableCell>
                         <div className="flex items-center space-x-2">
                           {getTransactionIcon(transaction.transaction_type)}
-                          <span className="capitalize">{transaction.transaction_type}</span>
+                          <span>{getTransactionTitle(transaction)}</span>
                         </div>
                       </TableCell>
-                      <TableCell>{transaction.description}</TableCell>
-                      <TableCell className="font-semibold">{formatCurrency(transaction.amount)}</TableCell>
+                      <TableCell className="font-mono text-sm">{transaction.description || '-'}</TableCell>
+                      <TableCell className={`font-semibold ${isDebit(transaction) ? 'text-red-500' : 'text-green-500'}`}>
+                        {isDebit(transaction) ? '-' : '+'}{formatAmountWithHNLD(transaction.amount)}
+                      </TableCell>
                       <TableCell>{getStatusBadge(transaction.status)}</TableCell>
                       <TableCell>
                         {new Date(transaction.created_at).toLocaleDateString('es-HN', {
@@ -866,8 +951,8 @@ export default function SaldoPage() {
             <div className="grid gap-4 lg:grid-cols-2">
               <div className="space-y-3">
                 <div className="flex items-start space-x-3">
-                  <div className="flex-shrink-0 w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
-                    <DollarSign className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  <div className="flex-shrink-0 w-8 h-8 flex items-center justify-center">
+                    <DollarSign className="h-5 w-5 text-green-600 dark:text-green-400" />
                   </div>
                   <div>
                     <h4 className="font-semibold text-sm">Respaldo 1:1</h4>
@@ -878,8 +963,8 @@ export default function SaldoPage() {
                 </div>
                 
                 <div className="flex items-start space-x-3">
-                  <div className="flex-shrink-0 w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                    <TrendingUp className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  <div className="flex-shrink-0 w-8 h-8 flex items-center justify-center">
+                    <TrendingUp className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                   </div>
                   <div>
                     <h4 className="font-semibold text-sm">Estabilidad</h4>
@@ -892,8 +977,8 @@ export default function SaldoPage() {
               
               <div className="space-y-3">
                 <div className="flex items-start space-x-3">
-                  <div className="flex-shrink-0 w-8 h-8 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center">
-                    <Send className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                  <div className="flex-shrink-0 w-8 h-8 flex items-center justify-center">
+                    <Send className="h-5 w-5 text-purple-600 dark:text-purple-400" />
                   </div>
                   <div>
                     <h4 className="font-semibold text-sm">Transferencias</h4>
@@ -904,8 +989,8 @@ export default function SaldoPage() {
                 </div>
                 
                 <div className="flex items-start space-x-3">
-                  <div className="flex-shrink-0 w-8 h-8 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center">
-                    <Shield className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                  <div className="flex-shrink-0 w-8 h-8 flex items-center justify-center">
+                    <Shield className="h-5 w-5 text-orange-600 dark:text-orange-400" />
                   </div>
                   <div>
                     <h4 className="font-semibold text-sm">Seguridad</h4>
@@ -917,9 +1002,9 @@ export default function SaldoPage() {
               </div>
             </div>
             
-            <div className="bg-gradient-to-r from-green-50 to-blue-50 dark:bg-slate-800 dark:border-slate-700 p-4 rounded-lg border border-green-200">
-              <h4 className="font-semibold text-green-800 dark:text-green-300 mb-2">¿Cómo funciona?</h4>
-              <ul className="text-sm text-green-700 dark:text-slate-200 space-y-1">
+            <div className="p-4 rounded-lg border">
+              <h4 className="font-semibold mb-2">¿Cómo funciona?</h4>
+              <ul className="text-sm text-muted-foreground space-y-1">
                 <li>• Depositas lempiras físicos y recibes HNLD equivalentes</li>
                 <li>• Puedes transferir HNLD a otros usuarios instantáneamente</li>
                 <li>• Retiras tus HNLD y recibes lempiras físicos de vuelta</li>
@@ -927,19 +1012,19 @@ export default function SaldoPage() {
               </ul>
             </div>
             
-            <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:bg-slate-700 dark:border-slate-600 p-4 rounded-lg border border-blue-200">
-              <h4 className="font-semibold text-blue-800 dark:text-blue-300 mb-2">⚠️ Importante</h4>
-              <ul className="text-sm text-blue-700 dark:text-slate-200 space-y-2">
+            <div className="p-4 rounded-lg border">
+              <h4 className="font-semibold mb-2">⚠️ Importante</h4>
+              <ul className="text-sm text-muted-foreground space-y-2">
                 <li className="flex items-start space-x-2">
-                  <span className="text-blue-600 dark:text-blue-300 font-bold flex-shrink-0">•</span>
+                  <span className="font-bold flex-shrink-0">•</span>
                   <span><strong>No es una criptomoneda:</strong> HNLD es una representación digital del lempira hondureño, no una criptomoneda como Bitcoin o Ethereum.</span>
                 </li>
                 <li className="flex items-start space-x-2">
-                  <span className="text-blue-600 dark:text-blue-300 font-bold flex-shrink-0">•</span>
+                  <span className="font-bold flex-shrink-0">•</span>
                   <span><strong>Sin especulación:</strong> Su valor es fijo y estable, siempre equivale a 1 lempira físico. No hay fluctuaciones de precio ni riesgo de pérdida por volatilidad.</span>
                 </li>
                 <li className="flex items-start space-x-2">
-                  <span className="text-blue-600 dark:text-blue-300 font-bold flex-shrink-0">•</span>
+                  <span className="font-bold flex-shrink-0">•</span>
                   <span><strong>Respaldo garantizado:</strong> Cada HNLD está respaldado por lempiras físicos en reserva, garantizando su valor y convertibilidad.</span>
                 </li>
               </ul>
