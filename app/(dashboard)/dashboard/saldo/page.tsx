@@ -635,7 +635,7 @@ export default function SaldoPage() {
               </DialogTrigger>
               <DialogContent 
                 ref={modalRef}
-                className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] sm:w-[28rem] bg-white dark:bg-slate-900 backdrop-blur-sm border border-slate-200 dark:border-slate-700 shadow-xl dark:shadow-2xl"
+                className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] sm:w-[28rem] bg-background border-border shadow-xl"
                 style={{
                   maxHeight: '95vh',
                   overflowY: 'auto',
@@ -646,12 +646,12 @@ export default function SaldoPage() {
                   maxWidth: '28rem'
                 }}
               >
-                <DialogHeader className="pb-3 sm:pb-4 border-b border-slate-200 dark:border-slate-700">
-                  <DialogTitle className="text-lg sm:text-xl font-semibold text-center sm:text-left flex items-center gap-2 text-slate-900 dark:text-slate-100">
+                <DialogHeader className="pb-3 sm:pb-4 border-b border-border">
+                  <DialogTitle className="text-lg sm:text-xl font-semibold text-center sm:text-left flex items-center gap-2 text-foreground">
                     <Send className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                     Transferir HNLD
                   </DialogTitle>
-                  <DialogDescription className="text-slate-600 dark:text-slate-400 text-sm sm:text-base text-center sm:text-left">
+                  <DialogDescription className="text-muted-foreground text-sm sm:text-base text-center sm:text-left">
                     Transfiere HNLD directamente a otro usuario de la plataforma
                   </DialogDescription>
                 </DialogHeader>
@@ -659,9 +659,9 @@ export default function SaldoPage() {
                 <div className="space-y-4 sm:space-y-6 py-2">
                   {/* Balance disponible destacado */}
                   {hnldBalance && (
-                    <div className="p-4 border border-blue-200 dark:border-blue-700/50 rounded-lg bg-transparent dark:bg-transparent">
+                    <div className="p-4 border border-blue-200 dark:border-blue-800/50 rounded-lg bg-transparent">
                       <div>
-                        <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Balance disponible</p>
+                        <p className="text-xs text-muted-foreground mb-1">Balance disponible</p>
                         <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
                           <span className="text-lg mr-2">HNLD</span>
                           {hnldBalance.available_balance.toLocaleString('es-HN', {
@@ -675,8 +675,8 @@ export default function SaldoPage() {
 
                   {/* Email del destinatario */}
                   <div className="space-y-2">
-                    <Label htmlFor="transfer-email" className="text-sm font-medium flex items-center gap-2 text-slate-900 dark:text-slate-200">
-                      <User className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+                    <Label htmlFor="transfer-email" className="text-sm font-medium flex items-center gap-2 text-foreground">
+                      <User className="h-4 w-4 text-muted-foreground" />
                       Correo electrónico del destinatario
                     </Label>
                     <div className="relative">
@@ -686,14 +686,15 @@ export default function SaldoPage() {
                         placeholder="usuario@ejemplo.com"
                         value={transferForm.email}
                         onChange={(e) => handleEmailChange(e.target.value)}
-                        className={`h-11 pr-10 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:bg-white dark:focus:bg-slate-800 focus:border-blue-500 dark:focus:border-blue-500 ${
-                          emailError ? 'border-red-500 dark:border-red-500 focus:border-red-500 dark:focus:border-red-500 focus:ring-red-500 dark:focus:ring-red-500/30' : 
-                          selectedUser ? 'border-green-500 dark:border-green-500 focus:border-green-500 dark:focus:border-green-500 focus:ring-green-500 dark:focus:ring-green-500/30' : ''
+                        className={`h-11 pr-10 ${
+                          emailError ? 'border-red-500 dark:border-red-500 focus:border-red-500 dark:focus:border-red-500 focus:ring-red-500/20 dark:focus:ring-red-500/20' : 
+                          selectedUser ? 'border-green-500 dark:border-green-500 focus:border-green-500 dark:focus:border-green-500 focus:ring-green-500/20 dark:focus:ring-green-500/20' : 
+                          'focus:border-blue-500 dark:focus:border-blue-400 focus:ring-blue-500/20 dark:focus:ring-blue-400/20'
                         }`}
                         disabled={processing}
                       />
                       {validatingEmail && (
-                        <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground dark:text-slate-400" />
+                        <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
                       )}
                       {!validatingEmail && selectedUser && (
                         <CheckCircle className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-green-600 dark:text-green-400" />
@@ -712,7 +713,7 @@ export default function SaldoPage() {
                     )}
                     
                     {selectedUser && !emailError && (
-                      <div className="border-2 border-green-200 dark:border-green-700/50 rounded-lg p-3 bg-green-50/50 dark:bg-slate-800/50 shadow-sm">
+                      <div className="border-2 border-green-200 dark:border-green-800/50 rounded-lg p-3 bg-green-50/50 dark:bg-muted/50 shadow-sm">
                         <div className="flex items-center gap-3">
                           <div className="flex-shrink-0 w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
                             <User className="h-5 w-5 text-green-600 dark:text-green-400" />
@@ -733,7 +734,7 @@ export default function SaldoPage() {
                               setTransferForm(prev => ({ ...prev, email: "" }))
                               setEmailError(null)
                             }}
-                            className="flex-shrink-0 h-8 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300"
+                            className="flex-shrink-0 h-8"
                           >
                             Cambiar
                           </Button>
@@ -744,8 +745,8 @@ export default function SaldoPage() {
 
                   {/* Monto */}
                   <div className="space-y-2">
-                    <Label htmlFor="transfer-amount" className="text-sm font-medium flex items-center gap-2 text-slate-900 dark:text-slate-200">
-                      <Coins className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+                    <Label htmlFor="transfer-amount" className="text-sm font-medium flex items-center gap-2 text-foreground">
+                      <Coins className="h-4 w-4 text-muted-foreground" />
                       Monto (HNLD)
                     </Label>
                     <div className="relative">
@@ -758,12 +759,12 @@ export default function SaldoPage() {
                         value={transferForm.amount}
                         onChange={(e) => setTransferForm((prev) => ({ ...prev, amount: e.target.value }))}
                         disabled={!selectedUser}
-                        className="h-11 text-lg font-semibold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:bg-white dark:focus:bg-slate-800 focus:border-blue-500 dark:focus:border-blue-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                        className="h-11 text-lg font-semibold focus:border-blue-500 dark:focus:border-blue-400 focus:ring-blue-500/20 dark:focus:ring-blue-400/20 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                       />
                     </div>
                     {transferForm.amount && !isNaN(parseFloat(transferForm.amount)) && hnldBalance && (
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground dark:text-slate-400">Disponible:</span>
+                        <span className="text-muted-foreground">Disponible:</span>
                         <span className={`font-medium ${
                           parseFloat(transferForm.amount) > hnldBalance.available_balance 
                             ? 'text-red-600 dark:text-red-400' 
@@ -777,7 +778,7 @@ export default function SaldoPage() {
 
                   {/* Descripción */}
                   <div className="space-y-2">
-                    <Label htmlFor="transfer-description" className="text-sm font-medium text-slate-900 dark:text-slate-200">
+                    <Label htmlFor="transfer-description" className="text-sm font-medium text-foreground">
                       Descripción (opcional)
                     </Label>
                     <Textarea
@@ -787,12 +788,12 @@ export default function SaldoPage() {
                       onChange={(e) => setTransferForm((prev) => ({ ...prev, description: e.target.value }))}
                       disabled={!selectedUser}
                       rows={3}
-                      className="resize-none bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:bg-white dark:focus:bg-slate-800 focus:border-blue-500 dark:focus:border-blue-500"
+                      className="resize-none focus:border-blue-500 dark:focus:border-blue-400 focus:ring-blue-500/20 dark:focus:ring-blue-400/20"
                     />
                   </div>
                 </div>
 
-                <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
+                <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-3 pt-4 border-t border-border">
                     <Button
                       variant="outline"
                       onClick={() => {
@@ -805,14 +806,14 @@ export default function SaldoPage() {
                         }
                       }}
                       disabled={processing}
-                      className="w-full sm:w-auto border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-900 dark:text-slate-200"
+                      className="w-full sm:w-auto"
                     >
                       Cancelar
                     </Button>
                     <Button
                       onClick={handleTransfer}
                       disabled={!selectedUser || !transferForm.amount || processing || validatingEmail}
-                      className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white dark:text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-sm dark:shadow-md"
+                      className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {processing || validatingEmail ? (
                         <>
