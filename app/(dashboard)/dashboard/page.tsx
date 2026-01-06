@@ -10,7 +10,6 @@ import {
   DollarSign,
   Users,
   ShoppingCart,
-  Activity,
   ArrowUpRight,
   ArrowDownRight,
   Calendar,
@@ -69,23 +68,6 @@ export default function DashboardPage() {
                 +3
               </span>
               nuevas esta semana
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-base md:text-lg font-semibold">Transacciones</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">47</div>
-            <p className="text-xs text-muted-foreground">
-              <span className="text-green-600 flex items-center">
-                <TrendingUp className="h-3 w-3 mr-1" />
-                +8
-              </span>
-              este mes
             </p>
           </CardContent>
         </Card>
@@ -167,13 +149,6 @@ export default function DashboardPage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <Button asChild variant="outline" className="h-20 flex-col space-y-2 bg-transparent hover:bg-primary hover:text-primary-foreground hover:shadow-md transition">
-                <Link href="/dashboard/links">
-                  <Users className="h-6 w-6" />
-                  <span>Crear Link</span>
-                </Link>
-              </Button>
-
-              <Button asChild variant="outline" className="h-20 flex-col space-y-2 bg-transparent hover:bg-primary hover:text-primary-foreground hover:shadow-md transition">
                 <Link href="/dashboard/subastas">
                   <ShoppingCart className="h-6 w-6" />
                   <span>Nueva Subasta</span>
@@ -187,12 +162,6 @@ export default function DashboardPage() {
                 </Link>
               </Button>
 
-              <Button asChild variant="outline" className="h-20 flex-col space-y-2 bg-transparent hover:bg-primary hover:text-primary-foreground hover:shadow-md transition">
-                <Link href="/dashboard/transacciones">
-                  <Activity className="h-6 w-6" />
-                  <span>Transacciones</span>
-                </Link>
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -271,7 +240,7 @@ export default function DashboardPage() {
             </div>
 
             <Button asChild variant="outline" className="w-full bg-transparent hover:bg-primary hover:text-primary-foreground hover:shadow-md transition">
-              <Link href="/dashboard/transacciones">Ver Detalles</Link>
+              <Link href="/dashboard/saldo">Ver Historial</Link>
             </Button>
           </CardContent>
         </Card>

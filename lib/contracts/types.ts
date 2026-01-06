@@ -5,19 +5,6 @@ export interface BalanceDTO {
   blocked: number
 }
 
-// Payment link types
-export interface PaymentLinkDTO {
-  id?: string
-  amount: number
-  currency: "HNL" | "USD"
-  concept: string
-  status: "active" | "expired"
-  createdAt?: string
-  expiresAt?: string
-  maxUses?: number
-  url?: string
-}
-
 // Auction types
 export type AuctionStatus = "active" | "closed" | "expired"
 export type Currency = "USD" | "EUR" | "GBP" | "HNL"

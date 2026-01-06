@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Shield,
-  Link,
   CheckCircle,
   MessageSquare,
   CreditCard,
@@ -38,34 +37,27 @@ const slides = [
   },
   {
     id: 2,
-    title: "Enlaces de pago digitales",
-    description: "Cobrá en línea fácil y rápido. Perfecto para tu negocio hondureño sin complicaciones técnicas.",
-    icon: Link,
-    cta: "Conocé más",
-  },
-  {
-    id: 3,
     title: "Verificación de usuarios",
     description: "Construí tu reputación como vendedor confiable. Los hondureños prefieren usuarios verificados.",
     icon: CheckCircle,
     cta: "Conocé más",
   },
   {
-    id: 4,
+    id: 3,
     title: "Soporte especializado",
     description: "¿Problemas con una transacción? Nuestro equipo hondureño te ayuda a resolver cualquier disputa.",
     icon: MessageSquare,
     cta: "Conocé más",
   },
   {
-    id: 5,
+    id: 4,
     title: "Métodos de pago locales",
     description: "Billeteras digitales, transferencias bancarias y efectivo. Todos los métodos que ya conocés y usás.",
     icon: CreditCard,
     cta: "Conocé más",
   },
   {
-    id: 6,
+    id: 5,
     title: "Panel de control completo",
     description:
       "Controlá todas tus ventas y ganancias desde un solo lugar. Perfecto para tu emprendimiento hondureño.",
@@ -78,7 +70,6 @@ export function Carousel() {
   const [currentSlide, setCurrentSlide] = useState(0)
   const [isAutoPlaying, setIsAutoPlaying] = useState(true)
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [isPaymentLinksModalOpen, setIsPaymentLinksModalOpen] = useState(false)
   const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false)
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false)
   const [isLocalPaymentModalOpen, setIsLocalPaymentModalOpen] = useState(false)
@@ -115,22 +106,18 @@ export function Carousel() {
       setIsModalOpen(true)
     }
     if (slideId === 2) {
-      // Enlaces de pago digitales
-      setIsPaymentLinksModalOpen(true)
-    }
-    if (slideId === 3) {
       // Verificación de usuarios
       setIsVerificationModalOpen(true)
     }
-    if (slideId === 4) {
+    if (slideId === 3) {
       // Soporte especializado
       setIsSupportModalOpen(true)
     }
-    if (slideId === 5) {
+    if (slideId === 4) {
       // Métodos de pago locales
       setIsLocalPaymentModalOpen(true)
     }
-    if (slideId === 6) {
+    if (slideId === 5) {
       // Panel de control completo
       setIsDashboardModalOpen(true)
     }
@@ -425,77 +412,6 @@ export function Carousel() {
             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
               <Button
                 onClick={() => setIsModalOpen(false)}
-                className="bg-gradient-to-r from-primary to-primary hover:from-primary/90 hover:to-primary/90 text-primary-foreground px-8 py-3 rounded-lg font-semibold transition-all duration-300 shadow-lg hover:shadow-xl border-0"
-              >
-                Entendido
-              </Button>
-            </motion.div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isPaymentLinksModalOpen} onOpenChange={setIsPaymentLinksModalOpen}>
-        <DialogContent className="sm:max-w-lg bg-background border-border shadow-2xl">
-          <DialogHeader className="text-center pb-6">
-            <div className="flex justify-center mb-6">
-              <motion.div
-                className="relative p-4 rounded-full bg-gradient-to-br from-primary to-primary shadow-xl shadow-primary/30"
-                initial={{ scale: 0, rotate: -180, opacity: 0 }}
-                animate={{ scale: 1, rotate: 0, opacity: 1 }}
-                transition={{ duration: 0.8, ease: "backOut" }}
-                whileHover={{
-                  scale: 1.05,
-                  boxShadow: "0 25px 50px hsl(var(--primary) / 0.4)",
-                }}
-              >
-                <motion.div
-                  className="absolute inset-0 rounded-full border-2 border-primary/50"
-                  animate={{
-                    scale: [1, 1.2, 1],
-                    opacity: [0.5, 0.8, 0.5],
-                  }}
-                  transition={{
-                    duration: 2,
-                    repeat: Number.POSITIVE_INFINITY,
-                    ease: "easeInOut",
-                  }}
-                />
-                <Link className="w-10 h-10 text-primary-foreground relative z-10 drop-shadow-sm" />
-              </motion.div>
-            </div>
-            <DialogTitle className="text-2xl font-bold text-foreground mb-4 text-center">
-              Enlaces de pago seguros
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="text-left space-y-4">
-            <div className="bg-muted rounded-lg p-4 border-l-4 border-primary">
-              <div className="text-foreground text-base leading-relaxed">
-                <span className="text-primary font-bold text-lg">Genera y comparte</span> links de pago con confianza.
-              </div>
-            </div>
-            <div className="space-y-3">
-              <div className="flex items-start space-x-3">
-                <div className="w-2 h-2 bg-primary rounded-full mt-2 flex-shrink-0"></div>
-                <div className="text-muted-foreground text-base leading-relaxed">
-                  Los proveedores de productos y servicios registrados en{" "}
-                  <span className="text-foreground font-semibold">NMHN</span> pueden crear enlaces de cobro seguros.
-                </div>
-              </div>
-              <div className="flex items-start space-x-3">
-                <div className="w-2 h-2 bg-primary/80 rounded-full mt-2 flex-shrink-0"></div>
-                <div className="text-muted-foreground text-base leading-relaxed">
-                  Garantizando que sus clientes realicen{" "}
-                  <span className="text-foreground font-semibold">pagos de forma rápida y confiable</span>.
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex justify-center pt-6 border-t border-border">
-            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-              <Button
-                onClick={() => setIsPaymentLinksModalOpen(false)}
                 className="bg-gradient-to-r from-primary to-primary hover:from-primary/90 hover:to-primary/90 text-primary-foreground px-8 py-3 rounded-lg font-semibold transition-all duration-300 shadow-lg hover:shadow-xl border-0"
               >
                 Entendido

@@ -116,7 +116,7 @@ export default async function AdminPage() {
         <Card>
           <CardHeader>
             <CardTitle>Pagos Recientes</CardTitle>
-            <CardDescription>Últimas transacciones de links de pago</CardDescription>
+            <CardDescription>Últimas transacciones</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -157,7 +157,6 @@ export default async function AdminPage() {
             {[
               { label: "Revisar KYC", href: "/admin/kyc", icon: FileCheck },
               { label: "Gestionar Subastas", href: "/admin/auctions", icon: Gavel },
-              { label: "Ver Links de Pago", href: "/admin/paylinks", icon: LinkIcon },
               { label: "Administrar Wallet", href: "/admin/wallet", icon: Wallet },
             ].map((link) => (
               <a

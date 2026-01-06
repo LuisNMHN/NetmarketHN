@@ -371,18 +371,22 @@ export function SaleHNLDModal({
               <p className="text-sm text-muted-foreground">Cargando balance...</p>
             </div>
           ) : hnldBalance && (
-            <div className="p-3 rounded-lg border bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
-              <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
-                Balance disponible
-              </p>
-              <p className="text-lg font-bold text-blue-800 dark:text-blue-200">
-                L. {availableBalance.toFixed(2)} HNLD
-              </p>
-              {amountToSell > 0 && amountToSell > availableBalance && (
-                <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                  ⚠️ No tienes suficiente balance disponible
+            <div className="p-4 border border-blue-200 dark:border-blue-700/50 rounded-lg">
+              <div>
+                <p className="text-xs text-muted-foreground dark:text-slate-400 mb-1">Balance disponible</p>
+                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                  <span className="text-lg mr-2">HNLD</span>
+                  {availableBalance.toLocaleString('es-HN', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                  })}
                 </p>
-              )}
+                {amountToSell > 0 && amountToSell > availableBalance && (
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                    ⚠️ No tienes suficiente balance disponible
+                  </p>
+                )}
+              </div>
             </div>
           )}
 

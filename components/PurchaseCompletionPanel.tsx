@@ -2656,7 +2656,7 @@ export function PurchaseCompletionPanel({
                                                   requestData?.unique_code || 
                                                   `NMHNC-${new Date().toISOString().split('T')[0].replace(/-/g, '').slice(2)}-${String(requestId).slice(-6).toUpperCase()}`
                         
-                        const historyDescription = `Compra completada - Solicitud ${requestUniqueCode} - Pago verificado por vendedor`
+                        const historyDescription = `Código: ${requestUniqueCode}`
                         
                         console.log('📝 Descripción del historial:', historyDescription)
                         console.log('🔍 Código único usado:', requestUniqueCode)

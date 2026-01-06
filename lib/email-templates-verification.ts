@@ -215,7 +215,6 @@ export function getEmailVerificationTemplate(userName: string, verificationUrl: 
             <ul class="feature-list">
               <li>Acceder a tu dashboard personalizado</li>
               <li>Participar en subastas y transacciones</li>
-              <li>Crear links de pago personalizados</li>
               <li>Completar tu verificación de identidad (KYC)</li>
               <li>Gestionar tu perfil y preferencias</li>
             </ul>

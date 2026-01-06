@@ -2345,25 +2345,37 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <span className={`rounded-full w-6 h-6 flex items-center justify-center text-sm ${
-              confirmedSteps.has(currentStep)
-                ? "bg-green-600 text-white" 
-                : "bg-primary text-primary-foreground"
-            }`}>
-              {confirmedSteps.has(currentStep) ? (
-                <span className="text-xs font-bold">✓</span>
-              ) : (
-                currentStep
-              )}
-            </span>
-            {currentStep === 1 && "Datos personales"}
-            {currentStep === 2 && "Documento de identidad"}
-            {currentStep === 3 && "Selfie de validación"}
-            {currentStep === 4 && "Comprobante de domicilio"}
-            {currentStep === 5 && "Revisión y envío"}
-            {confirmedSteps.has(currentStep) && (
-              <span className="text-green-600 text-sm font-normal">✓ Completado</span>
-            )}
+            {(() => {
+              // Para el paso 1, verificar que esté realmente completo
+              // Para los otros pasos, usar confirmedSteps
+              const shouldShowCheck = currentStep === 1 
+                ? isStepCompleted(1)
+                : confirmedSteps.has(currentStep);
+              
+              return (
+                <>
+                  <span className={`rounded-full w-6 h-6 flex items-center justify-center text-sm ${
+                    shouldShowCheck
+                      ? "bg-green-600 text-white" 
+                      : "bg-primary text-primary-foreground"
+                  }`}>
+                    {shouldShowCheck ? (
+                      <span className="text-xs font-bold">✓</span>
+                    ) : (
+                      currentStep
+                    )}
+                  </span>
+                  {currentStep === 1 && "Datos personales"}
+                  {currentStep === 2 && "Documento de identidad"}
+                  {currentStep === 3 && "Selfie de validación"}
+                  {currentStep === 4 && "Comprobante de domicilio"}
+                  {currentStep === 5 && "Revisión y envío"}
+                  {shouldShowCheck && (
+                    <span className="text-green-600 text-sm font-normal">✓ Completado</span>
+                  )}
+                </>
+              );
+            })()}
           </CardTitle>
           <CardDescription className={allStepsCompleted ? 'text-foreground' : undefined}>
             {currentStep === 1 && isStepCompleted(1) && "✓ Datos personales completados y guardados correctamente."}

@@ -674,7 +674,7 @@ export async function processCardPurchase(
       .rpc('emit_hnld', {
         p_user_id: user.id,
         p_amount: amount,
-        p_description: `Compra con tarjeta - ${transactionId}`
+        p_description: `Compra de HNLD ${amount.toFixed(2)}. Código: ${transactionId}`
       })
 
     if (emitError) {

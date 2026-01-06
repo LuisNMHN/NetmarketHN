@@ -83,7 +83,7 @@ export async function emitHNLD(amount: number, description?: string): Promise<{ 
       .rpc('emit_hnld', {
         p_user_id: user.id,
         p_amount: amount,
-        p_description: description || `Depósito de L.${amount.toFixed(2)}`
+        p_description: description || `Compra de HNLD ${amount.toFixed(2)}`
       })
 
     if (error) {
@@ -117,7 +117,7 @@ export async function burnHNLD(amount: number, description?: string): Promise<{ 
       .rpc('burn_hnld', {
         p_user_id: user.id,
         p_amount: amount,
-        p_description: description || `Retiro de L.${amount.toFixed(2)}`
+        p_description: description || `Venta de HNLD ${amount.toFixed(2)}`
       })
 
     if (error) {
@@ -156,7 +156,7 @@ export async function transferHNLD(toUserId: string, amount: number, description
         p_from_user_id: user.id,
         p_to_user_id: toUserId,
         p_amount: amount,
-        p_description: description || `Transferencia de L.${amount.toFixed(2)}`
+        p_description: description || `Transferencia de HNLD ${amount.toFixed(2)}`
       })
 
     if (error) {

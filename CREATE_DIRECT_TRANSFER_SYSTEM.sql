@@ -64,6 +64,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Eliminar trigger existente si existe
+DROP TRIGGER IF EXISTS update_hnld_direct_transfers_updated_at ON hnld_direct_transfers;
+
 CREATE TRIGGER update_hnld_direct_transfers_updated_at
     BEFORE UPDATE ON hnld_direct_transfers
     FOR EACH ROW
@@ -195,9 +198,9 @@ BEGIN
         v_current_user_id,
         p_to_user_id,
         p_amount,
-        COALESCE(p_description, format('Transferencia de L.%s a %s', p_amount::TEXT, v_to_user_name)),
+        COALESCE(p_description, format('Transferencia de HNLD %s a %s', p_amount::TEXT, v_to_user_name)),
         'pending',
-        v_unique_code,
+        format('Código: %s', v_unique_code),
         NOW(),
         NOW()
     ) RETURNING id INTO v_transfer_id;
@@ -224,7 +227,7 @@ BEGIN
         'transfer',
         p_amount,
         'completed',
-        COALESCE(p_description, format('Transferencia directa de L.%s a %s', p_amount::TEXT, v_to_user_name)),
+        format('Código: %s', v_unique_code),
         v_current_user_id,
         p_to_user_id,
         NOW(),
@@ -264,7 +267,7 @@ BEGIN
         'credit',
         'hnld_balance',
         p_amount,
-        COALESCE(p_description, format('Transferencia a %s', v_to_user_name)),
+        format('Código: %s', v_unique_code),
         'transfer',
         v_transfer_id,
         NOW()
@@ -287,7 +290,7 @@ BEGIN
         'debit',
         'hnld_balance',
         p_amount,
-        COALESCE(p_description, format('Transferencia de %s', v_from_user_name)),
+        format('Código: %s', v_unique_code),
         'transfer',
         v_transfer_id,
         NOW()
@@ -304,40 +307,42 @@ BEGIN
     -- Emitir notificaciones
     -- Notificación al remitente
     PERFORM emit_notification(
-        v_current_user_id,
-        'TRANSFER_SENT',
-        format('Transferencia enviada a %s', v_to_user_name),
-        format('Has transferido L.%s a %s. Código: %s', p_amount::TEXT, v_to_user_name, v_unique_code),
-        'high',
-        'Ver transferencia',
-        '/dashboard/transferencias',
-        format('transfer_sent_%s', v_transfer_id),
+        v_current_user_id,                    -- p_user_id
+        'wallet',                              -- p_topic
+        'TRANSFER_SENT',                       -- p_event
+        format('Transferencia enviada a %s', v_to_user_name),  -- p_title
+        format('Has transferido L.%s a %s. Código: %s', p_amount::TEXT, v_to_user_name, v_unique_code),  -- p_body
+        'Ver transferencia',                   -- p_cta_label
+        '/dashboard/transferencias',           -- p_cta_href
+        'high',                                -- p_priority
         jsonb_build_object(
             'transfer_id', v_transfer_id,
             'to_user_id', p_to_user_id,
             'to_user_name', v_to_user_name,
             'amount', p_amount,
             'unique_code', v_unique_code
-        )
+        ),                                     -- p_payload
+        format('transfer_sent_%s', v_transfer_id)  -- p_dedupe_key
     );
     
     -- Notificación al destinatario
     PERFORM emit_notification(
-        p_to_user_id,
-        'TRANSFER_RECEIVED',
-        format('Has recibido una transferencia de %s', v_from_user_name),
-        format('Has recibido L.%s de %s. Código: %s', p_amount::TEXT, v_from_user_name, v_unique_code),
-        'high',
-        'Ver transferencia',
-        '/dashboard/transferencias',
-        format('transfer_received_%s', v_transfer_id),
+        p_to_user_id,                          -- p_user_id
+        'wallet',                              -- p_topic
+        'TRANSFER_RECEIVED',                   -- p_event
+        format('Has recibido una transferencia de %s', v_from_user_name),  -- p_title
+        format('Has recibido L.%s de %s. Código: %s', p_amount::TEXT, v_from_user_name, v_unique_code),  -- p_body
+        'Ver transferencia',                   -- p_cta_label
+        '/dashboard/transferencias',           -- p_cta_href
+        'high',                                -- p_priority
         jsonb_build_object(
             'transfer_id', v_transfer_id,
             'from_user_id', v_current_user_id,
             'from_user_name', v_from_user_name,
             'amount', p_amount,
             'unique_code', v_unique_code
-        )
+        ),                                     -- p_payload
+        format('transfer_received_%s', v_transfer_id)  -- p_dedupe_key
     );
     
     -- Retornar resultado

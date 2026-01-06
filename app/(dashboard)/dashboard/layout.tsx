@@ -5,7 +5,7 @@ import type React from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { CreditCard, Gavel, Home, LogOut, Receipt, User, Menu, MoreVertical, Link2, Shield, Bell, Cat, Dog, Fish, Bird, Rabbit, Turtle, Heart, Star, Zap, Circle, AlertTriangle, X, Search, MessageSquare, HelpCircle, ShoppingCart, ShoppingBag } from "lucide-react"
+import { CreditCard, Gavel, Home, LogOut, User, Menu, MoreVertical, Shield, Bell, Cat, Dog, Fish, Bird, Rabbit, Turtle, Heart, Star, Zap, Circle, AlertTriangle, X, Search, MessageSquare, HelpCircle, ShoppingCart, ShoppingBag } from "lucide-react"
 import { useState, useEffect } from "react"
 import { useTheme } from "next-themes"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
@@ -36,8 +36,6 @@ const menuItems = [
   { id: "solicitudes", label: "Solicitudes de Compra", icon: ShoppingCart, href: "/dashboard/solicitudes" },
   { id: "ventas", label: "Solicitudes de Venta", icon: ShoppingBag, href: "/dashboard/ventas" },
   { id: "subastas", label: "Subastas", icon: Gavel, href: "/dashboard/subastas" },
-  { id: "transacciones", label: "Transacciones", icon: Receipt, href: "/dashboard/transacciones" },
-  { id: "links", label: "Links de Pago", icon: Link2, href: "/dashboard/links" },
   { id: "verificacion", label: "Verificación", icon: Shield, href: "/dashboard/verificacion" },
   { id: "perfil", label: "Perfil", icon: User, href: "/dashboard/perfil" },
 ]
@@ -334,8 +332,6 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
     if (pathname.startsWith("/dashboard/solicitudes")) return "Solicitudes de Compra"
     if (pathname.startsWith("/dashboard/mis-ventas")) return "Mis Ventas"
     if (pathname.startsWith("/dashboard/ventas")) return "Solicitudes de Venta"
-    if (pathname.startsWith("/dashboard/transacciones")) return "Transacciones"
-    if (pathname.startsWith("/dashboard/links")) return "Links de Pago"
     if (pathname.startsWith("/dashboard/verificacion")) return "Verificación"
     if (pathname.startsWith("/dashboard/perfil")) return "Perfil"
     return "Dashboard"

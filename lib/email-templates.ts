@@ -68,7 +68,6 @@ export function getApprovalEmailTemplate(userName: string) {
         <ul>
           <li>✅ Realizar transacciones sin límites</li>
           <li>✅ Participar en subastas</li>
-          <li>✅ Crear links de pago</li>
           <li>✅ Acceder a todas las funcionalidades premium</li>
         </ul>
         

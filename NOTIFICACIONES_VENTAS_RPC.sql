@@ -264,7 +264,7 @@ BEGIN
         ELSE 'L.' || COALESCE(v_transaction.final_amount_hnld::TEXT, '0')
     END;
     
-    -- Crear transacción de transferencia HNLD
+    -- Crear transacción de venta para el vendedor (withdrawal)
     INSERT INTO hnld_transactions (
         id,
         user_id,
@@ -279,10 +279,35 @@ BEGIN
     ) VALUES (
         v_hnld_transaction_id,
         v_transaction.seller_id,
-        'transfer',
+        'withdrawal',
         v_transaction.final_amount_hnld,
         'completed',
-        format('Venta de HNLD - Solicitud %s', v_unique_code),
+        format('Código: %s', v_unique_code),
+        v_transaction.seller_id,
+        v_transaction.buyer_id,
+        NOW(),
+        NOW()
+    );
+    
+    -- Crear transacción de compra para el comprador (deposit)
+    INSERT INTO hnld_transactions (
+        id,
+        user_id,
+        transaction_type,
+        amount,
+        status,
+        description,
+        from_user_id,
+        to_user_id,
+        created_at,
+        updated_at
+    ) VALUES (
+        gen_random_uuid(),
+        v_transaction.buyer_id,
+        'deposit',
+        v_transaction.final_amount_hnld,
+        'completed',
+        format('Código: %s', v_unique_code),
         v_transaction.seller_id,
         v_transaction.buyer_id,
         NOW(),

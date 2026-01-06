@@ -17,9 +17,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { CheckCircle, XCircle, Clock, LinkIcon, Gavel, UserCheck, Search, Eye } from "lucide-react"
+import { CheckCircle, XCircle, Clock, Gavel, UserCheck, Search, Eye } from "lucide-react"
 
-type RequestType = "payment_link" | "auction" | "verification" | "other"
+type RequestType = "auction" | "verification" | "other"
 type RequestStatus = "pending" | "approved" | "rejected"
 
 interface Request {
@@ -38,24 +38,6 @@ interface Request {
 }
 
 const mockRequests: Request[] = [
-  {
-    id: "REQ-001",
-    type: "payment_link",
-    title: "Solicitud de Link de Pago - Venta de Producto",
-    user: {
-      name: "Carlos Martínez",
-      email: "carlos@example.com",
-      id: "USR-123",
-    },
-    description: "Solicito generar un link de pago para venta de laptop Dell",
-    status: "pending",
-    createdAt: "2024-01-15T10:30:00",
-    details: {
-      amount: "L 15,000.00",
-      product: "Laptop Dell Inspiron 15",
-      paymentMethod: "Transferencia bancaria",
-    },
-  },
   {
     id: "REQ-002",
     type: "auction",
@@ -94,24 +76,6 @@ const mockRequests: Request[] = [
     },
   },
   {
-    id: "REQ-004",
-    type: "payment_link",
-    title: "Link de Pago - Servicio de Diseño",
-    user: {
-      name: "Ana García",
-      email: "ana@example.com",
-      id: "USR-126",
-    },
-    description: "Link de pago para servicio de diseño gráfico",
-    status: "approved",
-    createdAt: "2024-01-14T16:20:00",
-    details: {
-      amount: "L 3,500.00",
-      service: "Diseño de logo empresarial",
-      paymentMethod: "Tarjeta de crédito",
-    },
-  },
-  {
     id: "REQ-005",
     type: "verification",
     title: "Verificación de Usuario - Cuenta Personal",
@@ -131,11 +95,6 @@ const mockRequests: Request[] = [
 ]
 
 const requestTypeConfig = {
-  payment_link: {
-    label: "Link de Pago",
-    icon: LinkIcon,
-    color: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-  },
   auction: {
     label: "Subasta",
     icon: Gavel,
@@ -286,7 +245,6 @@ export default function ApprovalsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos los tipos</SelectItem>
-                <SelectItem value="payment_link">Link de Pago</SelectItem>
                 <SelectItem value="auction">Subasta</SelectItem>
                 <SelectItem value="verification">Verificación</SelectItem>
                 <SelectItem value="other">Otro</SelectItem>
