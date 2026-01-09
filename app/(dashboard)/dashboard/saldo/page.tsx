@@ -77,6 +77,7 @@ import {
   HelpCircle,
   User
 } from "lucide-react"
+import Link from "next/link"
 
 export default function SaldoPage() {
   const [hnldBalance, setHnldBalance] = useState<HNLDBalance | null>(null)
@@ -86,7 +87,6 @@ export default function SaldoPage() {
   const [depositOpen, setDepositOpen] = useState(false)
   const [saleOpen, setSaleOpen] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
-  const [historyOpen, setHistoryOpen] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
   const { toast } = useToast()
 
@@ -113,7 +113,7 @@ export default function SaldoPage() {
         const [userResult, balanceResult, historyResult] = await Promise.all([
           supabase.auth.getUser(),
           getUserHNLDBalance(),
-          getTransactionHistory(10, 0)
+          getTransactionHistory(50, 0) // Aumentar límite para mostrar más transacciones
         ])
 
         // Establecer usuario
@@ -157,7 +157,7 @@ export default function SaldoPage() {
       // Cargar balance HNLD y transacciones en paralelo
       const [balanceResult, historyResult] = await Promise.all([
         getUserHNLDBalance(),
-        getTransactionHistory(10, 0)
+        getTransactionHistory(50, 0) // Aumentar límite para mostrar más transacciones
       ])
 
       if (balanceResult.success && balanceResult.data) {
@@ -875,9 +875,11 @@ export default function SaldoPage() {
             <CardTitle className="text-base md:text-lg font-semibold">Historial de Transacciones</CardTitle>
             <CardDescription>Últimas transacciones de tu cuenta HNLD</CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)}>
-            <History className="mr-2 h-4 w-4" />
-            Ver Todo
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/dashboard/saldo/historial">
+              <History className="mr-2 h-4 w-4" />
+              Ver Todo
+            </Link>
           </Button>
         </CardHeader>
         <CardContent>
@@ -912,62 +914,6 @@ export default function SaldoPage() {
           )}
         </CardContent>
       </Card>
-
-      {/* Full History Dialog */}
-      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Historial Completo de Transacciones</DialogTitle>
-            <DialogDescription>Todas las transacciones de tu cuenta HNLD</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {transactions.length === 0 ? (
-              <div className="text-center py-8">
-                <Coins className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">No hay transacciones aún</p>
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Tipo</TableHead>
-                    <TableHead>Código</TableHead>
-                    <TableHead>Monto</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead>Fecha</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {transactions.map((transaction) => (
-                    <TableRow key={transaction.id}>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          {getTransactionIcon(transaction.transaction_type)}
-                          <span>{getTransactionTitle(transaction)}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">{transaction.description || '-'}</TableCell>
-                      <TableCell className={`font-semibold ${isDebit(transaction) ? 'text-red-500' : 'text-green-500'}`}>
-                        {isDebit(transaction) ? '-' : '+'}{formatAmountWithHNLD(transaction.amount)}
-                      </TableCell>
-                      <TableCell>{getStatusBadge(transaction.status)}</TableCell>
-                      <TableCell>
-                        {new Date(transaction.created_at).toLocaleDateString('es-HN', {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Modal de información sobre HNLD */}
       <Dialog open={infoOpen} onOpenChange={setInfoOpen}>
