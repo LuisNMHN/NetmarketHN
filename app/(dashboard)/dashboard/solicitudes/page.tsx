@@ -131,7 +131,7 @@ export default function SolicitudesPage() {
       
       toast({
         title: "Negociación iniciada",
-        description: "Debes dar clic al botón 'Aceptar trato' para iniciar con el proceso de compra.",
+        description: "Debes dar clic al botón 'Aceptar trato' para iniciar con el proceso de venta.",
         variant: "info",
       })
     } catch (error) {
@@ -511,13 +511,13 @@ export default function SolicitudesPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">Solicitudes de otros usuarios</h1>
-          <p className="text-muted-foreground">Oportunidades para vender HNLD a otros usuarios</p>
+          <h1 className="text-2xl md:text-3xl font-bold">Vender HNLD</h1>
+          <p className="text-muted-foreground">Usuarios que buscan comprar HNLD y están dispuestos a pagar</p>
           <p className="text-sm text-muted-foreground mt-1">
-            💡 Solo puedes ver solicitudes de otros usuarios. Tus propias solicitudes aparecen en "Mis Compras"
+            💡 Aquí ves solicitudes de compra de otros usuarios. Si quieres comprar HNLD, ve a "Mis Compras"
           </p>
           <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-            🔒 Tus solicitudes están ocultas aquí para evitar conflictos de interés
+            🔒 Tus propias solicitudes de compra están ocultas aquí para evitar conflictos de interés
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2 sm:gap-2">
@@ -555,12 +555,12 @@ export default function SolicitudesPage() {
         {filteredRequests.length === 0 ? (
           <div className="col-span-full text-center py-12">
             <ShoppingCart className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No hay solicitudes disponibles</h3>
+            <h3 className="text-lg font-semibold mb-2">No hay oportunidades disponibles</h3>
             <p className="text-muted-foreground mb-2">
-              {searchTerm ? "No se encontraron solicitudes que coincidan con tu búsqueda" : "No hay solicitudes de compra activas de otros usuarios en este momento"}
+              {searchTerm ? "No se encontraron solicitudes que coincidan con tu búsqueda" : "No hay usuarios buscando comprar HNLD en este momento"}
             </p>
             <p className="text-xs text-muted-foreground">
-              💡 Recuerda que solo ves solicitudes de otros usuarios. Las tuyas aparecen en "Mis Compras"
+              💡 Aquí solo ves solicitudes de compra de otros usuarios. Si quieres comprar HNLD, ve a "Mis Compras"
             </p>
           </div>
         ) : (

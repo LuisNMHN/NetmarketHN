@@ -63,7 +63,7 @@ export default function MisVentasPage() {
       } else {
         toast({
           title: "Error",
-          description: result?.error || "No se pudieron cargar las solicitudes de venta",
+          description: result?.error || "No se pudieron cargar las ventas de HNLD",
           variant: "destructive",
         })
       }
@@ -413,8 +413,8 @@ export default function MisVentasPage() {
       {/* Header */}
       <div className="flex flex-col gap-4">
         <div className="text-center sm:text-left">
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold">Mis Solicitudes de Venta</h1>
-          <p className="text-sm sm:text-base text-muted-foreground mt-1">Gestiona tus solicitudes de venta de HNLD</p>
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold">Mis Ventas de HNLD</h1>
+          <p className="text-sm sm:text-base text-muted-foreground mt-1">Gestiona tus ventas de HNLD</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2">
           <SaleHNLDButton 

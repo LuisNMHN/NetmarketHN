@@ -157,16 +157,10 @@ export async function getUserReviews(userId: string, limit: number = 10, offset:
   try {
     const supabase = await supabaseServer()
 
-    // Obtener reviews con información del reviewer
+    // Obtener reviews sin join primero (para evitar problemas de foreign key)
     const { data: reviews, error } = await supabase
       .from('user_reviews')
-      .select(`
-        *,
-        reviewer:profiles!user_reviews_reviewer_id_fkey(
-          full_name,
-          avatar_url
-        )
-      `)
+      .select('*')
       .eq('reviewed_id', userId)
       .eq('is_public', true)
       .order('created_at', { ascending: false })
@@ -188,11 +182,33 @@ export async function getUserReviews(userId: string, limit: number = 10, offset:
       console.error('❌ Error obteniendo count:', countError)
     }
 
+    // Obtener información de los reviewers si no son anónimos
+    const reviewerIds = reviews?.filter(r => !r.is_anonymous).map(r => r.reviewer_id) || []
+    let reviewerProfiles: Record<string, { full_name?: string; avatar_url?: string }> = {}
+    
+    if (reviewerIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url')
+        .in('id', reviewerIds)
+      
+      if (profiles) {
+        reviewerProfiles = profiles.reduce((acc, profile) => {
+          acc[profile.id] = { full_name: profile.full_name, avatar_url: profile.avatar_url }
+          return acc
+        }, {} as Record<string, { full_name?: string; avatar_url?: string }>)
+      }
+    }
+
     // Transformar datos
     const transformedReviews: UserReview[] = reviews?.map(review => ({
       ...review,
-      reviewer_name: review.reviewer?.full_name || 'Usuario Anónimo',
-      reviewer_avatar: review.reviewer?.avatar_url || null
+      reviewer_name: review.is_anonymous 
+        ? 'Usuario Anónimo' 
+        : (reviewerProfiles[review.reviewer_id]?.full_name || 'Usuario'),
+      reviewer_avatar: review.is_anonymous 
+        ? null 
+        : (reviewerProfiles[review.reviewer_id]?.avatar_url || null)
     })) || []
 
     return { 
@@ -220,30 +236,39 @@ export async function getUserReputationMetrics(userId: string): Promise<{ succes
       .single()
 
     if (error) {
-      // Si no existen métricas, crear unas básicas
+      // Si no existen métricas, intentar crear unas básicas usando RPC o función
       if (error.code === 'PGRST116') {
-        const { data: newMetrics, error: createError } = await supabase
-          .from('user_reputation_metrics')
-          .insert({
-            user_id: userId,
-            overall_score: 50.0, // Score neutral para usuarios nuevos
-            total_reviews: 0,
-            positive_reviews: 0,
-            neutral_reviews: 0,
-            negative_reviews: 0,
-            avg_communication: 0.0,
-            avg_reliability: 0.0,
-            avg_quality: 0.0
-          })
-          .select('*')
-          .single()
-
-        if (createError) {
-          console.error('❌ Error creando métricas:', createError)
-          return { success: false, error: 'Error al crear métricas de reputación' }
+        // Intentar usar una función RPC si existe, o simplemente retornar métricas por defecto
+        console.log('⚠️ Métricas no encontradas para usuario:', userId)
+        // Retornar métricas por defecto en lugar de intentar crear (evita problemas de RLS)
+        const defaultMetrics: UserReputationMetrics = {
+          id: '',
+          user_id: userId,
+          overall_score: 50.0,
+          total_reviews: 0,
+          positive_reviews: 0,
+          neutral_reviews: 0,
+          negative_reviews: 0,
+          five_star_count: 0,
+          four_star_count: 0,
+          three_star_count: 0,
+          two_star_count: 0,
+          one_star_count: 0,
+          avg_communication: 0.0,
+          avg_reliability: 0.0,
+          avg_quality: 0.0,
+          total_transactions: 0,
+          successful_transactions: 0,
+          cancelled_transactions: 0,
+          disputed_transactions: 0,
+          member_since: new Date().toISOString(),
+          last_activity_at: new Date().toISOString(),
+          response_time_avg: 0,
+          last_calculated_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         }
-
-        return { success: true, metrics: newMetrics }
+        return { success: true, metrics: defaultMetrics }
       }
 
       console.error('❌ Error obteniendo métricas:', error)

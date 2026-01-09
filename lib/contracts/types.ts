@@ -5,32 +5,6 @@ export interface BalanceDTO {
   blocked: number
 }
 
-// Auction types
-export type AuctionStatus = "active" | "closed" | "expired"
-export type Currency = "USD" | "EUR" | "GBP" | "HNL"
-
-export interface AuctionDTO {
-  id: string
-  title: string
-  amount: number
-  currency: Currency
-  status: AuctionStatus
-  createdAt: string
-  expiresAt: string
-  description?: string
-  currentBid?: number
-  bidCount?: number
-}
-
-// Bid types
-export interface BidDTO {
-  id: string
-  auctionId: string
-  userId: string
-  amount: number
-  createdAt: string
-}
-
 // Transaction types
 export interface TransactionDTO {
   id: string

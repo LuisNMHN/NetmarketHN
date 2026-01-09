@@ -5,7 +5,7 @@ import type React from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { CreditCard, Gavel, Home, LogOut, User, Menu, MoreVertical, Shield, Bell, Cat, Dog, Fish, Bird, Rabbit, Turtle, Heart, Star, Zap, Circle, AlertTriangle, X, Search, MessageSquare, HelpCircle, ShoppingCart, ShoppingBag } from "lucide-react"
+import { CreditCard, LogOut, User, Menu, MoreVertical, Shield, Bell, Cat, Dog, Fish, Bird, Rabbit, Turtle, Heart, Star, Zap, Circle, AlertTriangle, X, Search, MessageSquare, HelpCircle, ShoppingCart, ShoppingBag, TrendingUp } from "lucide-react"
 import { useState, useEffect } from "react"
 import { useTheme } from "next-themes"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
@@ -31,11 +31,10 @@ interface DashboardLayoutProps {
 }
 
 const menuItems = [
-  { id: "resumen", label: "Resumen", icon: Home, href: "/dashboard" },
   { id: "saldo", label: "Balance HNLD", icon: CreditCard, href: "/dashboard/saldo" },
-  { id: "solicitudes", label: "Solicitudes de Compra", icon: ShoppingCart, href: "/dashboard/solicitudes" },
-  { id: "ventas", label: "Solicitudes de Venta", icon: ShoppingBag, href: "/dashboard/ventas" },
-  { id: "subastas", label: "Subastas", icon: Gavel, href: "/dashboard/subastas" },
+  { id: "solicitudes", label: "Vender HNLD", icon: ShoppingCart, href: "/dashboard/solicitudes" },
+  { id: "ventas", label: "Comprar HNLD", icon: ShoppingBag, href: "/dashboard/ventas" },
+  { id: "predicciones", label: "Predicciones", icon: TrendingUp, href: "/dashboard/predicciones" },
   { id: "verificacion", label: "Verificación", icon: Shield, href: "/dashboard/verificacion" },
   { id: "perfil", label: "Perfil", icon: User, href: "/dashboard/perfil" },
 ]
@@ -326,20 +325,19 @@ export default function DashboardLayout({ children, userName = "Usuario" }: Dash
   }
 
   const getSectionTitle = (pathname: string) => {
-    if (pathname === "/dashboard") return "Resumen"
-    if (pathname.startsWith("/dashboard/subastas")) return "Subastas"
-    if (pathname.startsWith("/dashboard/saldo")) return "Balance HNLD"
-    if (pathname.startsWith("/dashboard/solicitudes")) return "Solicitudes de Compra"
+    if (pathname === "/dashboard" || pathname.startsWith("/dashboard/saldo")) return "Balance HNLD"
+    if (pathname.startsWith("/dashboard/solicitudes")) return "Vender HNLD"
     if (pathname.startsWith("/dashboard/mis-ventas")) return "Mis Ventas"
-    if (pathname.startsWith("/dashboard/ventas")) return "Solicitudes de Venta"
+    if (pathname.startsWith("/dashboard/ventas")) return "Comprar HNLD"
+    if (pathname.startsWith("/dashboard/predicciones")) return "Predicciones"
     if (pathname.startsWith("/dashboard/verificacion")) return "Verificación"
     if (pathname.startsWith("/dashboard/perfil")) return "Perfil"
     return "Dashboard"
   }
 
   const isActive = (href: string) => {
-    if (href === "/dashboard") {
-      return pathname === "/dashboard"
+    if (href === "/dashboard/saldo") {
+      return pathname === "/dashboard" || pathname.startsWith("/dashboard/saldo")
     }
     return pathname.startsWith(href)
   }

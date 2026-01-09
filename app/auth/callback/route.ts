@@ -43,8 +43,8 @@ export async function GET(request: NextRequest) {
                       return NextResponse.redirect(`${requestUrl.origin}/login?error=profile_error`)
                     }
 
-                    // Redirigir al dashboard por defecto
-                    return NextResponse.redirect(`${requestUrl.origin}/dashboard`)
+                    // Redirigir a Balance HNLD (página principal del dashboard)
+                    return NextResponse.redirect(`${requestUrl.origin}/dashboard/saldo`)
                   }
     } catch (error) {
       console.error('Error in auth callback:', error)

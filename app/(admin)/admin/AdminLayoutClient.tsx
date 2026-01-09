@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   Users,
   FileCheck,
-  Gavel,
   Wallet,
   FileText,
   Settings,
@@ -17,6 +16,7 @@ import {
   Bell,
   ChevronRight,
   LogOut,
+  TrendingUp,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -46,8 +46,8 @@ const navigation = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { name: "Usuarios", href: "/admin/users", icon: Users },
   { name: "KYC", href: "/admin/kyc", icon: FileCheck },
-  { name: "Subastas", href: "/admin/auctions", icon: Gavel },
   { name: "Wallet/Saldo", href: "/admin/wallet", icon: Wallet },
+  { name: "Predicciones", href: "/admin/prediction-markets", icon: TrendingUp },
   { name: "Reportes", href: "/admin/reports", icon: FileText },
   { name: "Ajustes", href: "/admin/settings", icon: Settings },
 ]
@@ -194,24 +194,60 @@ export default function AdminLayoutClient({
             {/* Navigation */}
             <nav className="flex-1 space-y-1 p-3 overflow-y-auto">
               {navigation.map((item) => {
-                const isActive = pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href))
+                // Para "Predicciones", también activo en subrutas
+                const isActive = pathname === item.href || 
+                  (item.href !== "/admin" && pathname.startsWith(item.href)) ||
+                  (item.href === "/admin/prediction-markets" && pathname.startsWith("/admin/prediction-markets"))
+                
+                // Si es Predicciones y está activo, mostrar submenú
+                const showSubmenu = item.href === "/admin/prediction-markets" && isActive && !sidebarCollapsed
+                
                 return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    onClick={() => setSidebarOpen(false)}
-                    title={sidebarCollapsed ? item.name : undefined}
-                    className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                      isActive
-                        ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                      sidebarCollapsed && "justify-center",
+                  <div key={item.name}>
+                    <Link
+                      href={item.href}
+                      onClick={() => setSidebarOpen(false)}
+                      title={sidebarCollapsed ? item.name : undefined}
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                        isActive
+                          ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                        sidebarCollapsed && "justify-center",
+                      )}
+                    >
+                      <item.icon className="size-5 shrink-0" />
+                      {!sidebarCollapsed && <span>{item.name}</span>}
+                    </Link>
+                    {showSubmenu && (
+                      <div className="ml-8 mt-1 space-y-1">
+                        <Link
+                          href="/admin/prediction-markets"
+                          className={cn(
+                            "flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs transition-colors",
+                            pathname === "/admin/prediction-markets"
+                              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
+                          )}
+                        >
+                          <ChevronRight className="size-3" />
+                          Todos los Mercados
+                        </Link>
+                        <Link
+                          href="/admin/prediction-markets/permissions"
+                          className={cn(
+                            "flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs transition-colors",
+                            pathname === "/admin/prediction-markets/permissions"
+                              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
+                          )}
+                        >
+                          <ChevronRight className="size-3" />
+                          Permisos
+                        </Link>
+                      </div>
                     )}
-                  >
-                    <item.icon className="size-5 shrink-0" />
-                    {!sidebarCollapsed && <span>{item.name}</span>}
-                  </Link>
+                  </div>
                 )
               })}
             </nav>

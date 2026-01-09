@@ -106,12 +106,12 @@ export default function VentasPage() {
         console.error('❌ Error en loadRequests:', result?.error)
         toast({
           title: "Error",
-          description: result?.error || "No se pudieron cargar las solicitudes de venta",
+          description: result?.error || "No se pudieron cargar las ventas de HNLD",
           variant: "destructive",
         })
       }
     } catch (error: any) {
-      console.error('❌ Error cargando solicitudes de venta:', error)
+      console.error('❌ Error cargando ventas de HNLD:', error)
       toast({
         title: "Error",
         description: error?.message || "Error inesperado al cargar solicitudes",
@@ -131,8 +131,8 @@ export default function VentasPage() {
   const handleAcceptSale = async (request: SaleRequest) => {
     // Mostrar toast naranja al comprador indicando que se inicia la compra
     toast({
-      title: "Iniciando compra de HNLD",
-      description: "Se está procesando tu solicitud de compra...",
+      title: "Aceptando solicitud de venta",
+      description: "Se está procesando tu solicitud para comprar HNLD...",
       variant: "info",
     })
 
@@ -492,13 +492,13 @@ export default function VentasPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">Solicitudes de otros usuarios</h1>
-          <p className="text-muted-foreground">Oportunidades para comprar HNLD de otros usuarios</p>
+          <h1 className="text-2xl md:text-3xl font-bold">Comprar HNLD</h1>
+          <p className="text-muted-foreground">Usuarios que están vendiendo HNLD y aceptan tu método de pago</p>
           <p className="text-sm text-muted-foreground mt-1">
-            💡 Solo puedes ver solicitudes de otros usuarios. Tus propias solicitudes aparecen en "Mis Ventas"
+            💡 Aquí ves solicitudes de venta de otros usuarios. Si quieres vender HNLD, ve a "Mis Ventas"
           </p>
           <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-            🔒 Tus solicitudes están ocultas aquí para evitar conflictos de interés
+            🔒 Tus propias solicitudes de venta están ocultas aquí para evitar conflictos de interés
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2 sm:gap-2">
@@ -535,12 +535,12 @@ export default function VentasPage() {
         {filteredRequests.length === 0 ? (
           <div className="col-span-full text-center py-12">
             <ShoppingBag className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No hay solicitudes disponibles</h3>
+            <h3 className="text-lg font-semibold mb-2">No hay oportunidades disponibles</h3>
             <p className="text-muted-foreground mb-2">
-              {searchTerm ? "No se encontraron solicitudes que coincidan con tu búsqueda" : "No hay solicitudes de venta activas de otros usuarios en este momento"}
+              {searchTerm ? "No se encontraron solicitudes que coincidan con tu búsqueda" : "No hay usuarios vendiendo HNLD en este momento"}
             </p>
             <p className="text-xs text-muted-foreground">
-              💡 Recuerda que solo ves solicitudes de otros usuarios. Las tuyas aparecen en "Mis Ventas"
+              💡 Aquí solo ves solicitudes de venta de otros usuarios. Si quieres vender HNLD, ve a "Mis Ventas"
             </p>
           </div>
         ) : (

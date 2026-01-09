@@ -7,10 +7,10 @@ import { getUserReputationMetrics, updateUserReputationMetrics } from "@/lib/act
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { userId: string } }
+  { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
-    const { userId } = params
+    const { userId } = await params
 
     if (!userId) {
       return NextResponse.json(
@@ -41,10 +41,10 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { userId: string } }
+  { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
-    const { userId } = params
+    const { userId } = await params
 
     if (!userId) {
       return NextResponse.json(

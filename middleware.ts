@@ -104,7 +104,7 @@ export async function middleware(req: NextRequest) {
       if (userRoles) {
         return NextResponse.redirect(new URL('/admin', req.url))
       } else {
-        return NextResponse.redirect(new URL('/dashboard', req.url))
+        return NextResponse.redirect(new URL('/dashboard/saldo', req.url))
       }
     }
   }

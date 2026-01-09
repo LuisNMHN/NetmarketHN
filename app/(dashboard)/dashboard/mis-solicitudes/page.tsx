@@ -646,8 +646,8 @@ export default function MisSolicitudesPage() {
       {/* Header */}
       <div className="flex flex-col gap-4">
         <div className="text-center sm:text-left">
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold">Mis Solicitudes de Compra</h1>
-          <p className="text-sm sm:text-base text-muted-foreground mt-1">Gestiona tus solicitudes de compra de HNLD</p>
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold">Mis Compras de HNLD</h1>
+          <p className="text-sm sm:text-base text-muted-foreground mt-1">Gestiona tus compras de HNLD</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2">
           <PurchaseHNLDButton 

@@ -70,6 +70,11 @@ export async function getAdminStats() {
           pendingKyc: 0,
           approvedKyc: 0,
           rejectedKyc: 0,
+          totalMarkets: 0,
+          activeMarkets: 0,
+          totalMarketCreators: 0,
+          totalHNLDBalance: 0,
+          totalTransactions: 0,
         }
       }
 
@@ -79,6 +84,11 @@ export async function getAdminStats() {
         pendingKyc: 0,
         approvedKyc: 0,
         rejectedKyc: 0,
+        totalMarkets: 0,
+        activeMarkets: 0,
+        totalMarketCreators: 0,
+        totalHNLDBalance: 0,
+        totalTransactions: 0,
       }
     }
 
@@ -122,12 +132,78 @@ export async function getAdminStats() {
       // Mantener valores por defecto si hay error
     }
 
+    // Obtener estadísticas de mercados de predicción
+    let totalMarkets = 0
+    let activeMarkets = 0
+    let totalMarketCreators = 0
+
+    try {
+      const { count: marketsCount } = await supabase
+        .from('prediction_markets')
+        .select('*', { count: 'exact', head: true })
+
+      if (marketsCount !== null) {
+        totalMarkets = marketsCount
+      }
+
+      const { count: activeCount } = await supabase
+        .from('prediction_markets')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active')
+
+      if (activeCount !== null) {
+        activeMarkets = activeCount
+      }
+
+      const { count: creatorsCount } = await supabase
+        .from('market_creator_permissions')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_active', true)
+
+      if (creatorsCount !== null) {
+        totalMarketCreators = creatorsCount
+      }
+    } catch (marketError) {
+      console.error('Error getting market stats:', marketError)
+    }
+
+    // Obtener estadísticas de HNLD
+    let totalHNLDBalance = 0
+    let totalTransactions = 0
+
+    try {
+      // Sumar todos los balances HNLD
+      const { data: balances } = await supabase
+        .from('hnld_balances')
+        .select('balance')
+
+      if (balances) {
+        totalHNLDBalance = balances.reduce((sum, b) => sum + (parseFloat(b.balance) || 0), 0)
+      }
+
+      // Contar transacciones
+      const { count: transactionsCount } = await supabase
+        .from('hnld_transactions')
+        .select('*', { count: 'exact', head: true })
+
+      if (transactionsCount !== null) {
+        totalTransactions = transactionsCount
+      }
+    } catch (hnldError) {
+      console.error('Error getting HNLD stats:', hnldError)
+    }
+
     const stats = {
       totalUsers: totalUsers || 0,
       activeUsers: activeUsers,
       pendingKyc,
       approvedKyc,
       rejectedKyc,
+      totalMarkets,
+      activeMarkets,
+      totalMarketCreators,
+      totalHNLDBalance,
+      totalTransactions,
     }
 
     console.log('Admin stats:', stats)
@@ -140,6 +216,11 @@ export async function getAdminStats() {
       pendingKyc: 0,
       approvedKyc: 0,
       rejectedKyc: 0,
+      totalMarkets: 0,
+      activeMarkets: 0,
+      totalMarketCreators: 0,
+      totalHNLDBalance: 0,
+      totalTransactions: 0,
     }
   }
 }

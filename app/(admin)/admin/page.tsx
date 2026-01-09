@@ -1,6 +1,8 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Users, FileCheck, Gavel, TrendingUp, LinkIcon, Wallet, DollarSign } from "lucide-react"
+import { Users, FileCheck, TrendingUp, Wallet, DollarSign, CheckCircle, UserCheck, BarChart3, Coins, Activity } from "lucide-react"
 import { getAdminStats } from "@/app/actions/admin"
+import { formatCurrency } from "@/lib/utils"
+import Link from "next/link"
 
 export default async function AdminPage() {
   const stats = await getAdminStats()
@@ -12,6 +14,7 @@ export default async function AdminPage() {
       change: "+12.5%",
       icon: Users,
       description: "Registrados en el sistema",
+      href: "/admin/users",
     },
     {
       title: "KYC Pendientes",
@@ -19,43 +22,65 @@ export default async function AdminPage() {
       change: "+5",
       icon: FileCheck,
       description: "Requieren revisión",
+      href: "/admin/kyc",
+      urgent: stats.pendingKyc > 0,
     },
     {
       title: "KYC Aprobados",
       value: stats.approvedKyc.toString(),
       change: "+3",
-      icon: Gavel,
+      icon: CheckCircle,
       description: "Verificaciones completadas",
+      href: "/admin/kyc",
     },
     {
       title: "Usuarios Activos",
       value: stats.activeUsers.toString(),
       change: "+18.2%",
-      icon: LinkIcon,
+      icon: UserCheck,
       description: "Con acceso al sistema",
+      href: "/admin/users",
     },
     {
-      title: "KYC Rechazados",
-      value: stats.rejectedKyc.toString(),
-      change: "+8.5%",
-      icon: Wallet,
-      description: "Solicitudes denegadas",
+      title: "Mercados Activos",
+      value: stats.activeMarkets.toString(),
+      change: `${stats.totalMarkets} total`,
+      icon: BarChart3,
+      description: "Mercados de predicción",
+      href: "/admin/prediction-markets/permissions",
     },
     {
-      title: "Crecimiento",
-      value: "18.3%",
-      change: "+4.1%",
+      title: "Creadores Autorizados",
+      value: stats.totalMarketCreators.toString(),
+      change: "Con permisos",
       icon: TrendingUp,
-      description: "Tasa mensual",
+      description: "Pueden crear mercados",
+      href: "/admin/prediction-markets/permissions",
+    },
+    {
+      title: "Balance Total HNLD",
+      value: formatCurrency(stats.totalHNLDBalance),
+      change: "En circulación",
+      icon: Coins,
+      description: "Total en el sistema",
+      href: "/admin/wallet",
+    },
+    {
+      title: "Transacciones HNLD",
+      value: stats.totalTransactions.toString(),
+      change: "Total",
+      icon: Activity,
+      description: "Historial completo",
+      href: "/admin/wallet",
     },
   ]
 
   const recentActivity = [
     { action: "Nueva solicitud KYC recibida", user: "Juan Pérez", time: "Hace 5 minutos" },
-    { action: "Link de pago creado", user: "María García", time: "Hace 15 minutos" },
-    { action: "Subasta finalizada", user: "Sistema", time: "Hace 1 hora" },
-    { action: "Retiro procesado", user: "Carlos López", time: "Hace 2 horas" },
-    { action: "Usuario verificado", user: "Ana Martínez", time: "Hace 3 horas" },
+    { action: "Mercado de predicción creado", user: "María García", time: "Hace 15 minutos" },
+    { action: "Retiro procesado", user: "Carlos López", time: "Hace 1 hora" },
+    { action: "Usuario verificado", user: "Ana Martínez", time: "Hace 2 horas" },
+    { action: "Transferencia completada", user: "Pedro Sánchez", time: "Hace 3 horas" },
   ]
 
   const recentPayments = [
@@ -74,20 +99,25 @@ export default async function AdminPage() {
       </div>
 
       {/* Stats grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {statsCards.map((stat) => (
-          <Card key={stat.title}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{stat.title}</CardTitle>
-              <stat.icon className="size-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stat.value}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                <span className="text-primary font-medium">{stat.change}</span> {stat.description}
-              </p>
-            </CardContent>
-          </Card>
+          <Link key={stat.title} href={stat.href || "#"}>
+            <Card className={`hover:shadow-md transition-shadow cursor-pointer ${stat.urgent ? 'border-orange-500 border-2' : ''}`}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">{stat.title}</CardTitle>
+                <stat.icon className={`size-4 ${stat.urgent ? 'text-orange-500' : 'text-muted-foreground'}`} />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stat.value}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  <span className="text-primary font-medium">{stat.change}</span> {stat.description}
+                </p>
+                {stat.urgent && (
+                  <p className="text-xs text-orange-600 font-medium mt-1">⚠️ Requiere atención</p>
+                )}
+              </CardContent>
+            </Card>
+          </Link>
         ))}
       </div>
 
@@ -155,18 +185,24 @@ export default async function AdminPage() {
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { label: "Revisar KYC", href: "/admin/kyc", icon: FileCheck },
-              { label: "Gestionar Subastas", href: "/admin/auctions", icon: Gavel },
-              { label: "Administrar Wallet", href: "/admin/wallet", icon: Wallet },
+              { label: "Revisar KYC", href: "/admin/kyc", icon: FileCheck, description: "Verificar identidades" },
+              { label: "Administrar Wallet", href: "/admin/wallet", icon: Wallet, description: "Gestionar saldos" },
+              { label: "Gestionar Usuarios", href: "/admin/users", icon: Users, description: "Ver y editar usuarios" },
+              { label: "Permisos Predicciones", href: "/admin/prediction-markets/permissions", icon: TrendingUp, description: "Controlar creadores" },
+              { label: "Ver Reportes", href: "/admin/reports", icon: BarChart3, description: "Análisis y métricas" },
+              { label: "Configuración", href: "/admin/settings", icon: CheckCircle, description: "Ajustes del sistema" },
             ].map((link) => (
-              <a
+              <Link
                 key={link.href}
                 href={link.href}
-                className="flex items-center gap-3 rounded-lg border border-border p-4 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+                className="flex flex-col gap-2 rounded-lg border border-border p-4 text-sm font-medium text-foreground hover:bg-muted transition-colors"
               >
-                <link.icon className="size-5 text-primary" />
-                {link.label}
-              </a>
+                <div className="flex items-center gap-3">
+                  <link.icon className="size-5 text-primary" />
+                  <span className="font-semibold">{link.label}</span>
+                </div>
+                <span className="text-xs text-muted-foreground">{link.description}</span>
+              </Link>
             ))}
           </div>
         </CardContent>

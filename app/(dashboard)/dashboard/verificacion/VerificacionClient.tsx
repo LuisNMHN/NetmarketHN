@@ -3040,7 +3040,7 @@ export default function VerificacionClient({ initialDraft }: { initialDraft: Ini
           <div className="flex items-start gap-3">
             <CheckCircle className="h-5 w-5 text-primary mt-0.5" />
             <div>
-              <div className="font-medium">Acceso a subastas y pagos garantizados</div>
+              <div className="font-medium">Acceso a pagos garantizados</div>
               <div className="text-sm text-muted-foreground">Participa en funciones exclusivas y acuerdos protegidos.</div>
             </div>
           </div>

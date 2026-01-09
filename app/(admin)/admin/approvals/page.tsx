@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { CheckCircle, XCircle, Clock, Gavel, UserCheck, Search, Eye } from "lucide-react"
+import { CheckCircle, XCircle, Clock, UserCheck, Search, Eye } from "lucide-react"
 
 type RequestType = "auction" | "verification" | "other"
 type RequestStatus = "pending" | "approved" | "rejected"
@@ -38,25 +38,6 @@ interface Request {
 }
 
 const mockRequests: Request[] = [
-  {
-    id: "REQ-002",
-    type: "auction",
-    title: "Crear Subasta - Vehículo Toyota Corolla 2020",
-    user: {
-      name: "María López",
-      email: "maria@example.com",
-      id: "USR-124",
-    },
-    description: "Solicito crear una subasta para vehículo en excelente estado",
-    status: "pending",
-    createdAt: "2024-01-15T09:15:00",
-    details: {
-      startingPrice: "L 180,000.00",
-      duration: "7 días",
-      category: "Vehículos",
-      condition: "Usado - Excelente",
-    },
-  },
   {
     id: "REQ-003",
     type: "verification",
@@ -95,11 +76,6 @@ const mockRequests: Request[] = [
 ]
 
 const requestTypeConfig = {
-  auction: {
-    label: "Subasta",
-    icon: Gavel,
-    color: "bg-purple-500/10 text-purple-500 border-purple-500/20",
-  },
   verification: {
     label: "Verificación",
     icon: UserCheck,
@@ -245,7 +221,6 @@ export default function ApprovalsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos los tipos</SelectItem>
-                <SelectItem value="auction">Subasta</SelectItem>
                 <SelectItem value="verification">Verificación</SelectItem>
                 <SelectItem value="other">Otro</SelectItem>
               </SelectContent>

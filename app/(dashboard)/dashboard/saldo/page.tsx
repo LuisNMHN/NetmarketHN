@@ -104,26 +104,62 @@ export default function SaldoPage() {
   const modalRef = useRef<HTMLDivElement>(null)
   const emailTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Obtener usuario actual
+  // Cargar datos inmediatamente al montar el componente
   useEffect(() => {
-    const getCurrentUser = async () => {
+    const initializeData = async () => {
       try {
+        // Obtener usuario y cargar datos en paralelo
         const supabase = supabaseBrowser()
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) {
-          setCurrentUserId(user.id)
+        const [userResult, balanceResult, historyResult] = await Promise.all([
+          supabase.auth.getUser(),
+          getUserHNLDBalance(),
+          getTransactionHistory(10, 0)
+        ])
+
+        // Establecer usuario
+        if (userResult.data?.user) {
+          setCurrentUserId(userResult.data.user.id)
+        }
+
+        // Establecer balance
+        if (balanceResult.success && balanceResult.data) {
+          setHnldBalance(balanceResult.data)
+        } else {
+          toast({
+            title: "Error",
+            description: balanceResult.error || "No se pudo cargar el balance HNLD",
+            variant: "destructive",
+          })
+        }
+
+        // Establecer transacciones
+        if (historyResult.success && historyResult.data) {
+          setTransactions(historyResult.data)
         }
       } catch (error) {
-        console.error('Error obteniendo usuario:', error)
+        console.error('❌ Error inicializando datos:', error)
+        toast({
+          title: "Error",
+          description: "No se pudieron cargar los datos",
+          variant: "destructive",
+        })
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
       }
     }
-    getCurrentUser()
+
+    initializeData()
   }, [])
 
   const loadHNLDData = async () => {
     try {
-      // Cargar balance HNLD
-      const balanceResult = await getUserHNLDBalance()
+      // Cargar balance HNLD y transacciones en paralelo
+      const [balanceResult, historyResult] = await Promise.all([
+        getUserHNLDBalance(),
+        getTransactionHistory(10, 0)
+      ])
+
       if (balanceResult.success && balanceResult.data) {
         setHnldBalance(balanceResult.data)
       } else {
@@ -134,8 +170,6 @@ export default function SaldoPage() {
         })
       }
 
-      // Cargar historial de transacciones
-      const historyResult = await getTransactionHistory(10, 0)
       if (historyResult.success && historyResult.data) {
         setTransactions(historyResult.data)
       }
