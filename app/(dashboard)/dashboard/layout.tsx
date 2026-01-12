@@ -32,8 +32,8 @@ interface DashboardLayoutProps {
 
 const menuItems = [
   { id: "saldo", label: "Balance HNLD", icon: CreditCard, href: "/dashboard/saldo" },
-  { id: "solicitudes", label: "Vender HNLD", icon: ShoppingCart, href: "/dashboard/solicitudes" },
-  { id: "ventas", label: "Comprar HNLD", icon: ShoppingBag, href: "/dashboard/ventas" },
+  { id: "solicitudes", label: "Vender HNLD", icon: ShoppingBag, href: "/dashboard/solicitudes" },
+  { id: "ventas", label: "Comprar HNLD", icon: ShoppingCart, href: "/dashboard/ventas" },
   { id: "predicciones", label: "Predicciones", icon: TrendingUp, href: "/dashboard/predicciones" },
   { id: "verificacion", label: "Verificación", icon: Shield, href: "/dashboard/verificacion" },
   { id: "perfil", label: "Perfil", icon: User, href: "/dashboard/perfil" },

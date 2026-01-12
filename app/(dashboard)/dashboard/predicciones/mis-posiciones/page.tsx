@@ -18,7 +18,8 @@ import {
   TrendingDown,
   Eye,
   RefreshCw,
-  ArrowRight
+  ArrowRight,
+  ArrowLeft
 } from "lucide-react"
 import LoadingSpinner from "@/components/ui/loading-spinner"
 import {
@@ -119,8 +120,13 @@ export default function MyPositionsPage() {
 
   return (
     <div className="container mx-auto py-8 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-center gap-4">
+        <Button variant="ghost" size="icon" asChild>
+          <Link href="/dashboard/predicciones">
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+        </Button>
+        <div className="flex-1">
           <h1 className="text-3xl font-bold">Mis Posiciones</h1>
           <p className="text-muted-foreground mt-2">
             Gestiona tus inversiones en mercados de predicción

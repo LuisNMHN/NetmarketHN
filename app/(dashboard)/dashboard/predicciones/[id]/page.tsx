@@ -185,12 +185,7 @@ export default function MarketDetailPage() {
       }
 
       if (result.success) {
-        toast({
-          title: "Éxito",
-          description: tradeType === 'buy' 
-            ? "Acciones compradas correctamente" 
-            : "Acciones vendidas correctamente",
-        })
+        // No mostrar toast - la notificación aparecerá en la campana
         setTradeDialogOpen(false)
         loadMarket()
         loadUserData()
@@ -228,10 +223,7 @@ export default function MarketDetailPage() {
       const result = await resolveMarket(marketId, winningOutcomeId, resolutionNotes || undefined)
 
       if (result.success) {
-        toast({
-          title: "Éxito",
-          description: "Mercado resuelto correctamente",
-        })
+        // No mostrar toast - la notificación aparecerá en la campana
         setResolveDialogOpen(false)
         loadMarket()
         loadUserData()

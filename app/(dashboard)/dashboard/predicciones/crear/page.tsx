@@ -18,8 +18,10 @@ import {
   Plus,
   X,
   AlertCircle,
-  CheckCircle
+  CheckCircle,
+  Sparkles
 } from "lucide-react"
+import { PREDICTION_CATEGORIES, getSuggestedTitles, getSuggestedQuestions } from "@/lib/data/prediction-templates"
 import LoadingSpinner from "@/components/ui/loading-spinner"
 import {
   Select,
@@ -54,6 +56,10 @@ export default function CreateMarketPage() {
     resolution_date: "",
     outcomes: [] as Outcome[]
   })
+
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("")
+  const [suggestedTitles, setSuggestedTitles] = useState<string[]>([])
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([])
 
   const [errors, setErrors] = useState<Record<string, string>>({})
 
@@ -166,10 +172,7 @@ export default function CreateMarketPage() {
       })
 
       if (result.success && result.marketId) {
-        toast({
-          title: "Éxito",
-          description: "Mercado creado correctamente",
-        })
+        // No mostrar toast - la notificación aparecerá en la campana
         router.push(`/dashboard/predicciones/${result.marketId}`)
       } else {
         toast({
@@ -252,12 +255,96 @@ export default function CreateMarketPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Paso 1: Seleccionar Categoría */}
+                <div className="space-y-2">
+                  <Label htmlFor="category">Categoría (opcional)</Label>
+                  <Select
+                    value={selectedCategoryId}
+                    onValueChange={(value) => {
+                      setSelectedCategoryId(value)
+                      const category = PREDICTION_CATEGORIES.find(c => c.id === value)
+                      if (category) {
+                        setFormData({ ...formData, category: category.name })
+                        setSuggestedTitles(getSuggestedTitles(value))
+                        // Limpiar título y pregunta cuando cambia la categoría
+                        setFormData(prev => ({ ...prev, title: "", question: "" }))
+                        setSuggestedQuestions([])
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecciona una categoría para ver sugerencias" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PREDICTION_CATEGORIES.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.id}>
+                          <span className="flex items-center gap-2">
+                            <span>{cat.icon}</span>
+                            <span>{cat.name}</span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedCategoryId && (
+                    <p className="text-xs text-muted-foreground">
+                      {PREDICTION_CATEGORIES.find(c => c.id === selectedCategoryId)?.description}
+                    </p>
+                  )}
+                </div>
+
+                {/* Paso 2: Títulos Sugeridos (aparece cuando hay categoría) */}
+                {suggestedTitles.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-primary" />
+                      Títulos Sugeridos
+                    </Label>
+                    <Select
+                      value={formData.title}
+                      onValueChange={(value) => {
+                        setFormData({ ...formData, title: value })
+                        const questions = getSuggestedQuestions(selectedCategoryId, value)
+                        setSuggestedQuestions(questions)
+                        // Si hay preguntas sugeridas, usar la primera por defecto
+                        if (questions.length > 0) {
+                          setFormData(prev => ({ ...prev, question: questions[0] }))
+                        }
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecciona un título sugerido" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {suggestedTitles.map((title, index) => (
+                          <SelectItem key={index} value={title}>
+                            {title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      O escribe un título personalizado en el campo siguiente
+                    </p>
+                  </div>
+                )}
+
+                {/* Paso 3: Título del Mercado */}
                 <div className="space-y-2">
                   <Label htmlFor="title">Título del Mercado *</Label>
                   <Input
                     id="title"
                     value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, title: e.target.value })
+                      // Si hay un título personalizado, buscar preguntas sugeridas
+                      if (selectedCategoryId && e.target.value) {
+                        const questions = getSuggestedQuestions(selectedCategoryId, e.target.value)
+                        setSuggestedQuestions(questions)
+                      } else {
+                        setSuggestedQuestions([])
+                      }
+                    }}
                     placeholder="Ej: ¿Ganará el equipo A en el próximo partido?"
                     className={errors.title ? "border-destructive" : ""}
                   />
@@ -266,6 +353,35 @@ export default function CreateMarketPage() {
                   )}
                 </div>
 
+                {/* Paso 4: Preguntas Sugeridas (aparece cuando hay título) */}
+                {suggestedQuestions.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-primary" />
+                      Preguntas Sugeridas
+                    </Label>
+                    <Select
+                      value={formData.question}
+                      onValueChange={(value) => setFormData({ ...formData, question: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecciona una pregunta sugerida" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {suggestedQuestions.map((question, index) => (
+                          <SelectItem key={index} value={question}>
+                            {question}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      O escribe una pregunta personalizada en el campo siguiente
+                    </p>
+                  </div>
+                )}
+
+                {/* Paso 5: Pregunta de Predicción */}
                 <div className="space-y-2">
                   <Label htmlFor="question">Pregunta de Predicción *</Label>
                   <Textarea
@@ -281,6 +397,7 @@ export default function CreateMarketPage() {
                   )}
                 </div>
 
+                {/* Paso 6: Descripción */}
                 <div className="space-y-2">
                   <Label htmlFor="description">Descripción (opcional)</Label>
                   <Textarea
@@ -292,16 +409,8 @@ export default function CreateMarketPage() {
                   />
                 </div>
 
+                {/* Paso 7: Tipo de Mercado */}
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="category">Categoría (opcional)</Label>
-                    <Input
-                      id="category"
-                      value={formData.category}
-                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                      placeholder="Ej: Deportes, Política, etc."
-                    />
-                  </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="market_type">Tipo de Mercado *</Label>

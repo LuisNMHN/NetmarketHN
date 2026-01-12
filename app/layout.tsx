@@ -31,7 +31,7 @@ export default function RootLayout({
           </NotificationProvider>
         </ThemeProvider>
         <SupabaseAuthListener />
-        <Toaster position="top-center" richColors closeButton />
+        <Toaster position="bottom-right" richColors closeButton />
         <ShadcnToaster />
       </body>
     </html>

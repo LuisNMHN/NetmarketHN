@@ -33,6 +33,8 @@ const getTopicIcon = (topic: string) => {
       return '💬'
     case 'system':
       return '⚙️'
+    case 'prediction':
+      return '📊'
     default:
       return '🔔'
   }
@@ -53,7 +55,7 @@ const getPriorityColor = (priority: string) => {
 
 export function NotificationBell({ className }: NotificationBellProps) {
   const router = useRouter()
-  const { toast: elegantToast } = useToast()
+  const { toast: shadcnToast } = useToast()
   const [isOpen, setIsOpen] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [stats, setStats] = useState<NotificationStats>({ total: 0, unread: 0, read: 0, archived: 0, high_priority: 0 })
@@ -133,6 +135,11 @@ export function NotificationBell({ className }: NotificationBellProps) {
       
       console.log('✅ NotificationBell - Notificación NUEVA, procesando toasts:', notification.id)
       
+      // =========================================================
+      // HANDLERS PARA EVENTOS DE PREDICCIONES
+      // =========================================================
+      // Usar el mismo formato de toast que los módulos de comprar/vender
+      
       // Log detallado para cancelaciones/eliminaciones/expiraciones/completadas
       if (notification.event === 'REQUEST_CANCELLED' || notification.event === 'REQUEST_DELETED' || notification.event === 'REQUEST_EXPIRED' || notification.event === 'REQUEST_COMPLETED') {
         console.log('🚨 NotificationBell - Notificación de solicitud:', {
@@ -159,6 +166,82 @@ export function NotificationBell({ className }: NotificationBellProps) {
         })
         return [notification, ...prev.slice(0, 19)] // Mantener solo las 20 más recientes
       })
+      
+      // Mostrar toasts para predicciones usando el mismo formato que comprar/vender
+      if (notification.topic === 'prediction') {
+        if (notification.event === 'MARKET_CREATED') {
+          if (!shownToastIds.has(notification.id)) {
+            shownToastIds.add(notification.id)
+            shadcnToast({
+              title: notification.title,
+              description: notification.body,
+              variant: "created",
+            })
+          }
+        } else if (notification.event === 'NEW_MARKET_AVAILABLE') {
+          if (!shownToastIds.has(notification.id)) {
+            shownToastIds.add(notification.id)
+            shadcnToast({
+              title: notification.title,
+              description: notification.body,
+              variant: "created",
+            })
+          }
+        } else if (notification.event === 'MARKET_PARTICIPATION') {
+          if (!shownToastIds.has(notification.id)) {
+            shownToastIds.add(notification.id)
+            shadcnToast({
+              title: notification.title,
+              description: notification.body,
+              variant: "success",
+            })
+          }
+        } else if (notification.event === 'MARKET_RESOLVED' || notification.event === 'POSITION_WINNER') {
+          if (!shownToastIds.has(notification.id)) {
+            shownToastIds.add(notification.id)
+            shadcnToast({
+              title: notification.title,
+              description: notification.body,
+              variant: "created",
+            })
+          }
+        } else if (notification.event === 'POSITION_LOSER') {
+          if (!shownToastIds.has(notification.id)) {
+            shownToastIds.add(notification.id)
+            shadcnToast({
+              title: notification.title,
+              description: notification.body,
+              variant: "info",
+            })
+          }
+        } else if (notification.event === 'MARKET_CANCELLED') {
+          if (!shownToastIds.has(notification.id)) {
+            shownToastIds.add(notification.id)
+            shadcnToast({
+              title: notification.title,
+              description: notification.body,
+              variant: "info",
+            })
+          }
+        } else if (notification.event === 'MARKET_DELETED') {
+          if (!shownToastIds.has(notification.id)) {
+            shownToastIds.add(notification.id)
+            shadcnToast({
+              title: notification.title,
+              description: notification.body,
+              variant: "destructive",
+            })
+          }
+        }
+        
+        // Actualizar estadísticas
+        setStats(prev => ({
+          ...prev,
+          total: prev.total + 1,
+          unread: prev.unread + 1
+        }))
+        return // Salir después de mostrar el toast
+      }
       
       // Mostrar toast cuando se acepta una solicitud de compra (ORDER_ACCEPTED)
       // Evitar duplicados verificando si ya se mostró este toast
@@ -224,10 +307,8 @@ export function NotificationBell({ className }: NotificationBellProps) {
             const codeText = uniqueCode ? `Código: ${uniqueCode}` : ''
             const description = `Se ha aceptado el trato${codeText ? ` - ${codeText}` : ''} - Vendedor: ${sellerName}`
             
-            elegantToast({
-              title: "Trato aceptado",
+            toast.info("Trato aceptado", {
               description: description,
-              variant: "info",
             })
           }
           
@@ -297,10 +378,8 @@ export function NotificationBell({ className }: NotificationBellProps) {
             const codeText = uniqueCode ? `Código: ${uniqueCode}` : ''
             const description = `Se ha completado el paso 2${codeText ? ` - ${codeText}` : ''} - Comprador: ${buyerName}`
             
-            elegantToast({
-              title: "Paso 2 completado",
+            toast.success("Paso 2 completado", {
               description: description,
-              variant: "success",
             })
           }
           
@@ -370,18 +449,10 @@ export function NotificationBell({ className }: NotificationBellProps) {
             const codeText = uniqueCode ? `Código: ${uniqueCode}` : ''
             const description = `Se ha completado el paso 3${codeText ? ` - ${codeText}` : ''} - Vendedor: ${sellerName}`
             
-            const toastResult = elegantToast({
-              title: "Paso 3 completado",
+            toast.success("Paso 3 completado", {
               description: description,
-              variant: "success",
+              duration: 3000,
             })
-            
-            // Cerrar el toast después de 3 segundos
-            setTimeout(() => {
-              if (toastResult?.dismiss) {
-                toastResult.dismiss()
-              }
-            }, 3000)
           }
           
           getToastData()
@@ -420,18 +491,10 @@ export function NotificationBell({ className }: NotificationBellProps) {
               description = `La transacción ha finalizado exitosamente${codeText ? ` - ${codeText}` : ''}.`
             }
             
-            const toastResult = elegantToast({
-              title: title,
+            toast.success(title, {
               description: description,
-              variant: "created",
+              duration: 5000,
             })
-            
-            // Cerrar el toast después de 5 segundos
-            setTimeout(() => {
-              if (toastResult?.dismiss) {
-                toastResult.dismiss()
-              }
-            }, 5000)
           }
           
           getToastData()
@@ -500,10 +563,8 @@ export function NotificationBell({ className }: NotificationBellProps) {
             const amountText = formattedAmount ? ` por ${formattedAmount}` : ''
             const description = `${sellerName} creó una solicitud de venta${amountText}${codeText ? ` - ${codeText}` : ''}`
             
-            elegantToast({
-              title: "Nueva solicitud de venta disponible",
+            toast.success("Nueva solicitud de venta disponible", {
               description: description,
-              variant: "created",
             })
           }
           
@@ -559,10 +620,8 @@ export function NotificationBell({ className }: NotificationBellProps) {
             const codeText = uniqueCode ? `Código: ${uniqueCode}` : ''
             const description = `${buyerName} ha aceptado tu solicitud de venta${codeText ? ` - ${codeText}` : ''}. Se ha iniciado la transacción.`
             
-            elegantToast({
-              title: "Iniciando transacción de venta",
+            toast.info("Iniciando transacción de venta", {
               description: description,
-              variant: "info",
             })
           }
           
@@ -751,10 +810,8 @@ export function NotificationBell({ className }: NotificationBellProps) {
             const codeText = uniqueCode ? `Código: ${uniqueCode}` : ''
             const description = `${sellerName} canceló la solicitud de venta${codeText ? ` - ${codeText}` : ''}`
             
-            elegantToast({
-              title: "Solicitud de Venta Cancelada",
+            toast.error("Solicitud de Venta Cancelada", {
               description: description,
-              variant: "destructive",
             })
           }
           
@@ -781,6 +838,13 @@ export function NotificationBell({ className }: NotificationBellProps) {
           })
         }
       }
+      
+      // =========================================================
+      // HANDLERS PARA EVENTOS DE PREDICCIONES
+      // =========================================================
+      // Nota: Las notificaciones de predicciones ya fueron manejadas arriba
+      // con un return temprano, por lo que este código nunca debería ejecutarse
+      // pero lo mantenemos como respaldo por si acaso
       
       // Actualizar estadísticas solo cuando se agrega una nueva notificación
       setStats(prev => ({

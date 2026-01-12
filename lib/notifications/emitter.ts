@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 export interface NotificationPayload {
   user_id: string
-  topic: 'order' | 'kyc' | 'wallet' | 'chat' | 'system'
+  topic: 'order' | 'kyc' | 'wallet' | 'chat' | 'system' | 'prediction'
   event: string
   title: string
   body: string
@@ -116,6 +116,74 @@ export async function emitNotificationFromClient(payload: Omit<NotificationPaylo
 }
 
 /**
+ * Emitir notificación a todos los usuarios (broadcast)
+ * Útil para notificaciones generales del sistema
+ */
+export async function emitBroadcastNotification(payload: Omit<NotificationPayload, 'user_id'>): Promise<{
+  success: boolean
+  notified_count?: number
+  error?: string
+}> {
+  try {
+    const supabase = await supabaseAdmin()
+    
+    // Obtener todos los usuarios activos
+    const { data: users, error: usersError } = await supabase
+      .from('profiles')
+      .select('id')
+    
+    if (usersError) {
+      console.error('❌ emitBroadcastNotification - Error obteniendo usuarios:', usersError)
+      return {
+        success: false,
+        error: 'Error obteniendo lista de usuarios'
+      }
+    }
+    
+    if (!users || users.length === 0) {
+      console.log('⚠️ emitBroadcastNotification - No hay usuarios para notificar')
+      return {
+        success: true,
+        notified_count: 0
+      }
+    }
+    
+    console.log(`🔔 emitBroadcastNotification - Notificando a ${users.length} usuarios`)
+    
+    // Emitir notificaciones a todos los usuarios en paralelo
+    const notificationPromises = users.map(user => 
+      emitNotification({
+        ...payload,
+        user_id: user.id
+      })
+    )
+    
+    const results = await Promise.allSettled(notificationPromises)
+    
+    // Contar notificaciones exitosas
+    const successCount = results.filter(r => r.status === 'fulfilled' && r.value.success).length
+    const failedCount = results.length - successCount
+    
+    console.log(`✅ emitBroadcastNotification - Notificaciones enviadas: ${successCount}/${users.length}`)
+    if (failedCount > 0) {
+      console.warn(`⚠️ emitBroadcastNotification - ${failedCount} notificaciones fallaron`)
+    }
+    
+    return {
+      success: true,
+      notified_count: successCount
+    }
+    
+  } catch (error) {
+    console.error('❌ emitBroadcastNotification - Error inesperado:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    }
+  }
+}
+
+/**
  * Eventos predefinidos para facilitar el uso
  */
 export const NotificationEvents = {
@@ -188,6 +256,71 @@ export const NotificationEvents = {
     priority: 'high' as const,
     cta_label: 'Ver detalles',
     cta_href: '/dashboard/status'
+  },
+
+  // Eventos de predicciones
+  MARKET_CREATED: {
+    topic: 'prediction' as const,
+    event: 'MARKET_CREATED',
+    priority: 'normal' as const,
+    cta_label: 'Ver mercado',
+    cta_href: '/dashboard/predicciones'
+  },
+  MARKET_PARTICIPATION: {
+    topic: 'prediction' as const,
+    event: 'MARKET_PARTICIPATION',
+    priority: 'normal' as const,
+    cta_label: 'Ver mercado',
+    cta_href: '/dashboard/predicciones'
+  },
+  MARKET_CLOSED: {
+    topic: 'prediction' as const,
+    event: 'MARKET_CLOSED',
+    priority: 'normal' as const,
+    cta_label: 'Ver mercado',
+    cta_href: '/dashboard/predicciones'
+  },
+  MARKET_RESOLVED: {
+    topic: 'prediction' as const,
+    event: 'MARKET_RESOLVED',
+    priority: 'high' as const,
+    cta_label: 'Ver resultado',
+    cta_href: '/dashboard/predicciones'
+  },
+  POSITION_WINNER: {
+    topic: 'prediction' as const,
+    event: 'POSITION_WINNER',
+    priority: 'high' as const,
+    cta_label: 'Ver posición',
+    cta_href: '/dashboard/predicciones/mis-posiciones'
+  },
+  POSITION_LOSER: {
+    topic: 'prediction' as const,
+    event: 'POSITION_LOSER',
+    priority: 'normal' as const,
+    cta_label: 'Ver posición',
+    cta_href: '/dashboard/predicciones/mis-posiciones'
+  },
+  MARKET_CANCELLED: {
+    topic: 'prediction' as const,
+    event: 'MARKET_CANCELLED',
+    priority: 'normal' as const,
+    cta_label: 'Ver mercado',
+    cta_href: '/dashboard/predicciones'
+  },
+  MARKET_DELETED: {
+    topic: 'prediction' as const,
+    event: 'MARKET_DELETED',
+    priority: 'normal' as const,
+    cta_label: 'Ver mis mercados',
+    cta_href: '/dashboard/predicciones/mis-mercados'
+  },
+  NEW_MARKET_AVAILABLE: {
+    topic: 'prediction' as const,
+    event: 'NEW_MARKET_AVAILABLE',
+    priority: 'normal' as const,
+    cta_label: 'Ver mercado',
+    cta_href: '/dashboard/predicciones'
   }
 } as const
 

@@ -101,3 +101,50 @@ export async function getUserMarkets(): Promise<{
   }
 }
 
+/**
+ * Cancelar un mercado (para client components)
+ */
+export async function cancelMarket(
+  marketId: string,
+  reason?: string
+): Promise<{
+  success: boolean
+  error?: string
+}> {
+  try {
+    const response = await fetch(`/api/prediction-markets/${marketId}/cancel`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ reason }),
+    })
+    const result = await response.json()
+    return result
+  } catch (error) {
+    console.error('Error cancelando mercado:', error)
+    return { success: false, error: 'Error interno del servidor' }
+  }
+}
+
+/**
+ * Eliminar un mercado (para client components)
+ */
+export async function deleteMarket(
+  marketId: string
+): Promise<{
+  success: boolean
+  error?: string
+}> {
+  try {
+    const response = await fetch(`/api/prediction-markets/${marketId}`, {
+      method: 'DELETE',
+    })
+    const result = await response.json()
+    return result
+  } catch (error) {
+    console.error('Error eliminando mercado:', error)
+    return { success: false, error: 'Error interno del servidor' }
+  }
+}
+
