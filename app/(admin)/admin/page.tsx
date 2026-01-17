@@ -59,7 +59,7 @@ export default async function AdminPage() {
     },
     {
       title: "Balance Total HNLD",
-      value: formatCurrency(stats.totalHNLDBalance),
+      value: formatCurrency(stats.totalHNLDBalance, 'HNLD'),
       change: "En circulación",
       icon: Coins,
       description: "Total en el sistema",

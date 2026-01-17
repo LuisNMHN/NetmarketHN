@@ -206,21 +206,21 @@ export default function CreateMarketPage() {
       <div className="container mx-auto py-8">
         <Card>
           <CardHeader>
-            <CardTitle>Sin Permisos</CardTitle>
+            <CardTitle>Sin permisos</CardTitle>
             <CardDescription>
-              No tienes permisos para crear mercados de predicción
+              No tienes permisos para crear mercados
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                Solo los usuarios autorizados por el administrador pueden crear mercados de predicción.
+                Solo los usuarios autorizados por el administrador pueden crear mercados.
                 Contacta con el administrador si deseas obtener estos permisos.
               </AlertDescription>
             </Alert>
             <Button asChild className="mt-4">
-              <Link href="/dashboard/predicciones">Volver a Mercados</Link>
+              <Link href="/dashboard/predicciones">Volver a mercados</Link>
             </Button>
           </CardContent>
         </Card>
@@ -237,7 +237,7 @@ export default function CreateMarketPage() {
           </Link>
         </Button>
         <div>
-          <h1 className="text-3xl font-bold">Crear Mercado de Predicción</h1>
+          <h1 className="text-3xl font-bold">Crear mercado de predicción</h1>
           <p className="text-muted-foreground mt-1">
             Crea un nuevo mercado donde los usuarios pueden hacer predicciones
           </p>
@@ -249,9 +249,9 @@ export default function CreateMarketPage() {
           <div className="lg:col-span-2 space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Información Básica</CardTitle>
+                <CardTitle>Información básica</CardTitle>
                 <CardDescription>
-                  Información principal del mercado de predicción
+                  Información principal
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -298,7 +298,7 @@ export default function CreateMarketPage() {
                   <div className="space-y-2">
                     <Label className="flex items-center gap-2">
                       <Sparkles className="h-4 w-4 text-primary" />
-                      Títulos Sugeridos
+                      Títulos sugeridos
                     </Label>
                     <Select
                       value={formData.title}
@@ -331,7 +331,7 @@ export default function CreateMarketPage() {
 
                 {/* Paso 3: Título del Mercado */}
                 <div className="space-y-2">
-                  <Label htmlFor="title">Título del Mercado *</Label>
+                  <Label htmlFor="title">Título del mercado *</Label>
                   <Input
                     id="title"
                     value={formData.title}
@@ -358,7 +358,7 @@ export default function CreateMarketPage() {
                   <div className="space-y-2">
                     <Label className="flex items-center gap-2">
                       <Sparkles className="h-4 w-4 text-primary" />
-                      Preguntas Sugeridas
+                      Preguntas sugeridas
                     </Label>
                     <Select
                       value={formData.question}
@@ -383,7 +383,7 @@ export default function CreateMarketPage() {
 
                 {/* Paso 5: Pregunta de Predicción */}
                 <div className="space-y-2">
-                  <Label htmlFor="question">Pregunta de Predicción *</Label>
+                  <Label htmlFor="question">Pregunta de predicción *</Label>
                   <Textarea
                     id="question"
                     value={formData.question}
@@ -413,7 +413,7 @@ export default function CreateMarketPage() {
                 <div className="grid grid-cols-2 gap-4">
 
                   <div className="space-y-2">
-                    <Label htmlFor="market_type">Tipo de Mercado *</Label>
+                    <Label htmlFor="market_type">Tipo de mercado *</Label>
                     <Select
                       value={formData.market_type}
                       onValueChange={(value: "binary" | "multiple") => 
@@ -436,9 +436,9 @@ export default function CreateMarketPage() {
             {formData.market_type === 'multiple' && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Opciones de Predicción</CardTitle>
+                  <CardTitle>Opciones de predicción</CardTitle>
                   <CardDescription>
-                    Define las opciones disponibles para este mercado
+                    Define las opciones disponibles
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -495,14 +495,14 @@ export default function CreateMarketPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Información de Resolución</CardTitle>
+                <CardTitle>Información de resolución</CardTitle>
                 <CardDescription>
-                  Información sobre cómo y cuándo se resolverá el mercado
+                  Información de resolución
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="resolution_source">Fuente de Resolución (opcional)</Label>
+                  <Label htmlFor="resolution_source">Fuente de resolución (opcional)</Label>
                   <Input
                     id="resolution_source"
                     value={formData.resolution_source}
@@ -512,7 +512,7 @@ export default function CreateMarketPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="resolution_date">Fecha de Resolución Estimada (opcional)</Label>
+                  <Label htmlFor="resolution_date">Fecha de resolución estimada (opcional)</Label>
                   <Input
                     id="resolution_date"
                     type="date"
@@ -559,7 +559,7 @@ export default function CreateMarketPage() {
                 className="flex-1"
                 disabled={creating}
               >
-                {creating ? "Creando..." : "Crear Mercado"}
+                {creating ? "Creando..." : "Crear mercado"}
               </Button>
             </div>
           </div>

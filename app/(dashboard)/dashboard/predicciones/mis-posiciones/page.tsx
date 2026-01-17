@@ -87,12 +87,14 @@ export default function MyPositionsPage() {
 
   const activePositions = filteredPositions.filter(p => {
     const market = p.market as any
-    return market?.status === 'active' && p.shares > 0
+    const betAmount = p.bet_amount || p.shares || 0
+    return market?.status === 'active' && betAmount > 0
   })
 
   const closedPositions = filteredPositions.filter(p => {
     const market = p.market as any
-    return market?.status !== 'active' || p.shares === 0
+    const betAmount = p.bet_amount || p.shares || 0
+    return market?.status !== 'active' || betAmount === 0
   })
 
   const getStatusBadge = (status: string) => {
@@ -127,9 +129,9 @@ export default function MyPositionsPage() {
           </Link>
         </Button>
         <div className="flex-1">
-          <h1 className="text-3xl font-bold">Mis Posiciones</h1>
+          <h1 className="text-3xl font-bold">Mis predicciones</h1>
           <p className="text-muted-foreground mt-2">
-            Gestiona tus inversiones en mercados de predicción
+            Gestiona tus participaciones en mercados de predicción
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -149,25 +151,25 @@ export default function MyPositionsPage() {
       </div>
 
       {activePositions.length === 0 && closedPositions.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground mb-4">No tienes posiciones en mercados de predicción</p>
-            <Button asChild>
-              <Link href="/dashboard/predicciones">
-                Explorar Mercados
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
+            <Card>
+              <CardContent className="py-12 text-center">
+                <p className="text-muted-foreground mb-4">No tienes predicciones</p>
+                <Button asChild>
+                  <Link href="/dashboard/predicciones">
+                    Explorar mercados
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
       ) : (
         <>
           {activePositions.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Posiciones Activas</CardTitle>
+                <CardTitle>Predicciones activas</CardTitle>
                 <CardDescription>
-                  Mercados en los que tienes inversiones activas
+                  Mercados en los que tienes participaciones activas
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -176,10 +178,9 @@ export default function MyPositionsPage() {
                     <TableRow>
                       <TableHead>Mercado</TableHead>
                       <TableHead>Opción</TableHead>
-                      <TableHead>Acciones</TableHead>
-                      <TableHead>Inversión</TableHead>
-                      <TableHead>Valor Actual</TableHead>
-                      <TableHead>Ganancia/Pérdida</TableHead>
+                      <TableHead>Participación</TableHead>
+                      <TableHead>Probabilidad</TableHead>
+                      <TableHead>Ganancia potencial</TableHead>
                       <TableHead>Estado</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
@@ -188,7 +189,9 @@ export default function MyPositionsPage() {
                     {activePositions.map((position) => {
                       const market = position.market as any
                       const outcome = position.outcome as any
-                      const pnl = position.unrealized_pnl_hnld || 0
+                      const betAmount = position.bet_amount || position.shares || 0
+                      const potentialPayout = position.potential_payout || position.current_value_hnld || 0
+                      const probability = outcome?.probability || outcome?.current_price || 0
                       
                       return (
                         <TableRow key={position.id}>
@@ -201,12 +204,11 @@ export default function MyPositionsPage() {
                           <TableCell>
                             <Badge variant="outline">{outcome?.name || 'N/A'}</Badge>
                           </TableCell>
-                          <TableCell>{position.shares.toFixed(2)}</TableCell>
-                          <TableCell>{formatCurrency(position.total_invested_hnld)}</TableCell>
-                          <TableCell>{formatCurrency(position.current_value_hnld)}</TableCell>
+                          <TableCell>{formatCurrency(betAmount, 'HNLD')}</TableCell>
+                          <TableCell>{(probability * 100).toFixed(2)}%</TableCell>
                           <TableCell>
-                            <span className={pnl >= 0 ? 'text-green-600' : 'text-red-600'}>
-                              {pnl >= 0 ? '+' : ''}{formatCurrency(pnl)}
+                            <span className="text-green-600 font-medium">
+                              {formatCurrency(potentialPayout, 'HNLD')}
                             </span>
                           </TableCell>
                           <TableCell>
@@ -231,9 +233,9 @@ export default function MyPositionsPage() {
           {closedPositions.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Posiciones Cerradas</CardTitle>
+                <CardTitle>Predicciones resueltas</CardTitle>
                 <CardDescription>
-                  Mercados resueltos o posiciones cerradas
+                  Resultados finales
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -242,10 +244,9 @@ export default function MyPositionsPage() {
                     <TableRow>
                       <TableHead>Mercado</TableHead>
                       <TableHead>Opción</TableHead>
-                      <TableHead>Acciones</TableHead>
-                      <TableHead>Inversión</TableHead>
-                      <TableHead>Valor Final</TableHead>
-                      <TableHead>Ganancia/Pérdida</TableHead>
+                      <TableHead>Participación</TableHead>
+                      <TableHead>Ganancia recibida</TableHead>
+                      <TableHead>Resultado</TableHead>
                       <TableHead>Estado</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
@@ -254,7 +255,9 @@ export default function MyPositionsPage() {
                     {closedPositions.map((position) => {
                       const market = position.market as any
                       const outcome = position.outcome as any
-                      const pnl = position.unrealized_pnl_hnld || 0
+                      const betAmount = position.bet_amount || position.shares || 0
+                      const payoutReceived = (position as any).payout_received || position.current_value_hnld || 0
+                      const isWinner = outcome?.is_winner || false
                       
                       return (
                         <TableRow key={position.id}>
@@ -266,19 +269,32 @@ export default function MyPositionsPage() {
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline">{outcome?.name || 'N/A'}</Badge>
-                            {outcome?.is_winner && (
+                            {isWinner && (
                               <Badge variant="default" className="ml-2 bg-green-600">
                                 Ganadora
                               </Badge>
                             )}
                           </TableCell>
-                          <TableCell>{position.shares.toFixed(2)}</TableCell>
-                          <TableCell>{formatCurrency(position.total_invested_hnld)}</TableCell>
-                          <TableCell>{formatCurrency(position.current_value_hnld)}</TableCell>
+                          <TableCell>{formatCurrency(betAmount, 'HNLD')}</TableCell>
                           <TableCell>
-                            <span className={pnl >= 0 ? 'text-green-600' : 'text-red-600'}>
-                              {pnl >= 0 ? '+' : ''}{formatCurrency(pnl)}
-                            </span>
+                            {isWinner ? (
+                              <span className="text-green-600 font-medium">
+                                {formatCurrency(payoutReceived, 'HNLD')}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {isWinner ? (
+                              <span className="text-green-600 font-medium">
+                                +{formatCurrency(payoutReceived - betAmount, 'HNLD')}
+                              </span>
+                            ) : (
+                              <span className="text-red-600">
+                                -{formatCurrency(betAmount, 'HNLD')}
+                              </span>
+                            )}
                           </TableCell>
                           <TableCell>
                             {market?.status ? getStatusBadge(market.status) : '-'}

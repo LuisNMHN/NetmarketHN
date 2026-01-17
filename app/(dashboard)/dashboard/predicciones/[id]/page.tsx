@@ -16,8 +16,9 @@ import {
   type MarketOutcome
 } from "@/lib/actions/prediction_markets_client"
 import { 
-  buyMarketShares,
-  sellMarketShares,
+  placeBet,
+  buyMarketShares, // Mantener para compatibilidad
+  sellMarketShares, // Mantener para compatibilidad
   resolveMarket
 } from "@/app/actions/prediction_markets"
 import { formatCurrency } from "@/lib/utils"
@@ -63,15 +64,19 @@ export default function MarketDetailPage() {
   const [userBalance, setUserBalance] = useState<number>(0)
   const [userPositions, setUserPositions] = useState<any[]>([])
   
-  // Trading state
-  const [tradeDialogOpen, setTradeDialogOpen] = useState(false)
+  // User role state
+  const [isCreator, setIsCreator] = useState(false)
+  const [isParticipant, setIsParticipant] = useState(false)
+  const [userRole, setUserRole] = useState<'creator' | 'participant' | 'creator_and_participant' | 'viewer'>('viewer')
+  const [creatorStats, setCreatorStats] = useState<any>(null)
+  const [participantStats, setParticipantStats] = useState<any>(null)
+  
+  // Betting state (Parimutuel)
+  const [betDialogOpen, setBetDialogOpen] = useState(false)
   const [resolveDialogOpen, setResolveDialogOpen] = useState(false)
-  const [tradeType, setTradeType] = useState<'buy' | 'sell'>('buy')
   const [selectedOutcome, setSelectedOutcome] = useState<MarketOutcome | null>(null)
-  const [shares, setShares] = useState<string>("")
-  const [maxPrice, setMaxPrice] = useState<string>("")
-  const [minPrice, setMinPrice] = useState<string>("")
-  const [trading, setTrading] = useState(false)
+  const [betAmount, setBetAmount] = useState<string>("")
+  const [betting, setBetting] = useState(false)
   
   // Resolve state
   const [winningOutcomeId, setWinningOutcomeId] = useState<string>("")
@@ -130,81 +135,106 @@ export default function MarketDetailPage() {
         setUserBalance(balance.balance || 0)
       }
 
-      // Obtener posiciones del usuario en este mercado
-      const { data: positions } = await supabase
-        .from('market_positions')
+      // Verificar rol del usuario
+      const { data: roleData } = await supabase.rpc('get_user_market_role', {
+        p_user_id: user.id,
+        p_market_id: marketId
+      })
+      
+      if (roleData) {
+        setUserRole(roleData as any)
+        setIsCreator(roleData === 'creator' || roleData === 'creator_and_participant')
+        setIsParticipant(roleData === 'participant' || roleData === 'creator_and_participant')
+      }
+      
+      // Si es creador, obtener estadísticas del creador
+      if (roleData === 'creator' || roleData === 'creator_and_participant') {
+        const { data: stats } = await supabase.rpc('get_market_creator_stats', {
+          p_market_id: marketId
+        })
+        if (stats && stats.length > 0) {
+          setCreatorStats(stats[0])
+        }
+      }
+      
+      // Si es participante, obtener estadísticas del participante
+      if (roleData === 'participant' || roleData === 'creator_and_participant') {
+        const { data: stats } = await supabase.rpc('get_market_participant_stats', {
+          p_user_id: user.id,
+          p_market_id: marketId
+        })
+        if (stats && stats.length > 0) {
+          setParticipantStats(stats[0])
+        }
+      }
+      
+      // Obtener participaciones del usuario en este mercado
+      const { data: bets } = await supabase
+        .from('market_bets')
         .select('*, outcome:market_outcomes(*)')
         .eq('user_id', user.id)
         .eq('market_id', marketId)
       
-      if (positions) {
-        setUserPositions(positions)
+      if (bets) {
+        // Convertir bets a formato compatible con positions
+        setUserPositions(bets.map(bet => ({
+          ...bet,
+          outcome_id: bet.outcome_id,
+          shares: bet.bet_amount, // Para compatibilidad
+          total_invested_hnld: bet.bet_amount,
+          current_value_hnld: bet.potential_payout
+        })))
       }
     } catch (error) {
       console.error('Error cargando datos del usuario:', error)
     }
   }
 
-  const handleOpenTrade = (outcome: MarketOutcome, type: 'buy' | 'sell') => {
+  const handleOpenBet = (outcome: MarketOutcome) => {
     setSelectedOutcome(outcome)
-    setTradeType(type)
-    setShares("")
-    setMaxPrice("")
-    setMinPrice("")
-    setTradeDialogOpen(true)
+    setBetAmount("")
+    setBetDialogOpen(true)
   }
 
-  const handleTrade = async () => {
-    if (!selectedOutcome || !shares || parseFloat(shares) <= 0) {
+  const handleBet = async () => {
+    if (!selectedOutcome || !betAmount || parseFloat(betAmount) <= 0) {
       toast({
         title: "Error",
-        description: "Debes ingresar una cantidad válida de acciones",
+        description: "Debes ingresar una cantidad válida para participar",
         variant: "destructive",
       })
       return
     }
 
     try {
-      setTrading(true)
-      let result
-
-      if (tradeType === 'buy') {
-        result = await buyMarketShares(
-          marketId,
-          selectedOutcome.id,
-          parseFloat(shares),
-          maxPrice ? parseFloat(maxPrice) : undefined
-        )
-      } else {
-        result = await sellMarketShares(
-          marketId,
-          selectedOutcome.id,
-          parseFloat(shares),
-          minPrice ? parseFloat(minPrice) : undefined
-        )
-      }
+      setBetting(true)
+      const result = await placeBet(
+        marketId,
+        selectedOutcome.id,
+        parseFloat(betAmount)
+      )
 
       if (result.success) {
         // No mostrar toast - la notificación aparecerá en la campana
-        setTradeDialogOpen(false)
+        setBetDialogOpen(false)
         loadMarket()
         loadUserData()
       } else {
         toast({
           title: "Error",
-          description: result.error || "Error al realizar la operación",
+          description: result.error || "Error al realizar la participación",
           variant: "destructive",
         })
       }
     } catch (error) {
-      console.error('Error en operación:', error)
+      console.error('Error en participación:', error)
       toast({
         title: "Error",
         description: "Error inesperado",
         variant: "destructive",
       })
     } finally {
-      setTrading(false)
+      setBetting(false)
     }
   }
 
@@ -261,21 +291,39 @@ export default function MarketDetailPage() {
     }
   }
 
-  const formatPrice = (price: number) => {
-    return `${(price * 100).toFixed(2)}%`
+  // Función para obtener el color del botón según el tipo de mercado y la opción
+  const getButtonColor = (outcome: MarketOutcome, index: number) => {
+    // Si es mercado binario
+    if (market?.market_type === 'binary') {
+      const outcomeName = outcome.name.toLowerCase().trim()
+      // Verificar si es "Sí" o variantes
+      if (outcomeName === 'sí' || outcomeName === 'si' || outcomeName === 'yes' || outcomeName === 'verdadero' || outcomeName === 'true') {
+        return '!bg-green-600 hover:!bg-green-700 !text-white border-0'
+      }
+      // Verificar si es "No" o variantes
+      if (outcomeName === 'no' || outcomeName === 'false' || outcomeName === 'falso') {
+        return '!bg-red-600 hover:!bg-red-700 !text-white border-0'
+      }
+    }
+    
+    // Para mercados múltiples (3 o más opciones), usar colores diferentes
+    const colors = [
+      '!bg-blue-600 hover:!bg-blue-700 !text-white border-0',
+      '!bg-purple-600 hover:!bg-purple-700 !text-white border-0',
+      '!bg-orange-600 hover:!bg-orange-700 !text-white border-0',
+      '!bg-teal-600 hover:!bg-teal-700 !text-white border-0',
+      '!bg-pink-600 hover:!bg-pink-700 !text-white border-0',
+      '!bg-indigo-600 hover:!bg-indigo-700 !text-white border-0',
+      '!bg-cyan-600 hover:!bg-cyan-700 !text-white border-0',
+      '!bg-amber-600 hover:!bg-amber-700 !text-white border-0',
+    ]
+    
+    return colors[index % colors.length]
   }
 
-  const [isCreator, setIsCreator] = useState(false)
-
-  useEffect(() => {
-    const checkCreator = async () => {
-      if (!market?.creator_id) return
-      const supabase = supabaseBrowser()
-      const { data: { user } } = await supabase.auth.getUser()
-      setIsCreator(user?.id === market.creator_id)
-    }
-    checkCreator()
-  }, [market])
+  const formatProbability = (probability: number) => {
+    return `${(probability * 100).toFixed(2)}%`
+  }
 
   if (loading) {
     return (
@@ -292,7 +340,7 @@ export default function MarketDetailPage() {
           <CardContent className="py-8 text-center">
             <p className="text-muted-foreground">Mercado no encontrado</p>
             <Button asChild className="mt-4">
-              <Link href="/dashboard/predicciones">Volver a Mercados</Link>
+              <Link href="/dashboard/predicciones">Volver a mercados</Link>
             </Button>
           </CardContent>
         </Card>
@@ -300,7 +348,7 @@ export default function MarketDetailPage() {
     )
   }
 
-  const userPosition = userPositions.find(p => p.outcome_id === selectedOutcome?.id)
+  const userPosition = userPositions.find(p => p.outcome_id === selectedOutcome?.id || (p as any).outcome?.id === selectedOutcome?.id)
   const canResolve = market.status === 'active' && market.creator_id
 
   return (
@@ -316,6 +364,25 @@ export default function MarketDetailPage() {
           <p className="text-muted-foreground mt-1">{market.question}</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Badge de rol del usuario */}
+          {isCreator && (
+            <Badge variant="default" className="bg-purple-100 text-purple-800">
+              <Users className="h-3 w-3 mr-1" />
+              Creador
+            </Badge>
+          )}
+          {isParticipant && !isCreator && (
+            <Badge variant="default" className="bg-blue-100 text-blue-800">
+              <TrendingUp className="h-3 w-3 mr-1" />
+              Participante
+            </Badge>
+          )}
+          {isCreator && isParticipant && (
+            <Badge variant="default" className="bg-indigo-100 text-indigo-800">
+              <Users className="h-3 w-3 mr-1" />
+              Creador y Participante
+            </Badge>
+          )}
           {getStatusBadge(market.status)}
           <Button variant="outline" size="icon" onClick={loadMarket}>
             <RefreshCw className="h-4 w-4" />
@@ -328,7 +395,7 @@ export default function MarketDetailPage() {
         <div className="lg:col-span-2 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Información del Mercado</CardTitle>
+              <CardTitle>Información del mercado</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {market.description && (
@@ -357,7 +424,7 @@ export default function MarketDetailPage() {
               </div>
               {market.resolution_date && (
                 <div>
-                  <Label className="text-sm font-medium">Fecha de Resolución Estimada</Label>
+                  <Label className="text-sm font-medium">Fecha de resolución estimada</Label>
                   <p className="text-sm text-muted-foreground mt-1">
                     {new Date(market.resolution_date).toLocaleDateString()}
                   </p>
@@ -365,7 +432,7 @@ export default function MarketDetailPage() {
               )}
               {market.resolution_source && (
                 <div>
-                  <Label className="text-sm font-medium">Fuente de Resolución</Label>
+                  <Label className="text-sm font-medium">Fuente de resolución</Label>
                   <p className="text-sm text-muted-foreground mt-1">{market.resolution_source}</p>
                 </div>
               )}
@@ -375,16 +442,20 @@ export default function MarketDetailPage() {
           {/* Opciones/Outcomes */}
           <Card>
             <CardHeader>
-              <CardTitle>Opciones de Predicción</CardTitle>
+              <CardTitle>Opciones de predicción</CardTitle>
               <CardDescription>
-                Selecciona una opción para comprar o vender acciones
+                {isCreator 
+                  ? "Como creador, también puedes participar"
+                  : "Selecciona una opción para participar"
+                }
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {market.outcomes?.map((outcome) => {
+                {market.outcomes?.map((outcome, index) => {
                   const position = userPositions.find(p => p.outcome_id === outcome.id)
                   const isWinner = outcome.is_winner
+                  const buttonColor = getButtonColor(outcome, index)
                   
                   return (
                     <div
@@ -409,48 +480,46 @@ export default function MarketDetailPage() {
                           )}
                         </div>
                         <div className="text-right">
-                          <div className="text-2xl font-bold">{formatPrice(outcome.current_price)}</div>
+                          <div className="text-2xl font-bold">
+                            {formatProbability(outcome.probability || outcome.current_price || 0.5)}
+                          </div>
                           <div className="text-sm text-muted-foreground">
-                            {formatCurrency(outcome.total_volume_hnld)} volumen
+                            {formatCurrency(outcome.total_bet_amount || outcome.total_volume_hnld || 0, 'HNLD')} participado
                           </div>
                         </div>
                       </div>
                       
-                      {position && position.shares > 0 && (
+                      {position && (position.shares > 0 || position.bet_amount > 0) && (
                         <div className="mb-3 p-2 bg-muted rounded">
                           <div className="text-sm">
-                            <span className="font-medium">Tu posición: </span>
-                            {position.shares.toFixed(2)} acciones · 
-                            Valor: {formatCurrency(position.current_value_hnld)}
-                            {position.unrealized_pnl_hnld !== 0 && (
-                              <span className={position.unrealized_pnl_hnld > 0 ? 'text-green-600' : 'text-red-600'}>
-                                {' '}({position.unrealized_pnl_hnld > 0 ? '+' : ''}{formatCurrency(position.unrealized_pnl_hnld)})
-                              </span>
-                            )}
+                            <span className="font-medium">Tu participación: </span>
+                            {formatCurrency(position.bet_amount || position.shares || 0, 'HNLD')} · 
+                            Ganancia potencial: {formatCurrency(position.potential_payout || position.current_value_hnld || 0, 'HNLD')}
                           </div>
                         </div>
                       )}
 
                       {market.status === 'active' && (
                         <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="default"
-                            onClick={() => handleOpenTrade(outcome, 'buy')}
-                            className="flex-1"
-                          >
-                            <TrendingUp className="h-4 w-4 mr-2" />
-                            Comprar
-                          </Button>
-                          {position && position.shares > 0 && (
+                          {/* Los creadores también pueden apostar en sus propios mercados */}
+                          {(!isCreator || (isCreator && isParticipant)) && (
                             <Button
                               size="sm"
-                              variant="outline"
-                              onClick={() => handleOpenTrade(outcome, 'sell')}
-                              className="flex-1"
+                              onClick={() => handleOpenBet(outcome)}
+                              className={`flex-1 ${buttonColor}`}
                             >
-                              <TrendingDown className="h-4 w-4 mr-2" />
-                              Vender
+                              <TrendingUp className="h-4 w-4 mr-2" />
+                              {isCreator ? 'Participar (como usuario)' : 'Participar'}
+                            </Button>
+                          )}
+                          {isCreator && !isParticipant && (
+                            <Button
+                              size="sm"
+                              onClick={() => handleOpenBet(outcome)}
+                              className={`flex-1 ${buttonColor}`}
+                            >
+                              <TrendingUp className="h-4 w-4 mr-2" />
+                              Participar en mi mercado
                             </Button>
                           )}
                         </div>
@@ -465,136 +534,192 @@ export default function MarketDetailPage() {
 
         {/* Sidebar */}
         <div className="space-y-6">
-          {/* Estadísticas */}
+          {/* Estadísticas para Creador */}
+          {isCreator && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-4 w-4" />
+                  Estadísticas del creador
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Total de participaciones</Label>
+                  <p className="text-2xl font-bold">{creatorStats?.total_bets || 0}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Total de participantes</Label>
+                  <p className="text-2xl font-bold">{creatorStats?.total_participants || 0}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Fondo total</Label>
+                  <p className="text-2xl font-bold">{formatCurrency(creatorStats?.total_pool || market.total_pool_hnld || 0, 'HNLD')}</p>
+                </div>
+                {market.status === 'active' && (
+                  <div className="pt-4 border-t">
+                    <Label className="text-sm font-medium text-muted-foreground">Distribución por opción</Label>
+                    <div className="mt-2 space-y-2">
+                      {market.outcomes?.map((outcome) => {
+                        const outcomeData = creatorStats?.total_bets_by_outcome?.find((o: any) => o.outcome_id === outcome.id)
+                        return (
+                          <div key={outcome.id} className="flex justify-between text-sm">
+                            <span>{outcome.name}:</span>
+                            <span className="font-medium">
+                              {formatCurrency(outcomeData?.total_bet_amount || 0, 'HNLD')} ({outcomeData?.bet_count || 0} participaciones)
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Estadísticas para Participante */}
+          {isParticipant && !isCreator && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4" />
+                  Mis participaciones
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Total participado</Label>
+                  <p className="text-2xl font-bold">{formatCurrency(participantStats?.total_bet_amount || 0, 'HNLD')}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Número de participaciones</Label>
+                  <p className="text-2xl font-bold">{participantStats?.total_bets || 0}</p>
+                </div>
+                {market.status === 'active' && (
+                  <div>
+                    <Label className="text-sm font-medium text-muted-foreground">Ganancia potencial total</Label>
+                    <p className="text-2xl font-bold text-green-600">{formatCurrency(participantStats?.potential_total_payout || 0, 'HNLD')}</p>
+                  </div>
+                )}
+                {market.status === 'resolved' && (
+                  <div>
+                    <Label className="text-sm font-medium text-muted-foreground">Ganancia recibida</Label>
+                    <p className="text-2xl font-bold text-green-600">
+                      {formatCurrency(
+                        participantStats?.bets_by_outcome?.reduce((sum: number, bet: any) => sum + (bet.payout_received || 0), 0) || 0,
+                        'HNLD'
+                      )}
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Estadísticas Generales (para viewers) */}
+          {!isCreator && !isParticipant && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Estadísticas del mercado</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Fondo total</Label>
+                  <p className="text-2xl font-bold">{formatCurrency(market.total_pool_hnld || market.liquidity_pool_hnld || 0, 'HNLD')}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-muted-foreground">Total de participaciones</Label>
+                  <p className="text-2xl font-bold">{market.total_bets || market.total_trades || 0}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Balance del Usuario (siempre visible) */}
           <Card>
             <CardHeader>
-              <CardTitle>Estadísticas</CardTitle>
+              <CardTitle>Tu balance</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label className="text-sm font-medium text-muted-foreground">Volumen Total</Label>
-                <p className="text-2xl font-bold">{formatCurrency(market.total_volume_hnld || 0)}</p>
-              </div>
-              <div>
-                <Label className="text-sm font-medium text-muted-foreground">Operaciones</Label>
-                <p className="text-2xl font-bold">{market.total_trades || 0}</p>
-              </div>
-              <div>
-                <Label className="text-sm font-medium text-muted-foreground">Pool de Liquidez</Label>
-                <p className="text-2xl font-bold">{formatCurrency(market.liquidity_pool_hnld)}</p>
-              </div>
-              <div>
-                <Label className="text-sm font-medium text-muted-foreground">Tu Balance HNLD</Label>
-                <p className="text-2xl font-bold">{formatCurrency(userBalance)}</p>
-              </div>
+            <CardContent>
+              <p className="text-2xl font-bold">{formatCurrency(userBalance, 'HNLD')}</p>
             </CardContent>
           </Card>
 
           {/* Acciones del creador */}
-          {canResolve && (
+          {isCreator && market.status === 'active' && (
             <Card>
               <CardHeader>
-                <CardTitle>Acciones del Creador</CardTitle>
+                <CardTitle>Acciones del creador</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-2">
                 <Button
                   className="w-full"
                   onClick={() => setResolveDialogOpen(true)}
                 >
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  Resolver Mercado
+                  Resolver mercado
                 </Button>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Como creador, puedes resolver el mercado cuando se cumpla la condición establecida.
+                </p>
               </CardContent>
             </Card>
           )}
         </div>
       </div>
 
-      {/* Dialog de Trading */}
-      <Dialog open={tradeDialogOpen} onOpenChange={setTradeDialogOpen}>
+      {/* Dialog de Participación */}
+      <Dialog open={betDialogOpen} onOpenChange={setBetDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {tradeType === 'buy' ? 'Comprar Acciones' : 'Vender Acciones'}
+              Hacer una Predicción
             </DialogTitle>
             <DialogDescription>
-              {selectedOutcome?.name} - Precio actual: {selectedOutcome ? formatPrice(selectedOutcome.current_price) : ''}
+              {selectedOutcome?.name} - Probabilidad actual: {selectedOutcome ? formatProbability(selectedOutcome.probability || selectedOutcome.current_price || 0.5) : ''}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Cantidad de Acciones</Label>
+              <Label>Cantidad a participar</Label>
               <Input
                 type="number"
-                min="0.01"
+                min={market.min_trade_amount || 1}
                 step="0.01"
-                value={shares}
-                onChange={(e) => setShares(e.target.value)}
+                value={betAmount}
+                onChange={(e) => setBetAmount(e.target.value)}
                 placeholder="0.00"
               />
+              <p className="text-xs text-muted-foreground">
+                Mínimo: {formatCurrency(market.min_trade_amount || 1, 'HNLD')}
+                {market.max_trade_amount && ` · Máximo: ${formatCurrency(market.max_trade_amount, 'HNLD')}`}
+              </p>
             </div>
-            {tradeType === 'buy' && (
-              <div className="space-y-2">
-                <Label>Precio Máximo (opcional)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  max="1"
-                  step="0.0001"
-                  value={maxPrice}
-                  onChange={(e) => setMaxPrice(e.target.value)}
-                  placeholder="0.0000"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Si el precio sube por encima de este valor, la orden no se ejecutará
-                </p>
-              </div>
-            )}
-            {tradeType === 'sell' && (
-              <div className="space-y-2">
-                <Label>Precio Mínimo (opcional)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  max="1"
-                  step="0.0001"
-                  value={minPrice}
-                  onChange={(e) => setMinPrice(e.target.value)}
-                  placeholder="0.0000"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Si el precio baja por debajo de este valor, la orden no se ejecutará
-                </p>
-              </div>
-            )}
-            {selectedOutcome && shares && parseFloat(shares) > 0 && (
-              <div className="p-3 bg-muted rounded">
+            {selectedOutcome && betAmount && parseFloat(betAmount) > 0 && (
+              <div className="p-3 bg-muted rounded space-y-2">
                 <div className="text-sm">
                   <div className="flex justify-between">
-                    <span>Costo estimado:</span>
+                    <span>Participación:</span>
                     <span className="font-medium">
-                      {formatCurrency(parseFloat(shares) * selectedOutcome.current_price)}
+                      {formatCurrency(parseFloat(betAmount), 'HNLD')}
                     </span>
                   </div>
-                  <div className="flex justify-between mt-1 text-xs text-muted-foreground">
-                    <span>Comisiones:</span>
-                    <span>
-                      {formatCurrency(
-                        parseFloat(shares) * selectedOutcome.current_price * 
-                        ((market.trading_fee_percent + market.platform_fee_percent) / 100)
-                      )}
-                    </span>
-                  </div>
+                </div>
+                <div className="pt-2 border-t text-xs">
+                  <p className="text-muted-foreground">
+                    <strong>Nota:</strong> Las ganancias se distribuyen proporcionalmente entre los ganadores al resolver el mercado.
+                  </p>
                 </div>
               </div>
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setTradeDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setBetDialogOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleTrade} disabled={trading}>
-              {trading ? "Procesando..." : tradeType === 'buy' ? 'Comprar' : 'Vender'}
+            <Button onClick={handleBet} disabled={betting}>
+              {betting ? "Procesando..." : 'Participar'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -604,14 +729,14 @@ export default function MarketDetailPage() {
       <Dialog open={resolveDialogOpen} onOpenChange={setResolveDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Resolver Mercado</DialogTitle>
+            <DialogTitle>Resolver mercado</DialogTitle>
             <DialogDescription>
-              Selecciona la opción ganadora y proporciona notas sobre la resolución
+              Selecciona la opción ganadora y agrega notas (opcional)
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Opción Ganadora *</Label>
+              <Label>Opción ganadora *</Label>
               <Select value={winningOutcomeId} onValueChange={setWinningOutcomeId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecciona la opción ganadora" />
@@ -626,7 +751,7 @@ export default function MarketDetailPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Notas de Resolución (opcional)</Label>
+              <Label>Notas de resolución (opcional)</Label>
               <Textarea
                 value={resolutionNotes}
                 onChange={(e) => setResolutionNotes(e.target.value)}
@@ -640,7 +765,7 @@ export default function MarketDetailPage() {
               Cancelar
             </Button>
             <Button onClick={handleResolve} disabled={resolving || !winningOutcomeId}>
-              {resolving ? "Resolviendo..." : "Resolver Mercado"}
+              {resolving ? "Resolviendo..." : "Resolver mercado"}
             </Button>
           </DialogFooter>
         </DialogContent>

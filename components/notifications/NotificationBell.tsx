@@ -10,7 +10,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/u
 import { notificationCenter, Notification, NotificationStats } from "@/lib/notifications/center"
 import { formatDistanceToNow } from "date-fns"
 import { es } from "date-fns/locale"
-import { cn } from "@/lib/utils"
+import { cn, formatCurrency } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -727,7 +727,7 @@ export function NotificationBell({ className }: NotificationBellProps) {
           const getToastData = async () => {
             const uniqueCode = notification.payload?.unique_code || ''
             const amount = notification.payload?.amount || 0
-            const formattedAmount = `L. ${amount.toFixed(2)} HNLD`
+            const formattedAmount = formatCurrency(amount, 'HNLD')
             
             // Determinar si es comprador o vendedor basándose en el mensaje
             const isBuyer = notification.body?.includes('Has recibido') || notification.title?.includes('Compra completada')

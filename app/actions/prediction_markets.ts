@@ -1,7 +1,13 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
-import { createPredictionMarket as createMarket, buyMarketShares as buyShares, sellMarketShares as sellShares, resolveMarket as resolve } from "@/lib/actions/prediction_markets"
+import { 
+  createPredictionMarket as createMarket, 
+  placeParimutuelBet,
+  buyMarketShares as buyShares, // Mantener para compatibilidad
+  sellMarketShares as sellShares, // Mantener para compatibilidad
+  resolveMarket as resolve 
+} from "@/lib/actions/prediction_markets"
 import type { CreateMarketData } from "@/lib/actions/prediction_markets"
 
 /**
@@ -17,15 +23,14 @@ export async function createPredictionMarket(data: CreateMarketData) {
 }
 
 /**
- * Server Action: Comprar acciones
+ * Server Action: Realizar participación en mercado
  */
-export async function buyMarketShares(
+export async function placeBet(
   marketId: string,
   outcomeId: string,
-  shares: number,
-  maxPrice?: number
+  betAmount: number
 ) {
-  const result = await buyShares(marketId, outcomeId, shares, maxPrice)
+  const result = await placeParimutuelBet(marketId, outcomeId, betAmount)
   if (result.success) {
     revalidatePath('/dashboard/predicciones')
     revalidatePath(`/dashboard/predicciones/${marketId}`)
@@ -35,7 +40,28 @@ export async function buyMarketShares(
 }
 
 /**
- * Server Action: Vender acciones
+ * @deprecated Usar placeBet en su lugar
+ * Server Action: Comprar acciones (compatibilidad)
+ */
+export async function buyMarketShares(
+  marketId: string,
+  outcomeId: string,
+  shares: number,
+  maxPrice?: number
+) {
+  // Convertir a participación
+  const result = await placeBet(marketId, outcomeId, shares)
+  if (result.success) {
+    revalidatePath('/dashboard/predicciones')
+    revalidatePath(`/dashboard/predicciones/${marketId}`)
+    revalidatePath('/dashboard/predicciones/mis-posiciones')
+  }
+  return result
+}
+
+/**
+ * @deprecated No se pueden vender participaciones
+ * Server Action: Vender acciones (compatibilidad)
  */
 export async function sellMarketShares(
   marketId: string,
@@ -43,13 +69,10 @@ export async function sellMarketShares(
   shares: number,
   minPrice?: number
 ) {
-  const result = await sellShares(marketId, outcomeId, shares, minPrice)
-  if (result.success) {
-    revalidatePath('/dashboard/predicciones')
-    revalidatePath(`/dashboard/predicciones/${marketId}`)
-    revalidatePath('/dashboard/predicciones/mis-posiciones')
+  return { 
+    success: false, 
+    error: 'No se pueden vender participaciones. Las participaciones se mantienen hasta la resolución del mercado.' 
   }
-  return result
 }
 
 /**

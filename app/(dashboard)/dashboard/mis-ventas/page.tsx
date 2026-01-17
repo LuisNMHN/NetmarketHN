@@ -499,7 +499,7 @@ export default function MisVentasPage() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <span className="text-lg">💱</span>
-                      <span className="text-lg font-bold">{formatCurrency(request.final_amount_hnld)} HNLD</span>
+                      <span className="text-lg font-bold">{formatCurrency(request.final_amount_hnld, 'HNLD')}</span>
                     </div>
                     <div className="flex flex-col items-end space-y-1">
                       {getStatusBadge(request.status)}
@@ -614,7 +614,7 @@ export default function MisVentasPage() {
                     <div className="flex items-center space-x-3 mb-2">
                       <div className="flex items-center space-x-2">
                         <span className="text-lg">💱</span>
-                        <span className="text-xl font-bold">{formatCurrency(request.final_amount_hnld)} HNLD</span>
+                        <span className="text-xl font-bold">{formatCurrency(request.final_amount_hnld, 'HNLD')}</span>
                       </div>
                       {getStatusBadge(request.status)}
                       {isExpired(request.expires_at) && request.status === 'active' && (
@@ -739,7 +739,7 @@ export default function MisVentasPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-sm font-medium">Monto</Label>
-                  <p className="text-lg font-bold">{formatCurrency(selectedRequest.final_amount_hnld)}</p>
+                  <p className="text-lg font-bold">{formatCurrency(selectedRequest.final_amount_hnld, 'HNLD')}</p>
                 </div>
                 <div>
                   <Label className="text-sm font-medium">Estado</Label>

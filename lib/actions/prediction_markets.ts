@@ -17,19 +17,21 @@ export interface PredictionMarket {
   resolution_source?: string
   resolution_date?: string
   status: 'active' | 'closed' | 'resolved' | 'cancelled'
-  liquidity_pool_hnld: number
+  liquidity_pool_hnld: number // Mantener para compatibilidad
+  total_pool_hnld: number // Pool total Parimutuel
   created_at: string
   closed_at?: string
   resolved_at?: string
   cancelled_at?: string
-  min_trade_amount: number
-  max_trade_amount?: number
-  trading_fee_percent: number
+  min_trade_amount: number // Mínimo de apuesta
+  max_trade_amount?: number // Máximo de apuesta
+  trading_fee_percent: number // Mantener para compatibilidad
   platform_fee_percent: number
   winning_outcome_id?: string
   resolution_notes?: string
   total_volume_hnld?: number
   total_trades?: number
+  total_bets?: number // Total de apuestas
 }
 
 export interface MarketOutcome {
@@ -38,40 +40,63 @@ export interface MarketOutcome {
   name: string
   description?: string
   order_index: number
-  current_price: number
-  total_shares: number
-  total_volume_hnld: number
+  current_price?: number // Mantener para compatibilidad
+  probability: number // Probabilidad Parimutuel (0-1)
+  total_shares?: number // Mantener para compatibilidad
+  total_bet_amount: number // Total apostado en esta opción
+  total_volume_hnld?: number // Mantener para compatibilidad
   is_winner: boolean
   created_at: string
 }
 
+export interface MarketBet {
+  id: string
+  user_id: string
+  market_id: string
+  outcome_id: string
+  bet_amount: number // Cantidad apostada en HNLD
+  probability_at_bet: number // Probabilidad al momento de la apuesta
+  potential_payout: number // Ganancia potencial si gana
+  is_winner: boolean
+  payout_received: number // Ganancia recibida al resolver
+  created_at: string
+  market?: PredictionMarket
+  outcome?: MarketOutcome
+}
+
+// Mantener MarketPosition para compatibilidad (ahora será basado en bets)
 export interface MarketPosition {
   id: string
   user_id: string
   market_id: string
   outcome_id: string
-  shares: number
-  average_cost_hnld: number
-  total_invested_hnld: number
-  current_value_hnld: number
-  unrealized_pnl_hnld: number
+  shares?: number // Mantener para compatibilidad
+  bet_amount: number // Cantidad apostada
+  average_cost_hnld?: number // Mantener para compatibilidad
+  total_invested_hnld: number // Total apostado
+  current_value_hnld?: number // Mantener para compatibilidad
+  potential_payout: number // Ganancia potencial
+  unrealized_pnl_hnld?: number // Mantener para compatibilidad
   updated_at: string
   market?: PredictionMarket
   outcome?: MarketOutcome
 }
 
+// Mantener MarketTrade para compatibilidad (ahora será bet history)
 export interface MarketTrade {
   id: string
   market_id: string
   outcome_id: string
   user_id: string
-  trade_type: 'buy' | 'sell'
-  shares: number
-  price_per_share: number
-  total_cost_hnld: number
-  creator_fee_hnld: number
+  trade_type?: 'buy' | 'sell' // Mantener para compatibilidad
+  bet_amount: number // Cantidad apostada
+  shares?: number // Mantener para compatibilidad
+  price_per_share?: number // Mantener para compatibilidad
+  probability_at_bet: number // Probabilidad al momento de la apuesta
+  total_cost_hnld: number // Total de la apuesta
+  creator_fee_hnld?: number // Mantener para compatibilidad
   platform_fee_hnld: number
-  shares_after: number
+  shares_after?: number // Mantener para compatibilidad
   balance_after_hnld: number
   created_at: string
   market?: PredictionMarket
@@ -175,11 +200,44 @@ export async function getActiveMarkets(limit: number = 50, offset: number = 0): 
 }
 
 /**
+ * Obtener rol del usuario en un mercado
+ */
+export async function getUserMarketRole(marketId: string): Promise<{
+  success: boolean
+  role?: 'creator' | 'participant' | 'creator_and_participant' | 'viewer'
+  error?: string
+}> {
+  try {
+    const supabase = await supabaseServer()
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (!user) {
+      return { success: true, role: 'viewer' }
+    }
+    
+    const { data: role, error } = await supabase.rpc('get_user_market_role', {
+      p_user_id: user.id,
+      p_market_id: marketId
+    })
+    
+    if (error) {
+      console.error('Error obteniendo rol:', error)
+      return { success: false, error: error.message }
+    }
+    
+    return { success: true, role: role as any || 'viewer' }
+  } catch (error) {
+    console.error('Error en getUserMarketRole:', error)
+    return { success: false, error: 'Error interno del servidor' }
+  }
+}
+
+/**
  * Obtener un mercado específico con sus outcomes
  */
 export async function getMarketById(marketId: string): Promise<{
   success: boolean
-  data?: PredictionMarket & { outcomes: MarketOutcome[] }
+  data?: PredictionMarket & { outcomes: MarketOutcome[]; user_role?: string }
   error?: string
 }> {
   try {
@@ -213,27 +271,37 @@ export async function getMarketById(marketId: string): Promise<{
       return { success: false, error: outcomesError.message }
     }
     
-    // Obtener estadísticas del mercado
-    const { count: totalTrades } = await supabase
-      .from('market_trades')
+    // Obtener estadísticas del mercado (usando market_bets)
+    const { count: totalBets } = await supabase
+      .from('market_bets')
       .select('*', { count: 'exact', head: true })
       .eq('market_id', marketId)
     
-    const { data: volumeData } = await supabase
-      .from('market_trades')
-      .select('total_cost_hnld')
-      .eq('market_id', marketId)
+    // Recalcular probabilidades antes de devolver
+    await supabase.rpc('calculate_parimutuel_probabilities', {
+      p_market_id: marketId
+    })
     
-    const totalVolume = volumeData?.reduce((sum, t) => sum + (t.total_cost_hnld || 0), 0) || 0
+    // Obtener outcomes actualizados con probabilidades
+    const { data: updatedOutcomes } = await supabase
+      .from('market_outcomes')
+      .select('*')
+      .eq('market_id', marketId)
+      .order('order_index', { ascending: true })
+    
+    // Obtener rol del usuario
+    const roleResult = await getUserMarketRole(marketId)
     
     return {
       success: true,
       data: {
         ...market,
         creator_name: creatorProfile?.full_name || 'Usuario',
-        outcomes: outcomes || [],
-        total_trades: totalTrades || 0,
-        total_volume_hnld: totalVolume
+        outcomes: updatedOutcomes || outcomes || [],
+        total_trades: totalBets || 0,
+        total_bets: totalBets || 0,
+        total_volume_hnld: market.total_pool_hnld || market.liquidity_pool_hnld || 0,
+        user_role: roleResult.role
       }
     }
   } catch (error) {
@@ -367,7 +435,113 @@ export async function createPredictionMarket(data: CreateMarketData): Promise<{
 }
 
 /**
- * Comprar acciones en un mercado
+ * Realizar apuesta Parimutuel en un mercado
+ */
+export async function placeParimutuelBet(
+  marketId: string,
+  outcomeId: string,
+  betAmount: number
+): Promise<{
+  success: boolean
+  betId?: string
+  error?: string
+}> {
+  try {
+    const supabase = await supabaseServer()
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (!user) {
+      return { success: false, error: 'Usuario no autenticado' }
+    }
+    
+    // Obtener información del mercado antes de la participación
+    const { data: market } = await supabase
+      .from('prediction_markets')
+      .select('id, title, creator_id')
+      .eq('id', marketId)
+      .single()
+    
+    const { data: betId, error } = await supabase.rpc('place_parimutuel_bet', {
+      p_user_id: user.id,
+      p_market_id: marketId,
+      p_outcome_id: outcomeId,
+      p_bet_amount: betAmount
+    })
+    
+    if (error) {
+      console.error('Error realizando apuesta:', error)
+      return { success: false, error: error.message }
+    }
+    
+    // Emitir notificaciones
+    if (betId && market) {
+      try {
+        // Notificación al participante
+        await emitNotification({
+          user_id: user.id,
+          topic: 'prediction',
+          event: 'MARKET_PARTICIPATION',
+          title: 'Participación realizada exitosamente',
+          body: `Has participado con ${formatCurrency(betAmount, 'HNLD')} en el mercado "${market.title}".`,
+          priority: 'normal',
+          cta_label: 'Ver mercado',
+          cta_href: `/dashboard/predicciones/${marketId}`,
+          payload: {
+            market_id: marketId,
+            market_title: market.title,
+            bet_id: betId,
+            bet_amount: betAmount,
+            bet_type: 'parimutuel'
+          }
+        })
+        
+        // Notificación al creador del mercado (si no es el mismo usuario)
+        if (market.creator_id !== user.id) {
+          // Obtener nombre del participante
+          const { data: participantProfile } = await supabase
+            .from('profiles')
+            .select('full_name')
+            .eq('id', user.id)
+            .single()
+          
+          const participantName = participantProfile?.full_name || 'Un usuario'
+          
+          await emitNotification({
+            user_id: market.creator_id,
+            topic: 'prediction',
+            event: 'MARKET_PARTICIPATION',
+            title: 'Nueva participación en tu mercado',
+            body: `${participantName} ha participado con ${formatCurrency(betAmount, 'HNLD')} en tu mercado "${market.title}".`,
+            priority: 'normal',
+            cta_label: 'Ver mercado',
+            cta_href: `/dashboard/predicciones/${marketId}`,
+            payload: {
+              market_id: marketId,
+              market_title: market.title,
+              bet_id: betId,
+              participant_id: user.id,
+              participant_name: participantName,
+              bet_amount: betAmount,
+              bet_type: 'parimutuel'
+            }
+          })
+        }
+      } catch (notifError) {
+        console.error('Error emitiendo notificaciones de participación:', notifError)
+        // No fallar la operación si la notificación falla
+      }
+    }
+    
+    return { success: true, betId }
+  } catch (error) {
+    console.error('Error en placeParimutuelBet:', error)
+    return { success: false, error: 'Error interno del servidor' }
+  }
+}
+
+/**
+ * @deprecated Usar placeParimutuelBet en su lugar
+ * Mantener para compatibilidad temporal
  */
 export async function buyMarketShares(
   marketId: string,
@@ -379,102 +553,13 @@ export async function buyMarketShares(
   tradeId?: string
   error?: string
 }> {
-  try {
-    const supabase = await supabaseServer()
-    const { data: { user } } = await supabase.auth.getUser()
-    
-    if (!user) {
-      return { success: false, error: 'Usuario no autenticado' }
-    }
-    
-    // Obtener información del mercado antes de la compra
-    const { data: market } = await supabase
-      .from('prediction_markets')
-      .select('id, title, creator_id')
-      .eq('id', marketId)
-      .single()
-    
-    const { data: tradeId, error } = await supabase.rpc('buy_market_shares', {
-      p_user_id: user.id,
-      p_market_id: marketId,
-      p_outcome_id: outcomeId,
-      p_shares: shares,
-      p_max_price: maxPrice || null
-    })
-    
-    if (error) {
-      console.error('Error comprando acciones:', error)
-      return { success: false, error: error.message }
-    }
-    
-    // Emitir notificaciones
-    if (tradeId && market) {
-      try {
-        // Notificación al participante
-        await emitNotification({
-          user_id: user.id,
-          topic: 'prediction',
-          event: 'MARKET_PARTICIPATION',
-          title: 'Participación exitosa',
-          body: `Has comprado ${shares} acción(es) en el mercado "${market.title}".`,
-          priority: 'normal',
-          cta_label: 'Ver mercado',
-          cta_href: `/dashboard/predicciones/${marketId}`,
-          payload: {
-            market_id: marketId,
-            market_title: market.title,
-            trade_id: tradeId,
-            shares: shares,
-            trade_type: 'buy'
-          }
-        })
-        
-        // Notificación al creador del mercado (si no es el mismo usuario)
-        if (market.creator_id !== user.id) {
-          // Obtener nombre del participante
-          const { data: participantProfile } = await supabase
-            .from('profiles')
-            .select('full_name')
-            .eq('id', user.id)
-            .single()
-          
-          const participantName = participantProfile?.full_name || 'Un usuario'
-          
-          await emitNotification({
-            user_id: market.creator_id,
-            topic: 'prediction',
-            event: 'MARKET_PARTICIPATION',
-            title: 'Nueva participación en tu mercado',
-            body: `${participantName} ha comprado ${shares} acción(es) en tu mercado "${market.title}".`,
-            priority: 'normal',
-            cta_label: 'Ver mercado',
-            cta_href: `/dashboard/predicciones/${marketId}`,
-            payload: {
-              market_id: marketId,
-              market_title: market.title,
-              trade_id: tradeId,
-              participant_id: user.id,
-              participant_name: participantName,
-              shares: shares,
-              trade_type: 'buy'
-            }
-          })
-        }
-      } catch (notifError) {
-        console.error('Error emitiendo notificaciones de compra:', notifError)
-        // No fallar la operación si la notificación falla
-      }
-    }
-    
-    return { success: true, tradeId }
-  } catch (error) {
-    console.error('Error en buyMarketShares:', error)
-    return { success: false, error: 'Error interno del servidor' }
-  }
+  // Convertir shares a betAmount (asumiendo 1 share = 1 HNLD para compatibilidad)
+  return placeParimutuelBet(marketId, outcomeId, shares)
 }
 
 /**
- * Vender acciones en un mercado
+ * @deprecated No se pueden vender participaciones, solo participar
+ * Las participaciones se mantienen hasta la resolución del mercado
  */
 export async function sellMarketShares(
   marketId: string,
@@ -486,102 +571,14 @@ export async function sellMarketShares(
   tradeId?: string
   error?: string
 }> {
-  try {
-    const supabase = await supabaseServer()
-    const { data: { user } } = await supabase.auth.getUser()
-    
-    if (!user) {
-      return { success: false, error: 'Usuario no autenticado' }
-    }
-    
-    // Obtener información del mercado antes de la venta
-    const { data: market } = await supabase
-      .from('prediction_markets')
-      .select('id, title, creator_id')
-      .eq('id', marketId)
-      .single()
-    
-    const { data: tradeId, error } = await supabase.rpc('sell_market_shares', {
-      p_user_id: user.id,
-      p_market_id: marketId,
-      p_outcome_id: outcomeId,
-      p_shares: shares,
-      p_min_price: minPrice || null
-    })
-    
-    if (error) {
-      console.error('Error vendiendo acciones:', error)
-      return { success: false, error: error.message }
-    }
-    
-    // Emitir notificaciones
-    if (tradeId && market) {
-      try {
-        // Notificación al participante
-        await emitNotification({
-          user_id: user.id,
-          topic: 'prediction',
-          event: 'MARKET_PARTICIPATION',
-          title: 'Venta exitosa',
-          body: `Has vendido ${shares} acción(es) en el mercado "${market.title}".`,
-          priority: 'normal',
-          cta_label: 'Ver mercado',
-          cta_href: `/dashboard/predicciones/${marketId}`,
-          payload: {
-            market_id: marketId,
-            market_title: market.title,
-            trade_id: tradeId,
-            shares: shares,
-            trade_type: 'sell'
-          }
-        })
-        
-        // Notificación al creador del mercado (si no es el mismo usuario)
-        if (market.creator_id !== user.id) {
-          // Obtener nombre del participante
-          const { data: participantProfile } = await supabase
-            .from('profiles')
-            .select('full_name')
-            .eq('id', user.id)
-            .single()
-          
-          const participantName = participantProfile?.full_name || 'Un usuario'
-          
-          await emitNotification({
-            user_id: market.creator_id,
-            topic: 'prediction',
-            event: 'MARKET_PARTICIPATION',
-            title: 'Nueva participación en tu mercado',
-            body: `${participantName} ha vendido ${shares} acción(es) en tu mercado "${market.title}".`,
-            priority: 'normal',
-            cta_label: 'Ver mercado',
-            cta_href: `/dashboard/predicciones/${marketId}`,
-            payload: {
-              market_id: marketId,
-              market_title: market.title,
-              trade_id: tradeId,
-              participant_id: user.id,
-              participant_name: participantName,
-              shares: shares,
-              trade_type: 'sell'
-            }
-          })
-        }
-      } catch (notifError) {
-        console.error('Error emitiendo notificaciones de venta:', notifError)
-        // No fallar la operación si la notificación falla
-      }
-    }
-    
-    return { success: true, tradeId }
-  } catch (error) {
-    console.error('Error en sellMarketShares:', error)
-    return { success: false, error: 'Error interno del servidor' }
+  return { 
+    success: false, 
+    error: 'En el sistema Parimutuel no se pueden vender apuestas. Las apuestas se mantienen hasta la resolución del mercado.' 
   }
 }
 
 /**
- * Obtener posiciones del usuario
+ * Obtener participaciones del usuario (predicciones realizadas)
  */
 export async function getUserPositions(): Promise<{
   success: boolean
@@ -596,21 +593,36 @@ export async function getUserPositions(): Promise<{
       return { success: false, error: 'Usuario no autenticado' }
     }
     
-    const { data: positions, error } = await supabase
-      .from('market_positions')
+    // Obtener apuestas del usuario
+    const { data: bets, error } = await supabase
+      .from('market_bets')
       .select(`
         *,
         market:prediction_markets(*),
         outcome:market_outcomes(*)
       `)
       .eq('user_id', user.id)
-      .order('updated_at', { ascending: false })
+      .order('created_at', { ascending: false })
     
     if (error) {
       return { success: false, error: error.message }
     }
     
-    return { success: true, data: positions || [] }
+    // Convertir bets a formato MarketPosition para compatibilidad
+    const positions: MarketPosition[] = (bets || []).map(bet => ({
+      id: bet.id,
+      user_id: bet.user_id,
+      market_id: bet.market_id,
+      outcome_id: bet.outcome_id,
+      bet_amount: bet.bet_amount,
+      total_invested_hnld: bet.bet_amount,
+      potential_payout: bet.potential_payout,
+      updated_at: bet.created_at,
+      market: bet.market,
+      outcome: bet.outcome
+    }))
+    
+    return { success: true, data: positions }
   } catch (error) {
     console.error('Error obteniendo posiciones:', error)
     return { success: false, error: 'Error interno del servidor' }
@@ -686,13 +698,13 @@ export async function resolveMarket(
       .eq('id', winningOutcomeId)
       .single()
     
-    // Obtener todas las posiciones antes de resolver
-    const { data: allPositions } = await supabase
-      .from('market_positions')
-      .select('user_id, outcome_id, shares')
+    // Obtener todas las participaciones antes de resolver
+    const { data: allBets } = await supabase
+      .from('market_bets')
+      .select('user_id, outcome_id, bet_amount')
       .eq('market_id', marketId)
     
-    const { error } = await supabase.rpc('resolve_prediction_market', {
+    const { error } = await supabase.rpc('resolve_parimutuel_market', {
       p_market_id: marketId,
       p_winning_outcome_id: winningOutcomeId,
       p_resolution_notes: resolutionNotes || null
@@ -704,7 +716,7 @@ export async function resolveMarket(
     }
     
     // Emitir notificaciones después de resolver exitosamente
-    if (allPositions && marketData && winningOutcome) {
+    if (allBets && marketData && winningOutcome) {
       try {
         // Notificar al creador
         await emitNotification({
@@ -724,26 +736,34 @@ export async function resolveMarket(
           }
         })
         
-        // Notificar a todos los participantes con posiciones
-        const uniqueUserIds = [...new Set(allPositions.map(p => p.user_id))]
+        // Obtener información de pagos para notificar a ganadores
+        const { data: winningBets } = await supabase
+          .from('market_bets')
+          .select('user_id, payout_received, bet_amount')
+          .eq('market_id', marketId)
+          .eq('outcome_id', winningOutcomeId)
+          .eq('is_winner', true)
+        
+        // Notificar a todos los participantes con predicciones
+        const uniqueUserIds = [...new Set(allBets.map(b => b.user_id))]
         
         for (const participantId of uniqueUserIds) {
-          // Obtener posiciones del participante
-          const participantPositions = allPositions.filter(p => p.user_id === participantId)
-          const hasWinningPosition = participantPositions.some(p => p.outcome_id === winningOutcomeId)
+          // Obtener apuestas del participante
+          const participantBets = allBets.filter(b => b.user_id === participantId)
+          const hasWinningBet = participantBets.some(b => b.outcome_id === winningOutcomeId)
           
-          if (hasWinningPosition) {
-            // Calcular total de acciones ganadoras
-            const winningShares = participantPositions
-              .filter(p => p.outcome_id === winningOutcomeId)
-              .reduce((sum, p) => sum + p.shares, 0)
+          if (hasWinningBet) {
+            // Obtener pago del participante
+            const participantWinningBet = winningBets?.find(b => b.user_id === participantId)
+            const payout = participantWinningBet?.payout_received || 0
+            const betAmount = participantWinningBet?.bet_amount || 0
             
             await emitNotification({
               user_id: participantId,
               topic: 'prediction',
               event: 'POSITION_WINNER',
               title: '¡Felicidades! Ganaste en el mercado',
-              body: `Tu posición en el mercado "${marketData.title}" resultó ganadora. Has ganado ${winningShares} HNLD por tus ${winningShares} acción(es) ganadora(s).`,
+              body: `Tu apuesta en el mercado "${marketData.title}" resultó ganadora. Has ganado ${payout.toFixed(2)} HNLD (apostaste ${betAmount.toFixed(2)} HNLD).`,
               priority: 'high',
               cta_label: 'Ver posición',
               cta_href: `/dashboard/predicciones/mis-posiciones`,
@@ -752,8 +772,8 @@ export async function resolveMarket(
                 market_title: marketData.title,
                 winning_outcome_id: winningOutcomeId,
                 winning_outcome_name: winningOutcome.name,
-                winning_shares: winningShares,
-                payout: winningShares
+                bet_amount: betAmount,
+                payout: payout
               }
             })
           } else {
@@ -763,7 +783,7 @@ export async function resolveMarket(
               topic: 'prediction',
               event: 'POSITION_LOSER',
               title: 'Mercado resuelto',
-              body: `El mercado "${marketData.title}" ha sido resuelto. Tu posición no resultó ganadora. La opción ganadora fue: "${winningOutcome.name}".`,
+              body: `El mercado "${marketData.title}" ha sido resuelto. Tu apuesta no resultó ganadora. La opción ganadora fue: "${winningOutcome.name}".`,
               priority: 'normal',
               cta_label: 'Ver posición',
               cta_href: `/dashboard/predicciones/mis-posiciones`,
@@ -828,24 +848,24 @@ export async function cancelMarket(
       return { success: false, error: `No se puede cancelar un mercado con estado: ${marketData.status}` }
     }
     
-    // Verificar si hay posiciones activas
-    const { data: positions, error: positionsError } = await supabase
-      .from('market_positions')
-      .select('id, shares')
+    // Verificar si hay participaciones activas
+    const { data: bets, error: betsError } = await supabase
+      .from('market_bets')
+      .select('id, bet_amount')
       .eq('market_id', marketId)
-      .gt('shares', 0)
+      .gt('bet_amount', 0)
     
-    if (positionsError) {
-      console.error('Error verificando posiciones:', positionsError)
-      return { success: false, error: 'Error al verificar posiciones del mercado' }
+    if (betsError) {
+      console.error('Error verificando apuestas:', betsError)
+      return { success: false, error: 'Error al verificar apuestas del mercado' }
     }
     
-    // Si hay posiciones activas, no se puede cancelar (debe resolverse o esperar)
-    if (positions && positions.length > 0) {
-      const totalShares = positions.reduce((sum, p) => sum + p.shares, 0)
+    // Si hay apuestas activas, no se puede cancelar (debe resolverse)
+    if (bets && bets.length > 0) {
+      const totalBets = bets.reduce((sum, b) => sum + (b.bet_amount || 0), 0)
       return { 
         success: false, 
-        error: `No se puede cancelar un mercado con posiciones activas (${totalShares} acciones en total). Debe resolver el mercado o esperar a que los participantes vendan sus posiciones.` 
+        error: `No se puede cancelar un mercado con participaciones activas (${formatCurrency(totalBets, 'HNLD')} en participaciones). Debe resolver el mercado primero.` 
       }
     }
     
@@ -961,41 +981,41 @@ export async function deleteMarket(
       return { success: false, error: 'Solo se pueden eliminar mercados cancelados. Primero debes cancelar el mercado.' }
     }
     
-    // Verificar si hay trades (operaciones realizadas)
-    const { data: trades, error: tradesError } = await supabase
-      .from('market_trades')
+    // Verificar si hay participaciones (historial)
+    const { data: bets, error: betsError } = await supabase
+      .from('market_bets')
       .select('id')
       .eq('market_id', marketId)
       .limit(1)
     
-    if (tradesError) {
-      console.error('Error verificando trades:', tradesError)
-      return { success: false, error: 'Error al verificar operaciones del mercado' }
+    if (betsError) {
+      console.error('Error verificando apuestas:', betsError)
+      return { success: false, error: 'Error al verificar apuestas del mercado' }
     }
     
-    if (trades && trades.length > 0) {
+    if (bets && bets.length > 0) {
       return { 
         success: false, 
-        error: 'No se puede eliminar un mercado que tiene operaciones registradas. Los mercados con historial de trading no pueden ser eliminados.' 
+        error: 'No se puede eliminar un mercado que tiene apuestas registradas. Los mercados con historial de apuestas no pueden ser eliminados.' 
       }
     }
     
-    // Verificar si hay posiciones
-    const { data: positions, error: positionsError } = await supabase
-      .from('market_positions')
+    // Verificar si hay historial de participaciones
+    const { data: betHistory, error: historyError } = await supabase
+      .from('market_bets_history')
       .select('id')
       .eq('market_id', marketId)
       .limit(1)
     
-    if (positionsError) {
-      console.error('Error verificando posiciones:', positionsError)
-      return { success: false, error: 'Error al verificar posiciones del mercado' }
+    if (historyError) {
+      console.error('Error verificando historial de apuestas:', historyError)
+      return { success: false, error: 'Error al verificar historial del mercado' }
     }
     
-    if (positions && positions.length > 0) {
+    if (betHistory && betHistory.length > 0) {
       return { 
         success: false, 
-        error: 'No se puede eliminar un mercado que tiene posiciones registradas.' 
+        error: 'No se puede eliminar un mercado que tiene historial de participaciones registrado.' 
       }
     }
     

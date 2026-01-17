@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
+import { formatCurrency } from "@/lib/utils"
 import { createSaleRequest } from "@/lib/actions/sale_requests"
 import { getUserHNLDBalance, type HNLDBalance } from "@/lib/actions/hnld"
 import { Minus } from "lucide-react"
@@ -185,7 +186,7 @@ export function SaleHNLDModal({
     if (hnldBalance && hnldBalance.available_balance < amount) {
       toast({
         title: "Balance insuficiente",
-        description: `Tienes L. ${hnldBalance.available_balance.toFixed(2)} HNLD disponibles. Necesitas L. ${amount.toFixed(2)} HNLD para esta venta.`,
+        description: `Tienes ${formatCurrency(hnldBalance.available_balance, 'HNLD')} disponibles. Necesitas ${formatCurrency(amount, 'HNLD')} para esta venta.`,
         variant: "destructive",
       })
       return
@@ -503,7 +504,7 @@ export function SaleHNLDModal({
               />
               {amountToSell > 0 && amountToSell > availableBalance && (
                 <p className="text-xs text-red-600 dark:text-red-400 mt-2">
-                  ⚠️ No tienes suficiente balance disponible. Disponible: L. {availableBalance.toFixed(2)} HNLD
+                  ⚠️ No tienes suficiente balance disponible. Disponible: {formatCurrency(availableBalance, 'HNLD')}
                 </p>
               )}
             </div>

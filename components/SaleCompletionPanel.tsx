@@ -33,6 +33,7 @@ import {
   markSaleRequestCompleted,
   type SaleTransaction
 } from '@/lib/actions/sale_requests'
+import { formatCurrency } from '@/lib/utils'
 import { supabaseBrowser } from '@/lib/supabase/client'
 
 // =========================================================
@@ -775,7 +776,7 @@ export function SaleCompletionPanel({
               p_user_id: transaction.buyer_id,
               p_event: 'SALE_ACCEPTED',
               p_title: 'Vendedor aceptó el trato',
-              p_body: `El vendedor ${transaction.seller_name} ha aceptado tu solicitud de compra y bloqueado L. ${transaction.final_amount_hnld.toFixed(2)} HNLD en escrow. Código: ${transaction.unique_code}`,
+              p_body: `El vendedor ${transaction.seller_name} ha aceptado tu solicitud de compra y bloqueado ${formatCurrency(transaction.final_amount_hnld, 'HNLD')} en escrow. Código: ${transaction.unique_code}`,
               p_priority: 'high',
               p_cta_label: 'Ver transacción',
               p_cta_href: `/dashboard/ventas`,
@@ -950,7 +951,7 @@ export function SaleCompletionPanel({
 
           // Emitir notificaciones a ambas partes
           try {
-            const formattedAmount = `L. ${transaction.final_amount_hnld.toFixed(2)} HNLD`
+            const formattedAmount = formatCurrency(transaction.final_amount_hnld, 'HNLD')
             
             // Notificación al comprador
             await supabase.rpc('emit_notification', {
@@ -1136,7 +1137,7 @@ export function SaleCompletionPanel({
               </h1>
               <span className="text-sm sm:text-base font-bold text-foreground">-</span>
               <span className="text-sm sm:text-base font-bold text-muted-foreground">
-                L. {transaction?.final_amount_hnld?.toFixed(2) || amount.toFixed(2)} HNLD
+                {formatCurrency(transaction?.final_amount_hnld ?? amount ?? 0, 'HNLD')}
               </span>
             </div>
             <Button

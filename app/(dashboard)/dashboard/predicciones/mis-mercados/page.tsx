@@ -449,14 +449,47 @@ export default function MyMarketsPage() {
   const formatTimeAgo = (dateString: string) => {
     const date = new Date(dateString)
     const now = new Date()
-    const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60))
-    
-    if (diffInHours < 1) return "Hace menos de 1 hora"
-    if (diffInHours < 24) return `Hace ${diffInHours} horas`
+    const diffInMs = now.getTime() - date.getTime()
+    const diffInSeconds = Math.floor(diffInMs / 1000)
+    const diffInMinutes = Math.floor(diffInSeconds / 60)
+    const diffInHours = Math.floor(diffInMinutes / 60)
     const diffInDays = Math.floor(diffInHours / 24)
-    if (diffInDays < 7) return `Hace ${diffInDays} días`
+    
+    // Menos de 1 minuto
+    if (diffInSeconds < 60) {
+      return diffInSeconds <= 1 ? "Hace un momento" : `Hace ${diffInSeconds} segundos`
+    }
+    
+    // Menos de 1 hora - mostrar minutos
+    if (diffInMinutes < 60) {
+      return diffInMinutes === 1 ? "Hace 1 minuto" : `Hace ${diffInMinutes} minutos`
+    }
+    
+    // Menos de 24 horas - mostrar horas y minutos
+    if (diffInHours < 24) {
+      const remainingMinutes = diffInMinutes % 60
+      if (remainingMinutes === 0) {
+        return diffInHours === 1 ? "Hace 1 hora" : `Hace ${diffInHours} horas`
+      }
+      return `Hace ${diffInHours} hora${diffInHours > 1 ? 's' : ''} y ${remainingMinutes} minuto${remainingMinutes > 1 ? 's' : ''}`
+    }
+    
+    // Menos de 7 días - mostrar días y horas
+    if (diffInDays < 7) {
+      const remainingHours = diffInHours % 24
+      if (remainingHours === 0) {
+        return diffInDays === 1 ? "Hace 1 día" : `Hace ${diffInDays} días`
+      }
+      return `Hace ${diffInDays} día${diffInDays > 1 ? 's' : ''} y ${remainingHours} hora${remainingHours > 1 ? 's' : ''}`
+    }
+    
+    // Más de 7 días - mostrar semanas y días
     const diffInWeeks = Math.floor(diffInDays / 7)
-    return `Hace ${diffInWeeks} semanas`
+    const remainingDays = diffInDays % 7
+    if (remainingDays === 0) {
+      return diffInWeeks === 1 ? "Hace 1 semana" : `Hace ${diffInWeeks} semanas`
+    }
+    return `Hace ${diffInWeeks} semana${diffInWeeks > 1 ? 's' : ''} y ${remainingDays} día${remainingDays > 1 ? 's' : ''}`
   }
 
   const activeMarkets = filteredMarkets.filter(m => m.status === 'active')
@@ -480,9 +513,9 @@ export default function MyMarketsPage() {
           </Link>
         </Button>
         <div className="flex-1">
-          <h1 className="text-3xl font-bold">Mis Mercados</h1>
+          <h1 className="text-3xl font-bold">Mis mercados</h1>
           <p className="text-muted-foreground mt-2">
-            Gestiona los mercados de predicción que has creado
+            Gestiona los mercados que has creado
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -490,7 +523,7 @@ export default function MyMarketsPage() {
             <Button asChild>
               <Link href="/dashboard/predicciones/crear">
                 <Plus className="mr-2 h-4 w-4" />
-                Crear Mercado
+                Crear mercado
               </Link>
             </Button>
           )}
@@ -528,9 +561,9 @@ export default function MyMarketsPage() {
           {activeMarkets.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Mercados Activos</CardTitle>
+                <CardTitle>Mercados activos</CardTitle>
                 <CardDescription>
-                  Mercados que están actualmente abiertos para trading
+                  Mercados activos
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -560,7 +593,7 @@ export default function MyMarketsPage() {
                             {market.question}
                           </div>
                         </TableCell>
-                        <TableCell>{formatCurrency(market.total_volume_hnld || 0)}</TableCell>
+                        <TableCell>{formatCurrency(market.total_volume_hnld || 0, 'HNLD')}</TableCell>
                         <TableCell>{market.total_trades || 0}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {formatTimeAgo(market.created_at)}
@@ -603,7 +636,7 @@ export default function MyMarketsPage() {
                                 </DialogTrigger>
                                 <DialogContent>
                                   <DialogHeader>
-                                    <DialogTitle>Cancelar Mercado</DialogTitle>
+                                    <DialogTitle>Cancelar mercado</DialogTitle>
                                     <DialogDescription>
                                       ¿Estás seguro de que deseas cancelar el mercado "{market.title}"? 
                                       Solo puedes cancelar mercados que no tengan posiciones activas.
@@ -637,7 +670,7 @@ export default function MyMarketsPage() {
                                       onClick={() => handleCancelMarket(market.id, cancelReason || undefined)}
                                       disabled={cancellingId === market.id}
                                     >
-                                      {cancellingId === market.id ? "Cancelando..." : "Cancelar Mercado"}
+                                      {cancellingId === market.id ? "Cancelando..." : "Cancelar mercado"}
                                     </Button>
                                   </DialogFooter>
                                 </DialogContent>
@@ -656,7 +689,7 @@ export default function MyMarketsPage() {
           {resolvedMarkets.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Mercados Resueltos</CardTitle>
+                <CardTitle>Mercados resueltos</CardTitle>
                 <CardDescription>
                   Mercados que ya han sido resueltos
                 </CardDescription>
@@ -688,7 +721,7 @@ export default function MyMarketsPage() {
                             {market.question}
                           </div>
                         </TableCell>
-                        <TableCell>{formatCurrency(market.total_volume_hnld || 0)}</TableCell>
+                        <TableCell>{formatCurrency(market.total_volume_hnld || 0, 'HNLD')}</TableCell>
                         <TableCell>{market.total_trades || 0}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {market.resolved_at ? formatTimeAgo(market.resolved_at) : '-'}
@@ -717,9 +750,9 @@ export default function MyMarketsPage() {
           {cancelledMarkets.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Mercados Cancelados</CardTitle>
+                <CardTitle>Mercados cancelados</CardTitle>
                 <CardDescription>
-                  Mercados que han sido cancelados por el creador
+                  Mercados cancelados
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -748,7 +781,7 @@ export default function MyMarketsPage() {
                             {market.question}
                           </div>
                         </TableCell>
-                        <TableCell>{formatCurrency(market.total_volume_hnld || 0)}</TableCell>
+                        <TableCell>{formatCurrency(market.total_volume_hnld || 0, 'HNLD')}</TableCell>
                         <TableCell>{market.total_trades || 0}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">

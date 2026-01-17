@@ -13,6 +13,10 @@ export function formatCurrency(amount: number, currency: string = 'L'): string {
     maximumFractionDigits: 2
   })
   
+  // HNLD no lleva punto y va separado de la cantidad por un espacio
+  if (currency === 'HNLD') {
+    return `HNLD ${formattedAmount}`
+  }
   return `${currency}.${formattedAmount}`
 }
 

@@ -396,20 +396,53 @@ export default function PrediccionesPage() {
   const formatTimeAgo = (dateString: string) => {
     const date = new Date(dateString)
     const now = new Date()
-    const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60))
-    
-    if (diffInHours < 1) return "Hace menos de 1 hora"
-    if (diffInHours < 24) return `Hace ${diffInHours} horas`
+    const diffInMs = now.getTime() - date.getTime()
+    const diffInSeconds = Math.floor(diffInMs / 1000)
+    const diffInMinutes = Math.floor(diffInSeconds / 60)
+    const diffInHours = Math.floor(diffInMinutes / 60)
     const diffInDays = Math.floor(diffInHours / 24)
-    if (diffInDays < 7) return `Hace ${diffInDays} días`
+    
+    // Menos de 1 minuto
+    if (diffInSeconds < 60) {
+      return diffInSeconds <= 1 ? "Hace un momento" : `Hace ${diffInSeconds} segundos`
+    }
+    
+    // Menos de 1 hora - mostrar minutos
+    if (diffInMinutes < 60) {
+      return diffInMinutes === 1 ? "Hace 1 minuto" : `Hace ${diffInMinutes} minutos`
+    }
+    
+    // Menos de 24 horas - mostrar horas y minutos
+    if (diffInHours < 24) {
+      const remainingMinutes = diffInMinutes % 60
+      if (remainingMinutes === 0) {
+        return diffInHours === 1 ? "Hace 1 hora" : `Hace ${diffInHours} horas`
+      }
+      return `Hace ${diffInHours} hora${diffInHours > 1 ? 's' : ''} y ${remainingMinutes} minuto${remainingMinutes > 1 ? 's' : ''}`
+    }
+    
+    // Menos de 7 días - mostrar días y horas
+    if (diffInDays < 7) {
+      const remainingHours = diffInHours % 24
+      if (remainingHours === 0) {
+        return diffInDays === 1 ? "Hace 1 día" : `Hace ${diffInDays} días`
+      }
+      return `Hace ${diffInDays} día${diffInDays > 1 ? 's' : ''} y ${remainingHours} hora${remainingHours > 1 ? 's' : ''}`
+    }
+    
+    // Más de 7 días - mostrar semanas y días
     const diffInWeeks = Math.floor(diffInDays / 7)
-    return `Hace ${diffInWeeks} semanas`
+    const remainingDays = diffInDays % 7
+    if (remainingDays === 0) {
+      return diffInWeeks === 1 ? "Hace 1 semana" : `Hace ${diffInWeeks} semanas`
+    }
+    return `Hace ${diffInWeeks} semana${diffInWeeks > 1 ? 's' : ''} y ${remainingDays} día${remainingDays > 1 ? 's' : ''}`
   }
 
   if (loading) {
     return (
       <div className="max-w-6xl mx-auto p-4 md:p-6">
-        <LoadingSpinner message="Cargando mercados de predicción..." />
+        <LoadingSpinner message="Cargando mercados..." />
       </div>
     )
   }
@@ -421,8 +454,8 @@ export default function PrediccionesPage() {
         {/* Header simplificado */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold">Mercados de Predicción</h1>
-            <p className="text-muted-foreground">Participa en mercados de predicción y gana con tus conocimientos</p>
+            <h1 className="text-2xl md:text-3xl font-bold">Mercados de predicción</h1>
+            <p className="text-muted-foreground">Participa en mercados y gana con tus conocimientos</p>
           </div>
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing} className="w-full sm:w-auto">
             <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
@@ -472,7 +505,7 @@ export default function PrediccionesPage() {
               <p className="text-muted-foreground mb-4">
                 {searchTerm 
                   ? "No se encontraron mercados que coincidan con tu búsqueda" 
-                  : "No hay mercados de predicción activos en este momento"}
+                  : "No hay mercados activos en este momento"}
               </p>
             </div>
           ) : (
@@ -504,13 +537,13 @@ export default function PrediccionesPage() {
 
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Liquidez:</span>
-                      <span className="font-semibold">{formatCurrency(market.liquidity_pool_hnld)} HNLD</span>
+                      <span className="text-muted-foreground">Fondo total:</span>
+                      <span className="font-semibold">{formatCurrency(market.liquidity_pool_hnld, 'HNLD')}</span>
                     </div>
                     {market.total_volume_hnld && (
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Volumen:</span>
-                        <span className="font-semibold">{formatCurrency(market.total_volume_hnld)} HNLD</span>
+                        <span className="font-semibold">{formatCurrency(market.total_volume_hnld, 'HNLD')}</span>
                       </div>
                     )}
                     {market.total_trades && (
@@ -557,14 +590,14 @@ export default function PrediccionesPage() {
       {/* Header completo */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">Mercados de Predicción</h1>
-          <p className="text-muted-foreground">Crea y participa en mercados de predicción usando HNLD</p>
+          <h1 className="text-2xl md:text-3xl font-bold">Mercados de predicción</h1>
+          <p className="text-muted-foreground">Crea y participa en mercados de predicción</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2">
           <Button asChild variant="default" size="sm" className="w-full sm:w-auto">
             <Link href="/dashboard/predicciones/crear">
               <Plus className="mr-2 h-4 w-4" />
-              Crear Mercado
+              Crear mercado
             </Link>
           </Button>
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing} className="w-full sm:w-auto">
@@ -585,7 +618,7 @@ export default function PrediccionesPage() {
         <Button asChild variant="outline" className="h-auto flex-col py-4">
           <Link href="/dashboard/predicciones/mis-mercados">
             <Users className="h-5 w-5 mb-2" />
-            <span className="text-sm font-medium">Mis Mercados</span>
+            <span className="text-sm font-medium">Mis mercados</span>
           </Link>
         </Button>
         <Button asChild variant="outline" className="h-auto flex-col py-4">
@@ -597,7 +630,7 @@ export default function PrediccionesPage() {
         <Button asChild variant="outline" className="h-auto flex-col py-4">
           <Link href="/dashboard/predicciones/crear">
             <Plus className="h-5 w-5 mb-2" />
-            <span className="text-sm font-medium">Crear Mercado</span>
+            <span className="text-sm font-medium">Crear mercado</span>
           </Link>
         </Button>
       </div>
@@ -667,12 +700,12 @@ export default function PrediccionesPage() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Liquidez:</span>
-                    <span className="font-semibold">{formatCurrency(market.liquidity_pool_hnld)} HNLD</span>
+                    <span className="font-semibold">{formatCurrency(market.liquidity_pool_hnld, 'HNLD')}</span>
                   </div>
                   {market.total_volume_hnld && (
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Volumen:</span>
-                      <span className="font-semibold">{formatCurrency(market.total_volume_hnld)} HNLD</span>
+                      <span className="font-semibold">{formatCurrency(market.total_volume_hnld, 'HNLD')}</span>
                     </div>
                   )}
                   {market.total_trades && (

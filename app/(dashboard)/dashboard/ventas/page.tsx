@@ -553,7 +553,7 @@ export default function VentasPage() {
                   <div className="flex-1">
                     <CardTitle className="text-lg flex items-center space-x-2">
                       <span className="text-lg">💱</span>
-                      <span>{formatCurrency(request.final_amount_hnld)} HNLD</span>
+                      <span>{formatCurrency(request.final_amount_hnld, 'HNLD')}</span>
                     </CardTitle>
                     <CardDescription className="flex items-center space-x-1 mt-1">
                       <User className="h-4 w-4" />

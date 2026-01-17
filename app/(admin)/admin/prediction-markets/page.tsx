@@ -219,7 +219,7 @@ export default function AdminPredictionMarketsPage() {
                     </TableCell>
                     <TableCell>
                       <div className="text-sm font-medium">
-                        {formatCurrency(market.total_volume_hnld || 0)}
+                        {formatCurrency(market.total_volume_hnld || 0, 'HNLD')}
                       </div>
                     </TableCell>
                     <TableCell>

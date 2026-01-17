@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
+import { formatCurrency } from "@/lib/utils"
 import {
   createPurchaseRequest,
   processCardPurchase,
@@ -963,7 +964,7 @@ export function PurchaseHNLDModal({
                     </p>
                   </div>
                   <p className="text-sm text-blue-800 dark:text-blue-200 font-medium mt-2">
-                    Recibirás: L. {editableAmount && nmhnRate ? calculateEquivalent(parseAmountString(editableAmount), nmhnRate).toFixed(2) : '0.00'} HNLD
+                    Recibirás: {formatCurrency(editableAmount && nmhnRate ? calculateEquivalent(parseAmountString(editableAmount), nmhnRate) : 0, 'HNLD')}
                   </p>
                 </div>
               </div>
@@ -1008,7 +1009,7 @@ export function PurchaseHNLDModal({
             {nmhnRate && (
               <div className="mt-3 p-3 rounded-lg border bg-muted/50 dark:bg-muted/30">
                 <p className="text-sm font-medium text-foreground">
-                  Recibirás: <span className="font-bold text-primary">L. {hnlEquivalent || '0.00'} HNLD</span>
+                  Recibirás: <span className="font-bold text-primary">{formatCurrency(Number(hnlEquivalent) || 0, 'HNLD')}</span>
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   Calculado con la tasa NMHN (TCR del BCH menos 1% de margen a favor de la plataforma).
